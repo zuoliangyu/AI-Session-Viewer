@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-02-07
+
+### Fixed
+
+#### Resume Session — Terminal Lifetime
+- **Critical**: Resumed terminals no longer get killed when the app exits
+  - **Windows**: Replaced direct `cmd` spawn with `cmd /c start /d` — the `start` command launches a fully independent process owned by Windows shell, not by our app. The intermediate `cmd /c` exits immediately, breaking the parent-child link. `CREATE_NO_WINDOW` hides the brief intermediate cmd flash.
+  - **Linux**: Added `process_group(0)` (calls `setsid`) to create an independent process session that survives parent exit.
+  - **macOS**: Already independent (Terminal.app owns the process via AppleScript).
+
+#### Linux Build
+- Fixed `AsRef<OsStr>` type inference ambiguity caused by `glib` crate on Linux — removed unnecessary `.as_ref()` call in `Command::args`.
+- Fixed `format!` temporary `String` lifetime issue — pre-bind formatted strings with `let` before referencing in array.
+
+---
+
 ## [0.1.0] - 2026-02-07
 
 First release of Claude Memory Viewer.
@@ -62,4 +78,5 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.2.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.1.0

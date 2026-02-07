@@ -58,10 +58,11 @@
 ### Resume Session
 
 - 选中任意会话，一键在系统终端中执行 `claude --resume {sessionId}`
+- 终端完全独立于本应用 — 关闭 Viewer 后终端继续运行
 - 跨平台支持：
-  - **Windows** — 打开新的 CMD 窗口
-  - **macOS** — 通过 AppleScript 调用 Terminal.app
-  - **Linux** — 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm
+  - **Windows** — 通过 `cmd /c start /d` 启动独立终端进程
+  - **macOS** — 通过 AppleScript 调用 Terminal.app（由 Terminal.app 持有进程）
+  - **Linux** — 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm，通过 `setsid` 脱离父进程
 
 ### Global Search
 

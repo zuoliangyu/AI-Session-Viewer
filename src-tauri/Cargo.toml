@@ -1,6 +1,6 @@
 [package]
 name = "claude-memory-viewer"
-version = "0.1.0"
+version = "0.2.0"
 description = "A desktop app to browse Claude Code conversation memories"
 authors = ["zuolan"]
 edition = "2021"
