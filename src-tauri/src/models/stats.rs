@@ -1,0 +1,45 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// The stats-cache.json file structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatsCache {
+    pub version: Option<u32>,
+    pub last_computed_date: Option<String>,
+    #[serde(default)]
+    pub daily_activity: Vec<DailyActivity>,
+    #[serde(default)]
+    pub daily_model_tokens: Vec<DailyModelTokens>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyActivity {
+    pub date: String,
+    pub message_count: u64,
+    pub session_count: u64,
+    pub tool_call_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyModelTokens {
+    pub date: String,
+    pub tokens_by_model: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageSummary {
+    pub total_tokens: u64,
+    pub tokens_by_model: HashMap<String, u64>,
+    pub daily_tokens: Vec<DailyTokenEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyTokenEntry {
+    pub date: String,
+    pub tokens: u64,
+}
