@@ -1,7 +1,7 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
-import { ArrowLeft, Play, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Loader2, ArrowDown } from "lucide-react";
 import { MessageThread } from "./MessageThread";
 import { resumeSession } from "../../services/tauriApi";
 
@@ -24,6 +24,7 @@ export function MessagesPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const session = sessions.find((s) => s.sessionId === sessionId);
   const project = projects.find((p) => p.encodedName === encodedName);
@@ -35,12 +36,17 @@ export function MessagesPage() {
   }, [encodedName, sessionId]);
 
   const handleScroll = useCallback(() => {
-    if (!containerRef.current || messagesLoading || !messagesHasMore) return;
+    if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    if (scrollHeight - scrollTop - clientHeight < 200) {
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 400);
+    if (!messagesLoading && messagesHasMore && scrollHeight - scrollTop - clientHeight < 200) {
       loadMoreMessages();
     }
   }, [messagesLoading, messagesHasMore, loadMoreMessages]);
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const handleResume = async () => {
     if (!sessionId) return;
@@ -55,7 +61,7 @@ export function MessagesPage() {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
@@ -113,6 +119,17 @@ export function MessagesPage() {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Scroll to bottom button */}
+      {showScrollBtn && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-6 right-6 p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:scale-105"
+          title="跳转到底部"
+        >
+          <ArrowDown className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 }

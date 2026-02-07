@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/v2/crates/tauri-schema-generator/schemas/config.schema.json",
   "productName": "Claude Memory Viewer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.zuolan.claude-memory-viewer",
   "build": {
     "frontendDist": "../dist",
