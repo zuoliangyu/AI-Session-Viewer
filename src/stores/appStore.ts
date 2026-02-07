@@ -45,6 +45,10 @@ interface AppState {
     encodedName: string,
     sessionId: string
   ) => Promise<void>;
+  deleteSession: (
+    encodedName: string,
+    sessionId: string
+  ) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
   loadStats: () => Promise<void>;
@@ -124,6 +128,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("Failed to load messages:", e);
       set({ messagesLoading: false });
     }
+  },
+
+  deleteSession: async (encodedName: string, sessionId: string) => {
+    await api.deleteSession(encodedName, sessionId);
+    set((state) => ({
+      sessions: state.sessions.filter((s) => s.sessionId !== sessionId),
+    }));
   },
 
   loadMoreMessages: async () => {

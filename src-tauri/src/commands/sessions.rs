@@ -104,6 +104,41 @@ pub fn get_sessions(encoded_name: String) -> Result<Vec<SessionIndexEntry>, Stri
     Ok(entries)
 }
 
+#[tauri::command]
+pub fn delete_session(encoded_name: String, session_id: String) -> Result<(), String> {
+    let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
+    let project_dir = projects_dir.join(&encoded_name);
+
+    if !project_dir.exists() {
+        return Err(format!("Project directory not found: {}", encoded_name));
+    }
+
+    // Delete the .jsonl session file
+    let session_file = project_dir.join(format!("{}.jsonl", session_id));
+    if session_file.exists() {
+        fs::remove_file(&session_file)
+            .map_err(|e| format!("Failed to delete session file: {}", e))?;
+    } else {
+        return Err(format!("Session file not found: {}", session_id));
+    }
+
+    // Update sessions-index.json if it exists
+    let index_path = project_dir.join("sessions-index.json");
+    if index_path.exists() {
+        let content = fs::read_to_string(&index_path)
+            .map_err(|e| format!("Failed to read sessions index: {}", e))?;
+        if let Ok(mut index) = serde_json::from_str::<SessionsIndex>(&content) {
+            index.entries.retain(|e| e.session_id != session_id);
+            let updated = serde_json::to_string_pretty(&index)
+                .map_err(|e| format!("Failed to serialize sessions index: {}", e))?;
+            fs::write(&index_path, updated)
+                .map_err(|e| format!("Failed to write sessions index: {}", e))?;
+        }
+    }
+
+    Ok(())
+}
+
 fn count_messages(path: &PathBuf) -> u32 {
     use std::io::{BufRead, BufReader};
     let file = match fs::File::open(path) {

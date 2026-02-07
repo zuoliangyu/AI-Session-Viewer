@@ -47,6 +47,13 @@ export async function getTokenSummary(): Promise<TokenUsageSummary> {
   return invoke<TokenUsageSummary>("get_token_summary");
 }
 
+export async function deleteSession(
+  encodedName: string,
+  sessionId: string
+): Promise<void> {
+  return invoke<void>("delete_session", { encodedName, sessionId });
+}
+
 export async function resumeSession(
   sessionId: string,
   projectPath: string

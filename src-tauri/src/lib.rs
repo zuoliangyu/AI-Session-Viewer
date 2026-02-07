@@ -15,6 +15,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::projects::get_projects,
             commands::sessions::get_sessions,
+            commands::sessions::delete_session,
             commands::messages::get_messages,
             commands::search::global_search,
             commands::stats::get_global_stats,

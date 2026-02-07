@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] - 2026-02-07
+
+### Added
+
+#### Session Deletion
+- Delete individual sessions from the session list page
+- Backend `delete_session` command removes the `.jsonl` file and updates `sessions-index.json`
+- Trash icon button on each session card (visible on hover, alongside Resume)
+- Confirmation dialog before deletion with loading state
+- Session is removed from the local store immediately after successful deletion
+
+---
+
+## [0.3.0] - 2026-02-07
+
+### Added
+
+#### Scroll-to-Bottom Button
+- Added a floating scroll-to-bottom button in the session message view for quickly jumping to the latest messages
+
+---
+
 ## [0.2.0] - 2026-02-07
 
 ### Fixed
@@ -78,5 +100,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.4.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.4.0
+[0.3.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.3.0
 [0.2.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.2.0
 [0.1.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.1.0
