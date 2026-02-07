@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// A raw JSONL record from a session file
+// ── Claude raw record types ──
+
+/// A raw JSONL record from a Claude session file
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -35,18 +37,14 @@ pub enum ContentValue {
     Blocks(Vec<ContentBlock>),
 }
 
-/// A single content block in a message
+/// A single content block in a Claude message
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
-    Text {
-        text: String,
-    },
+    Text { text: String },
     #[serde(rename = "thinking")]
-    Thinking {
-        thinking: String,
-    },
+    Thinking { thinking: String },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
@@ -64,6 +62,8 @@ pub enum ContentBlock {
     Unknown,
 }
 
+// ── Unified display types (sent to frontend) ──
+
 /// A display-ready message for the frontend
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,11 +74,14 @@ pub struct DisplayMessage {
     pub content: Vec<DisplayContentBlock>,
 }
 
+/// Unified content block enum covering both Claude and Codex types
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DisplayContentBlock {
+    // Shared
     #[serde(rename = "text")]
     Text { text: String },
+    // Claude-specific
     #[serde(rename = "thinking")]
     Thinking { thinking: String },
     #[serde(rename = "tool_use")]
@@ -93,6 +96,17 @@ pub enum DisplayContentBlock {
         content: String,
         is_error: bool,
     },
+    // Codex-specific
+    #[serde(rename = "reasoning")]
+    Reasoning { text: String },
+    #[serde(rename = "function_call")]
+    FunctionCall {
+        name: String,
+        arguments: String,
+        call_id: String,
+    },
+    #[serde(rename = "function_call_output")]
+    FunctionCallOutput { call_id: String, output: String },
 }
 
 #[derive(Debug, Clone, Serialize)]

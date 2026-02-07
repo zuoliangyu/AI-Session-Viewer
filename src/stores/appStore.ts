@@ -1,25 +1,27 @@
 import { create } from "zustand";
 import type {
-  Project,
+  ProjectEntry,
   SessionIndexEntry,
   DisplayMessage,
-  PaginatedMessages,
-  StatsCache,
   TokenUsageSummary,
   SearchResult,
 } from "../types";
 import * as api from "../services/tauriApi";
 
 interface AppState {
+  // Source
+  source: "claude" | "codex";
+  setSource: (s: "claude" | "codex") => void;
+
   // Projects
-  projects: Project[];
+  projects: ProjectEntry[];
   projectsLoading: boolean;
   selectedProject: string | null;
 
   // Sessions
   sessions: SessionIndexEntry[];
   sessionsLoading: boolean;
-  selectedSession: string | null;
+  selectedFilePath: string | null;
 
   // Messages
   messages: DisplayMessage[];
@@ -34,21 +36,14 @@ interface AppState {
   searchLoading: boolean;
 
   // Stats
-  stats: StatsCache | null;
   tokenSummary: TokenUsageSummary | null;
   statsLoading: boolean;
 
   // Actions
   loadProjects: () => Promise<void>;
-  selectProject: (encodedName: string) => Promise<void>;
-  selectSession: (
-    encodedName: string,
-    sessionId: string
-  ) => Promise<void>;
-  deleteSession: (
-    encodedName: string,
-    sessionId: string
-  ) => Promise<void>;
+  selectProject: (projectId: string) => Promise<void>;
+  selectSession: (filePath: string) => Promise<void>;
+  deleteSession: (filePath: string) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
   loadStats: () => Promise<void>;
@@ -56,13 +51,28 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
+  source: "claude",
+  setSource: (s) => {
+    set({
+      source: s,
+      projects: [],
+      sessions: [],
+      messages: [],
+      selectedProject: null,
+      selectedFilePath: null,
+      searchResults: [],
+      searchQuery: "",
+      tokenSummary: null,
+    });
+  },
+
   projects: [],
   projectsLoading: false,
   selectedProject: null,
 
   sessions: [],
   sessionsLoading: false,
-  selectedSession: null,
+  selectedFilePath: null,
 
   messages: [],
   messagesLoading: false,
@@ -74,14 +84,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   searchResults: [],
   searchLoading: false,
 
-  stats: null,
   tokenSummary: null,
   statsLoading: false,
 
   loadProjects: async () => {
     set({ projectsLoading: true });
     try {
-      const projects = await api.getProjects();
+      const projects = await api.getProjects(get().source);
       set({ projects, projectsLoading: false });
     } catch (e) {
       console.error("Failed to load projects:", e);
@@ -89,17 +98,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  selectProject: async (encodedName: string) => {
+  selectProject: async (projectId: string) => {
     set({
-      selectedProject: encodedName,
+      selectedProject: projectId,
       sessionsLoading: true,
-      selectedSession: null,
+      selectedFilePath: null,
       messages: [],
       messagesTotal: 0,
       messagesPage: 0,
     });
     try {
-      const sessions = await api.getSessions(encodedName);
+      const sessions = await api.getSessions(get().source, projectId);
       set({ sessions, sessionsLoading: false });
     } catch (e) {
       console.error("Failed to load sessions:", e);
@@ -107,16 +116,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  selectSession: async (encodedName: string, sessionId: string) => {
+  selectSession: async (filePath: string) => {
     set({
-      selectedSession: sessionId,
+      selectedFilePath: filePath,
       messagesLoading: true,
       messages: [],
       messagesTotal: 0,
       messagesPage: 0,
     });
     try {
-      const result = await api.getMessages(encodedName, sessionId, 0, 50);
+      const result = await api.getMessages(get().source, filePath, 0, 50);
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -130,18 +139,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  deleteSession: async (encodedName: string, sessionId: string) => {
-    await api.deleteSession(encodedName, sessionId);
+  deleteSession: async (filePath: string) => {
+    await api.deleteSession(filePath);
     set((state) => ({
-      sessions: state.sessions.filter((s) => s.sessionId !== sessionId),
+      sessions: state.sessions.filter((s) => s.filePath !== filePath),
     }));
   },
 
   loadMoreMessages: async () => {
     const state = get();
     if (
-      !state.selectedProject ||
-      !state.selectedSession ||
+      !state.selectedFilePath ||
       !state.messagesHasMore ||
       state.messagesLoading
     ) {
@@ -152,8 +160,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ messagesLoading: true });
     try {
       const result = await api.getMessages(
-        state.selectedProject,
-        state.selectedSession,
+        state.source,
+        state.selectedFilePath,
         nextPage,
         50
       );
@@ -176,7 +184,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     try {
-      const results = await api.globalSearch(query, 50);
+      const results = await api.globalSearch(get().source, query, 50);
       set({ searchResults: results, searchLoading: false });
     } catch (e) {
       console.error("Failed to search:", e);
@@ -187,11 +195,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadStats: async () => {
     set({ statsLoading: true });
     try {
-      const [stats, tokenSummary] = await Promise.all([
-        api.getGlobalStats(),
-        api.getTokenSummary(),
-      ]);
-      set({ stats, tokenSummary, statsLoading: false });
+      const tokenSummary = await api.getStats(get().source);
+      set({ tokenSummary, statsLoading: false });
     } catch (e) {
       console.error("Failed to load stats:", e);
       set({ statsLoading: false });
@@ -201,7 +206,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearSelection: () => {
     set({
       selectedProject: null,
-      selectedSession: null,
+      selectedFilePath: null,
       sessions: [],
       messages: [],
     });

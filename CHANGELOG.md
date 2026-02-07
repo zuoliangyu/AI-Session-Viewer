@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-02-07
+
+### Highlights
+
+**项目合并**: 将 `claude-memory-viewer` 和 `codex-session-viewer` 合并为统一应用 **AI Session Viewer**，在同一界面中同时支持 Claude Code 和 Codex CLI 两种 AI 编程助手的会话浏览。
+
+### Added
+
+#### Dual Data Source — Claude Code + Codex CLI
+- 侧边栏顶部新增 Claude / Codex Tab 切换，一键切换数据源
+- Claude Tab 使用橙色主题，Codex Tab 使用绿色主题
+- 切换时自动清理所有状态（项目、会话、消息）并重新加载
+
+#### Codex CLI Support
+- 新增 `provider/codex.rs`，扫描 `~/.codex/sessions/{year}/{month}/{day}/rollout-*.jsonl`
+- 按 `cwd` 工作目录聚合会话为项目
+- 从 `session_meta` 首行提取元数据（cwd、model、cli_version）
+- 支持 Codex 特有的消息格式：`reasoning` 推理块、`function_call` 函数调用、`function_call_output` 函数返回
+
+#### Provider Architecture
+- 新增 `provider/` 模块，将数据源解析从命令层解耦
+- `provider/claude.rs` — 从原 `parser/jsonl.rs` 提取，处理 Claude Code 数据
+- `provider/codex.rs` — 从 codex-session-viewer 移植，处理 Codex CLI 数据
+- 所有 Tauri Commands 新增 `source` 参数，统一调度到对应 provider
+
+#### Unified Models
+- `DisplayContentBlock` 枚举扩展为 7 种变体：Text、Thinking、ToolUse、ToolResult、Reasoning、FunctionCall、FunctionCallOutput
+- `ProjectEntry` 新增 `source`、`modelProvider` 字段
+- `SessionIndexEntry` 新增 `source`、`filePath`、`cwd`、`modelProvider`、`cliVersion` 字段
+- `TokenUsageSummary` 统一双数据源的 Token 统计格式
+
+#### New Components
+- `ToolOutputMessage.tsx` — 渲染 `function_call_output`（Codex）和 `tool_result`（Claude）的独立组件
+- `AssistantMessage.tsx` 扩展支持 `reasoning` 和 `function_call` 块类型
+
+### Fixed
+
+#### Mac 搜索闪退（Critical）
+- **根因**: `search.rs` 使用字节索引切片 UTF-8 字符串（`&text[..100]`、`text[start..end]`），遇到中文/emoji 时 panic
+- **修复**: 全面替换为字符级安全操作 — `safe_truncate()` 使用 `chars().take(n)`，`extract_context()` 使用字符数组 + `windows()` 滑动窗口
+
+#### Codex 会话消息数统计不准
+- **根因**: `count_messages()` 使用 `contains("response_item") && contains("message")` 宽松匹配，如果函数返回内容中碰巧包含这些字面字符串会被误计
+- **修复**: 改用精确匹配 `"type":"response_item"` 和 `"type":"message"` 的紧邻组合
+
+#### Codex 会话黑屏
+- **根因**: `MessagesPage.tsx` 使用 `location.pathname` 手动切片提取 filePath，对于 Codex 文件路径中含 `:` `\` 等特殊字符时 URL 编码/解码不一致导致前缀不匹配 → 空 filePath → 后端找不到文件
+- **修复**: 改用 React Router 的 `params["*"]` 通配符参数，由框架负责解码
+
+#### SessionsPage 重复解码
+- `useParams()` 已自动解码 URL 参数，但代码又调了一次 `decodeURIComponent`，导致 `%25` 等被双重解码。移除多余的 decode 调用。
+
+#### SearchPage 字段不匹配
+- SearchPage 引用了旧的 `result.encodedName` 字段（统一模型中已不存在），改为使用 `result.projectId` 和 `result.filePath`
+
+#### StatsPage 状态引用错误
+- StatsPage 引用了已移除的 `stats`（旧 StatsCache），完全重写为使用 `tokenSummary`（统一 TokenUsageSummary），支持双数据源
+
+### Changed
+
+- 项目更名：Claude Memory Viewer → **AI Session Viewer**
+- 应用标识符：`com.zuolan.claude-memory-viewer` → `com.zuolan.ai-session-viewer`
+- 版本号：0.4.0 → **0.5.0**
+- `watcher/fs_watcher.rs` 同时监听 `~/.claude/projects/` 和 `~/.codex/sessions/` 两个目录
+- `terminal.rs` 根据 source 分别执行 `claude --resume` 或 `codex resume`
+- 前端所有 API 调用和状态管理加入 `source` 参数
+- `MessageThread.tsx` 支持三种角色路由：user → UserMessage，tool → ToolOutputMessage，其他 → AssistantMessage
+
+---
+
 ## [0.4.0] - 2026-02-07
 
 ### Added
@@ -100,6 +170,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.5.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.5.0
 [0.4.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.4.0
 [0.3.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.3.0
 [0.2.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.2.0

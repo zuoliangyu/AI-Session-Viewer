@@ -1,6 +1,7 @@
 mod commands;
 mod models;
 mod parser;
+mod provider;
 mod state;
 mod watcher;
 
@@ -18,13 +19,11 @@ pub fn run() {
             commands::sessions::delete_session,
             commands::messages::get_messages,
             commands::search::global_search,
-            commands::stats::get_global_stats,
-            commands::stats::get_token_summary,
+            commands::stats::get_stats,
             commands::terminal::resume_session,
         ])
         .setup(|app| {
             let handle = app.handle().clone();
-            // Start file system watcher in background
             if let Err(e) = watcher::fs_watcher::start_watcher(handle) {
                 eprintln!("Warning: Failed to start file watcher: {}", e);
             }

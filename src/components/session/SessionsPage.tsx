@@ -15,9 +15,11 @@ import { zhCN } from "date-fns/locale";
 import { resumeSession } from "../../services/tauriApi";
 
 export function SessionsPage() {
-  const { encodedName } = useParams<{ encodedName: string }>();
+  const { projectId: rawProjectId } = useParams<{ projectId: string }>();
+  const projectId = rawProjectId || "";
   const navigate = useNavigate();
   const {
+    source,
     sessions,
     sessionsLoading,
     selectProject,
@@ -25,21 +27,21 @@ export function SessionsPage() {
     projects,
   } = useAppStore();
 
-  const project = projects.find((p) => p.encodedName === encodedName);
+  const project = projects.find((p) => p.id === projectId);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    if (encodedName) {
-      selectProject(encodedName);
+    if (projectId) {
+      selectProject(projectId);
     }
-  }, [encodedName]);
+  }, [projectId]);
 
   const handleDelete = async () => {
-    if (!encodedName || !deleteTarget) return;
+    if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteSession(encodedName, deleteTarget);
+      await deleteSession(deleteTarget);
     } catch (err) {
       console.error("Failed to delete session:", err);
     } finally {
@@ -56,7 +58,7 @@ export function SessionsPage() {
     e.stopPropagation();
     if (!projectPath) return;
     try {
-      await resumeSession(sessionId, projectPath);
+      await resumeSession(source, sessionId, projectPath);
     } catch (err) {
       console.error("Failed to resume session:", err);
     }
@@ -74,7 +76,7 @@ export function SessionsPage() {
         </button>
         <div>
           <h1 className="text-2xl font-bold">
-            {project?.shortName || encodedName}
+            {project?.shortName || projectId}
           </h1>
           {project && (
             <p className="text-sm text-muted-foreground mt-0.5">
@@ -96,7 +98,7 @@ export function SessionsPage() {
               key={session.sessionId}
               onClick={() =>
                 navigate(
-                  `/projects/${encodedName}/${session.sessionId}`
+                  `/projects/${encodeURIComponent(projectId)}/session/${encodeURIComponent(session.filePath)}`
                 )
               }
               className="bg-card border border-border rounded-lg p-4 hover:border-primary/50 hover:bg-accent/30 transition-all cursor-pointer group"
@@ -134,6 +136,11 @@ export function SessionsPage() {
                         {format(new Date(session.created), "yyyy-MM-dd HH:mm")}
                       </span>
                     )}
+                    {session.modelProvider && (
+                      <span className="px-1.5 py-0.5 bg-muted rounded text-xs">
+                        {session.modelProvider}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <div className="shrink-0 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -142,7 +149,7 @@ export function SessionsPage() {
                       handleResume(
                         e,
                         session.sessionId,
-                        session.projectPath || project?.displayPath || null
+                        session.projectPath || session.cwd || project?.displayPath || null
                       )
                     }
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
@@ -154,7 +161,7 @@ export function SessionsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setDeleteTarget(session.sessionId);
+                      setDeleteTarget(session.filePath);
                     }}
                     className="p-1.5 text-xs text-muted-foreground rounded-md hover:bg-destructive/10 hover:text-destructive transition-colors"
                     title="删除此会话"

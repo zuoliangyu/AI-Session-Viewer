@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/tauri/v2/crates/tauri-schema-generator/schemas/config.schema.json",
-  "productName": "Claude Memory Viewer",
-  "version": "0.4.0",
-  "identifier": "com.zuolan.claude-memory-viewer",
+  "productName": "AI Session Viewer",
+  "version": "0.5.0",
+  "identifier": "com.zuolan.ai-session-viewer",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Claude Memory Viewer",
+        "title": "AI Session Viewer",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

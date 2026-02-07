@@ -1,62 +1,57 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  Project,
+  ProjectEntry,
   SessionIndexEntry,
   PaginatedMessages,
   SearchResult,
-  StatsCache,
   TokenUsageSummary,
 } from "../types";
 
-export async function getProjects(): Promise<Project[]> {
-  return invoke<Project[]>("get_projects");
+export async function getProjects(source: string): Promise<ProjectEntry[]> {
+  return invoke<ProjectEntry[]>("get_projects", { source });
 }
 
 export async function getSessions(
-  encodedName: string
+  source: string,
+  projectId: string
 ): Promise<SessionIndexEntry[]> {
-  return invoke<SessionIndexEntry[]>("get_sessions", { encodedName });
+  return invoke<SessionIndexEntry[]>("get_sessions", { source, projectId });
 }
 
 export async function getMessages(
-  encodedName: string,
-  sessionId: string,
+  source: string,
+  filePath: string,
   page: number = 0,
   pageSize: number = 50
 ): Promise<PaginatedMessages> {
   return invoke<PaginatedMessages>("get_messages", {
-    encodedName,
-    sessionId,
+    source,
+    filePath,
     page,
     pageSize,
   });
 }
 
 export async function globalSearch(
+  source: string,
   query: string,
   maxResults: number = 50
 ): Promise<SearchResult[]> {
-  return invoke<SearchResult[]>("global_search", { query, maxResults });
+  return invoke<SearchResult[]>("global_search", { source, query, maxResults });
 }
 
-export async function getGlobalStats(): Promise<StatsCache> {
-  return invoke<StatsCache>("get_global_stats");
+export async function getStats(source: string): Promise<TokenUsageSummary> {
+  return invoke<TokenUsageSummary>("get_stats", { source });
 }
 
-export async function getTokenSummary(): Promise<TokenUsageSummary> {
-  return invoke<TokenUsageSummary>("get_token_summary");
-}
-
-export async function deleteSession(
-  encodedName: string,
-  sessionId: string
-): Promise<void> {
-  return invoke<void>("delete_session", { encodedName, sessionId });
+export async function deleteSession(filePath: string): Promise<void> {
+  return invoke<void>("delete_session", { filePath });
 }
 
 export async function resumeSession(
+  source: string,
   sessionId: string,
   projectPath: string
 ): Promise<void> {
-  return invoke<void>("resume_session", { sessionId, projectPath });
+  return invoke<void>("resume_session", { source, sessionId, projectPath });
 }

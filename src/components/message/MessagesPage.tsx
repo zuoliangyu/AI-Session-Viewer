@@ -6,12 +6,16 @@ import { MessageThread } from "./MessageThread";
 import { resumeSession } from "../../services/tauriApi";
 
 export function MessagesPage() {
-  const { encodedName, sessionId } = useParams<{
-    encodedName: string;
-    sessionId: string;
-  }>();
+  const params = useParams();
+  const projectId = params.projectId || "";
   const navigate = useNavigate();
+
+  // Use React Router's wildcard param (already decoded) instead of manual pathname slicing
+  const rawFilePath = params["*"] || "";
+  const filePath = rawFilePath ? decodeURIComponent(rawFilePath) : "";
+
   const {
+    source,
     messages,
     messagesLoading,
     messagesHasMore,
@@ -26,14 +30,14 @@ export function MessagesPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
-  const session = sessions.find((s) => s.sessionId === sessionId);
-  const project = projects.find((p) => p.encodedName === encodedName);
+  const session = sessions.find((s) => s.filePath === filePath);
+  const project = projects.find((p) => p.id === projectId);
 
   useEffect(() => {
-    if (encodedName && sessionId) {
-      selectSession(encodedName, sessionId);
+    if (filePath) {
+      selectSession(filePath);
     }
-  }, [encodedName, sessionId]);
+  }, [filePath]);
 
   const handleScroll = useCallback(() => {
     if (!containerRef.current) return;
@@ -49,16 +53,17 @@ export function MessagesPage() {
   };
 
   const handleResume = async () => {
-    if (!sessionId) return;
-    const path =
-      session?.projectPath || project?.displayPath;
+    if (!session) return;
+    const path = session.projectPath || session.cwd || project?.displayPath;
     if (!path) return;
     try {
-      await resumeSession(sessionId, path);
+      await resumeSession(source, session.sessionId, path);
     } catch (err) {
       console.error("Failed to resume session:", err);
     }
   };
+
+  const assistantName = source === "claude" ? "Claude" : "Codex";
 
   return (
     <div className="flex flex-col h-full relative">
@@ -66,18 +71,19 @@ export function MessagesPage() {
       <div className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
           <button
-            onClick={() => navigate(`/projects/${encodedName}`)}
+            onClick={() => navigate(`/projects/${encodeURIComponent(projectId)}`)}
             className="p-1 rounded hover:bg-accent transition-colors shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="min-w-0">
             <p className="text-sm font-medium truncate">
-              {session?.firstPrompt || sessionId}
+              {session?.firstPrompt || session?.sessionId || "Session"}
             </p>
             <p className="text-xs text-muted-foreground">
               {messagesTotal} 条消息
               {session?.gitBranch && ` · ${session.gitBranch}`}
+              {` · ${assistantName}`}
             </p>
           </div>
         </div>
@@ -103,7 +109,7 @@ export function MessagesPage() {
           </div>
         ) : (
           <>
-            <MessageThread messages={messages} />
+            <MessageThread messages={messages} source={source} />
             {messagesLoading && messages.length > 0 && (
               <div className="flex items-center justify-center py-4 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />

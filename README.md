@@ -1,11 +1,11 @@
-# Claude Memory Viewer
+# AI Session Viewer
 
 <p align="center">
-  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="Claude Memory Viewer">
+  <img src="src-tauri/icons/icon.png" width="128" height="128" alt="AI Session Viewer">
 </p>
 
 <p align="center">
-  <strong>Claude Code 本地会话记忆的可视化浏览器</strong>
+  <strong>Claude Code & Codex CLI 本地会话记忆的统一可视化浏览器</strong>
 </p>
 
 <p align="center">
@@ -22,70 +22,99 @@
 
 ---
 
-[Claude Code](https://docs.anthropic.com/en/docs/claude-code) 是 Anthropic 官方的 CLI 编程助手。它将所有会话数据以 JSONL 格式存储在本地 `~/.claude/projects/` 目录下，但没有内置的可视化浏览方式。
+**AI Session Viewer** 是一个轻量级桌面应用，让你可以在一个统一界面中浏览、搜索、统计来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [OpenAI Codex CLI](https://github.com/openai/codex) 的所有本地会话记忆，并支持一键恢复（Resume）到对应 CLI 中继续对话。
 
-**Claude Memory Viewer** 是一个轻量级桌面应用，让你可以直观地浏览、搜索、统计所有 Claude Code 的会话记忆，并支持一键恢复（Resume）到 CLI 中继续对话。
+本应用**只读取本地文件**，不联网、不上传任何数据。
 
 ## Screenshots
 
 ![图片](./img/1.png)
 ![图片](./img/2.png)
 ![图片](./img/3.png)
+![图片](./img/4.png)
+![图片](./img/5.png)
+![图片](./img/6.png)
 
 ## Features
 
+### Dual Data Source
+
+通过侧边栏顶部的 Tab 一键切换 Claude / Codex 数据源：
+
+| 数据源 | CLI 工具 | 本地存储路径 | 特色 |
+|--------|---------|-------------|------|
+| **Claude** (橙色主题) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking 块、Tool Use、sessions-index 索引 |
+| **Codex** (绿色主题) | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning 块、Function Call、按日期归档 |
+
+切换时自动清理状态并重新加载，互不干扰。
+
 ### Project Browser
 
-- 自动扫描 `~/.claude/projects/` 目录，列出所有使用过 Claude Code 的项目
+- 自动扫描对应数据源目录，列出所有项目
+- Claude：按 `~/.claude/projects/{encoded-path}` 聚合
+- Codex：按会话元数据中的 `cwd` 工作目录聚合
 - 显示每个项目的会话数量、最后活跃时间
-- 按最近活跃时间排序，快速找到目标项目
+- 按最近活跃时间排序
 
 ### Session List
 
-- 读取 Claude Code 的 `sessions-index.json` 索引文件，毫秒级加载
-- 展示每个会话的摘要（summary）、首条 Prompt、消息数量、Git 分支、创建/修改时间
-- 支持按时间排序和过滤
+- Claude：读取 `sessions-index.json` 索引文件，毫秒级加载
+- Codex：扫描 `~/.codex/sessions/` 目录下所有 `rollout-*.jsonl` 文件，提取元数据
+- 展示每个会话的首条 Prompt、消息数量、Git 分支、创建/修改时间
+- 支持删除会话（带确认弹窗）
 
 ### Message Detail
 
-- 完整渲染会话中的所有消息：
-  - **用户消息** — 原始输入
-  - **AI 回复** — Markdown 排版 + 语法高亮
-  - **思考过程**（Thinking） — 可折叠展开
-  - **工具调用**（Tool Use） — 调用名称、参数、返回结果
-  - **代码块** — 多语言语法高亮
+完整渲染会话中的所有消息，支持两种 AI 的不同内容块格式：
+
+| 内容块类型 | Claude | Codex | 说明 |
+|-----------|--------|-------|------|
+| Text | ✅ | ✅ | Markdown 渲染 + 语法高亮 |
+| Thinking | ✅ | — | Claude 思考过程，可折叠 |
+| Reasoning | — | ✅ | Codex 推理过程，可折叠 |
+| Tool Use | ✅ | — | 工具调用名称、参数、返回结果 |
+| Tool Result | ✅ | — | 工具返回结果 |
+| Function Call | — | ✅ | Codex 函数调用 |
+| Function Call Output | — | ✅ | 函数调用返回结果 |
+
 - 分页加载，大会话（上千条消息）也不会卡顿
-- 虚拟滚动优化渲染性能
+- 浮动"跳转到底部"按钮
 
 ### Resume Session
 
-- 选中任意会话，一键在系统终端中执行 `claude --resume {sessionId}`
-- 终端完全独立于本应用 — 关闭 Viewer 后终端继续运行
-- 跨平台支持：
-  - **Windows** — 通过 `cmd /c start /d` 启动独立终端进程
-  - **macOS** — 通过 AppleScript 调用 Terminal.app（由 Terminal.app 持有进程）
-  - **Linux** — 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm，通过 `setsid` 脱离父进程
+选中任意会话，一键在系统终端中恢复：
+
+- **Claude** → 执行 `claude --resume {sessionId}`
+- **Codex** → 执行 `codex resume {sessionId}`
+
+终端完全独立于本应用——关闭 Viewer 后终端继续运行。跨平台支持：
+
+| 平台 | 实现方式 |
+|------|---------|
+| Windows | `cmd /c start /d` 启动独立终端进程 |
+| macOS | AppleScript 调用 Terminal.app |
+| Linux | 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm，`setsid` 脱离父进程 |
 
 ### Global Search
 
-- 跨所有项目、所有会话全文搜索
-- 基于 Rayon 并行扫描，搜索速度快
+- 在当前数据源下跨所有项目、所有会话全文搜索
+- 基于 Rayon 并行扫描 JSONL 文件
+- UTF-8 安全的字符级切片，中文/emoji 不会崩溃
 - 关键词高亮，点击结果直接跳转到对应消息
 
 ### Token Statistics
 
-- 读取 Claude Code 的 `stats-cache.json` 统计缓存
-- 展示：
-  - 每日活动图表（消息数、会话数）
-  - Token 用量趋势（input / output / cache）
-  - 按模型分组的 Token 消耗
-  - 活跃时段分布
-- 支持按项目、按会话粒度查看
+- Claude：读取 `stats-cache.json` 统计缓存
+- Codex：从每个会话文件提取 `usage` 字段聚合
+- 展示：会话总数、消息总数、Input/Output Token 用量
+- 每日 Token 用量柱状图
+- Token 趋势面积图
+- 按模型分组的 Token 消耗
 
 ### Real-time Update
 
-- 使用 `notify` crate 监听 `~/.claude/projects/` 文件系统变化
-- 新会话创建、会话更新时自动刷新界面，无需手动操作
+- 使用 `notify` crate 同时监听两个目录的文件系统变化
+- 新会话创建、会话更新时自动刷新界面
 
 ## Tech Stack
 
@@ -95,7 +124,6 @@
 | Frontend | React 19 + TypeScript + Vite 6 |
 | Styling | Tailwind CSS 3 + @tailwindcss/typography |
 | State | Zustand 5 |
-| Virtual Scroll | @tanstack/react-virtual 3 |
 | Markdown | react-markdown 9 + remark-gfm + react-syntax-highlighter |
 | Charts | Recharts 2 |
 | Icons | Lucide React |
@@ -107,107 +135,82 @@
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Tauri WebView                         │
-│  ┌───────────┐  ┌──────────────┐  ┌──────────────────┐ │
-│  │  Sidebar   │  │  Session List │  │  Message Thread  │ │
-│  │ (Projects) │  │  (Index View) │  │  (JSONL Parsed)  │ │
-│  └─────┬─────┘  └──────┬───────┘  └────────┬─────────┘ │
-│        │               │                    │            │
-│  ┌─────┴───────────────┴────────────────────┴─────────┐ │
-│  │              Zustand Store + tauriApi.ts            │ │
-│  └────────────────────────┬───────────────────────────┘ │
-└───────────────────────────┼─────────────────────────────┘
-                            │  Tauri IPC (invoke)
-┌───────────────────────────┼─────────────────────────────┐
-│  Rust Backend             │                              │
-│  ┌────────────────────────┴───────────────────────────┐ │
-│  │                  Tauri Commands                     │ │
-│  │  get_projects  get_sessions  get_messages           │ │
-│  │  global_search  get_global_stats  resume_session    │ │
-│  └──────┬──────────────┬──────────────────┬───────────┘ │
-│         │              │                  │              │
-│  ┌──────┴─────┐ ┌──────┴──────┐ ┌────────┴──────────┐  │
-│  │   Parser   │ │   Watcher   │ │   Terminal Spawn   │  │
-│  │ (JSONL +   │ │ (notify +   │ │ (cmd/osascript/    │  │
-│  │  BufReader)│ │  events)    │ │  gnome-terminal)   │  │
-│  └──────┬─────┘ └─────────────┘ └────────────────────┘  │
-│         │                                                │
-│  ┌──────┴───────────────────────────────────────────┐   │
-│  │           ~/.claude/projects/                     │   │
-│  │  sessions-index.json  *.jsonl  stats-cache.json   │   │
-│  └───────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                      Tauri WebView                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐ │
+│  │   Sidebar     │  │  Session List │  │   Message Thread   │ │
+│  │ [Claude|Codex]│  │  (Index View) │  │  (JSONL Parsed)    │ │
+│  │  + Projects   │  │              │  │                    │ │
+│  └──────┬───────┘  └──────┬───────┘  └────────┬───────────┘ │
+│         │                 │                    │              │
+│  ┌──────┴─────────────────┴────────────────────┴───────────┐ │
+│  │          Zustand Store (source: claude|codex)            │ │
+│  │                    tauriApi.ts                            │ │
+│  └──────────────────────────┬──────────────────────────────┘ │
+└─────────────────────────────┼────────────────────────────────┘
+                              │  Tauri IPC (invoke + source)
+┌─────────────────────────────┼────────────────────────────────┐
+│  Rust Backend               │                                 │
+│  ┌──────────────────────────┴──────────────────────────────┐ │
+│  │                   Tauri Commands                         │ │
+│  │  get_projects(source)   get_sessions(source, id)         │ │
+│  │  get_messages(source, path)   global_search(source, q)   │ │
+│  │  get_token_stats(source)   resume_session(source, id)    │ │
+│  └────┬───────────────────────────────────────────┬────────┘ │
+│       │                                           │          │
+│  ┌────┴──────────────┐                  ┌─────────┴────────┐ │
+│  │  provider/claude   │                  │  provider/codex   │ │
+│  │  (JSONL + Index)   │                  │  (JSONL + Meta)   │ │
+│  └────┬──────────────┘                  └─────────┬────────┘ │
+│       │                                           │          │
+│  ┌────┴───────────────────────────────────────────┴────────┐ │
+│  │  ~/.claude/projects/          ~/.codex/sessions/         │ │
+│  │  sessions-index.json *.jsonl  rollout-*.jsonl            │ │
+│  └─────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  ┌────────────────┐  ┌────────────────────────────────────┐  │
+│  │    Watcher      │  │        Terminal Spawn               │  │
+│  │ (notify: dual   │  │ (cmd / osascript / gnome-terminal) │  │
+│  │  dir watch)     │  │ (claude --resume / codex resume)   │  │
+│  └────────────────┘  └────────────────────────────────────┘  │
+└───────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Source
 
-本应用**只读取本地文件**，不联网、不上传任何数据。
-
-Claude Code 的本地存储结构：
+### Claude Code
 
 ```
 ~/.claude/
 ├── projects/
 │   └── {encoded-project-path}/
-│       ├── sessions-index.json          # 会话索引（摘要、消息数、时间）
+│       ├── sessions-index.json          # 会话索引
 │       ├── {sessionId}.jsonl            # 会话完整历史
 │       └── {sessionId}/
 │           ├── subagents/               # 子代理会话
-│           │   └── agent-{id}.jsonl
 │           └── tool-results/            # 工具执行结果
-│               └── {toolId}.txt
 ├── stats-cache.json                     # 全局使用统计
-├── history.jsonl                        # 全局历史索引
 └── settings.json                        # 用户设置
 ```
 
-### Key Data Formats
+### Codex CLI
 
-**sessions-index.json** — 会话索引（列表页数据源）：
-
-```json
-{
-  "version": 1,
-  "entries": [
-    {
-      "sessionId": "4ec3dc60-...",
-      "summary": "Feature Implementation",
-      "firstPrompt": "Help me implement...",
-      "messageCount": 38,
-      "created": "2026-01-22T13:48:02.915Z",
-      "modified": "2026-01-22T14:07:36.022Z",
-      "gitBranch": "main"
-    }
-  ]
-}
 ```
-
-**{sessionId}.jsonl** — 会话历史（每行一条 JSON 记录）：
-
-```json
-{
-  "type": "assistant",
-  "sessionId": "4ec3dc60-...",
-  "message": {
-    "role": "assistant",
-    "content": [
-      { "type": "thinking", "thinking": "..." },
-      { "type": "text", "text": "..." },
-      { "type": "tool_use", "name": "Read", "input": { "file_path": "..." } }
-    ],
-    "model": "claude-opus-4-6",
-    "usage": { "input_tokens": 1234, "output_tokens": 567 }
-  },
-  "timestamp": "2026-01-22T13:48:05.123Z"
-}
+~/.codex/
+└── sessions/
+    └── {year}/{month}/{day}/
+        └── rollout-{timestamp}-{id}.jsonl   # 每个文件 = 一个会话
+            # 第一行: session_meta (cwd, model, cli_version, ...)
+            # 后续行: response_item (message/function_call/function_call_output)
 ```
 
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.75
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 已使用过（`~/.claude/projects/` 目录存在）
+- 至少使用过以下一种 CLI：
+  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`~/.claude/projects/` 目录存在）
+  - [Codex CLI](https://github.com/openai/codex)（`~/.codex/sessions/` 目录存在）
 
 ### Platform-specific
 
@@ -242,47 +245,50 @@ npx tauri dev
 ### Project Structure
 
 ```
-claude-memory-viewer/
+AI-Session-Viewer/
 ├── src/                              # Frontend (React + TypeScript)
 │   ├── App.tsx                       # 路由配置
 │   ├── components/
-│   │   ├── layout/                   # AppLayout, Sidebar
+│   │   ├── layout/                   # AppLayout, Sidebar（含 Claude/Codex Tab）
 │   │   ├── project/                  # ProjectsPage - 项目列表
 │   │   ├── session/                  # SessionsPage - 会话列表
 │   │   ├── message/                  # MessagesPage, MessageThread
 │   │   │                             # AssistantMessage, UserMessage
+│   │   │                             # ToolOutputMessage
 │   │   ├── search/                   # SearchPage - 全局搜索
 │   │   └── stats/                    # StatsPage - 统计面板
-│   ├── stores/appStore.ts            # Zustand 全局状态
-│   ├── services/tauriApi.ts          # Tauri invoke 封装
+│   ├── stores/appStore.ts            # Zustand 全局状态（含 source 切换）
+│   ├── services/tauriApi.ts          # Tauri invoke 封装（所有 API 含 source 参数）
 │   └── types/index.ts                # TypeScript 类型定义
 │
 ├── src-tauri/                        # Backend (Rust)
 │   ├── Cargo.toml
 │   ├── tauri.conf.json               # Tauri 配置
 │   ├── capabilities/default.json     # 权限声明
-│   ├── icons/                        # 应用图标（多尺寸）
+│   ├── icons/                        # 应用图标
 │   └── src/
 │       ├── main.rs                   # 入口
 │       ├── lib.rs                    # Tauri Builder + 命令注册
 │       ├── state.rs                  # AppState（LRU 缓存）
 │       ├── commands/
-│       │   ├── projects.rs           # get_projects - 扫描项目
-│       │   ├── sessions.rs           # get_sessions - 读取会话索引
-│       │   ├── messages.rs           # get_messages - 分页加载消息
-│       │   ├── search.rs             # global_search - 并行搜索
-│       │   ├── stats.rs              # get_global_stats - 统计数据
-│       │   └── terminal.rs           # resume_session - 跨平台终端启动
-│       ├── models/                   # 数据结构定义
-│       │   ├── project.rs            # Project
-│       │   ├── session.rs            # SessionsIndex, SessionIndexEntry
-│       │   ├── message.rs            # RawRecord, ContentValue, DisplayMessage
-│       │   └── stats.rs              # StatsCache, TokenUsageSummary
+│       │   ├── projects.rs           # get_projects(source) - 扫描项目
+│       │   ├── sessions.rs           # get_sessions(source) - 读取会话索引
+│       │   ├── messages.rs           # get_messages(source) - 分页加载消息
+│       │   ├── search.rs             # global_search(source) - 并行搜索
+│       │   ├── stats.rs              # get_token_stats(source) - Token 统计
+│       │   └── terminal.rs           # resume_session(source) - 跨平台终端启动
+│       ├── provider/                  # 双数据源提供层
+│       │   ├── claude.rs             # Claude Code 数据解析
+│       │   └── codex.rs              # Codex CLI 数据解析
+│       ├── models/                   # 统一数据结构
+│       │   ├── project.rs            # ProjectEntry（含 source 字段）
+│       │   ├── session.rs            # SessionIndexEntry（统一 Claude/Codex）
+│       │   ├── message.rs            # DisplayMessage + 7种内容块枚举
+│       │   └── stats.rs              # TokenUsageSummary
 │       ├── parser/
-│       │   ├── jsonl.rs              # 流式 JSONL 解析（BufReader + 行级预过滤）
 │       │   └── path_encoder.rs       # Claude home 定位 + 路径处理
 │       └── watcher/
-│           └── fs_watcher.rs         # notify crate 文件系统监听
+│           └── fs_watcher.rs         # 双目录文件系统监听
 │
 ├── .github/workflows/
 │   ├── build.yml                     # CI: cargo check + clippy + tsc
@@ -296,18 +302,18 @@ claude-memory-viewer/
 
 ### Tauri Commands API
 
-后端通过 Tauri IPC 暴露以下命令供前端调用：
+所有命令通过 `source` 参数区分数据源，由命令层调度到对应的 provider：
 
 | Command | Parameters | Returns | Description |
 |---------|-----------|---------|-------------|
-| `get_projects` | — | `Project[]` | 扫描所有项目 |
-| `get_sessions` | `encodedName` | `SessionIndexEntry[]` | 获取项目会话列表 |
-| `get_session_detail` | `encodedName, sessionId` | `SessionDetail` | 获取会话详情 |
-| `get_messages` | `encodedName, sessionId, page, pageSize` | `PaginatedMessages` | 分页加载消息 |
-| `global_search` | `query, maxResults` | `SearchResult[]` | 全局搜索 |
-| `get_global_stats` | — | `StatsCache` | 全局统计 |
-| `get_project_token_stats` | `encodedName` | `TokenUsageSummary` | 项目 Token 统计 |
-| `resume_session` | `sessionId, projectPath` | `()` | 终端中恢复会话 |
+| `get_projects` | `source` | `ProjectEntry[]` | 扫描指定数据源的所有项目 |
+| `get_sessions` | `source, projectId` | `SessionIndexEntry[]` | 获取项目会话列表 |
+| `get_messages` | `source, filePath, page, pageSize` | `PaginatedMessages` | 分页加载消息 |
+| `global_search` | `source, query, maxResults` | `SearchResult[]` | 全局搜索 |
+| `get_token_stats` | `source` | `TokenUsageSummary` | Token 统计 |
+| `get_project_token_stats` | `source, projectId` | `TokenUsageSummary` | 项目 Token 统计 |
+| `resume_session` | `source, sessionId, projectPath` | `()` | 终端中恢复会话 |
+| `delete_session` | `filePath` | `()` | 删除会话文件 |
 
 ## Build
 
@@ -329,8 +335,8 @@ npx tauri build
 项目使用 GitHub Actions 自动化构建和发布。创建一个 `v*` 格式的 tag 即可触发多平台构建：
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
 GitHub Actions 会自动：
@@ -342,16 +348,19 @@ GitHub Actions 会自动：
 ## Roadmap
 
 - [x] 项目骨架搭建（Tauri v2 + React + Vite + Tailwind）
-- [ ] 项目列表浏览
-- [ ] 会话列表（基于 sessions-index.json）
-- [ ] 消息详情渲染（Markdown / 代码高亮 / 工具调用 / 思考过程）
-- [ ] Resume 会话（跨平台终端启动）
-- [ ] 文件系统监听 + 实时更新
-- [ ] 全局搜索
-- [ ] Token 统计面板
+- [x] 项目列表浏览
+- [x] 会话列表（基于 sessions-index.json）
+- [x] 消息详情渲染（Markdown / 代码高亮 / 工具调用 / 思考过程）
+- [x] Resume 会话（跨平台终端启动）
+- [x] 文件系统监听 + 实时更新
+- [x] 全局搜索
+- [x] Token 统计面板
+- [x] GitHub Actions 多平台自动构建
+- [x] 会话删除
+- [x] **双数据源支持（Claude Code + Codex CLI）**
 - [ ] 暗色 / 亮色主题切换
 - [ ] 自定义标题栏
-- [ ] GitHub Actions 多平台自动构建
+- [ ] 更多 AI CLI 数据源支持（Gemini CLI 等）
 
 ## Contributing
 

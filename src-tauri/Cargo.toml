@@ -1,12 +1,12 @@
 [package]
-name = "claude-memory-viewer"
-version = "0.4.0"
-description = "A desktop app to browse Claude Code conversation memories"
+name = "ai-session-viewer"
+version = "0.5.0"
+description = "A desktop app to browse Claude and Codex session histories"
 authors = ["zuolan"]
 edition = "2021"
 
 [lib]
-name = "claude_memory_viewer_lib"
+name = "ai_session_viewer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

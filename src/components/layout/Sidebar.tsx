@@ -6,30 +6,63 @@ import {
   Search,
   BarChart3,
   ChevronRight,
-  MessageSquare,
+  Bot,
+  Terminal,
 } from "lucide-react";
 
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { projects, loadProjects, projectsLoading } = useAppStore();
+  const { source, setSource, projects, loadProjects, projectsLoading } =
+    useAppStore();
 
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [source]);
 
   const isActive = (path: string) => location.pathname === path;
-  const isProjectActive = (encodedName: string) =>
-    location.pathname.startsWith(`/projects/${encodedName}`);
+  const isProjectActive = (projectId: string) =>
+    location.pathname.startsWith(`/projects/${encodeURIComponent(projectId)}`);
+
+  const handleSourceChange = (s: "claude" | "codex") => {
+    if (s !== source) {
+      setSource(s);
+      navigate("/projects");
+    }
+  };
 
   return (
     <aside className="w-64 h-full border-r border-border bg-card flex flex-col shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <h1 className="text-sm font-semibold text-foreground flex items-center gap-2">
-          <MessageSquare className="w-4 h-4 text-primary" />
-          Claude Memory Viewer
+        <h1 className="text-sm font-semibold text-foreground mb-3">
+          AI Session Viewer
         </h1>
+        {/* Source Tabs */}
+        <div className="flex rounded-lg bg-muted p-0.5">
+          <button
+            onClick={() => handleSourceChange("claude")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              source === "claude"
+                ? "bg-orange-500/20 text-orange-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Bot className="w-3.5 h-3.5" />
+            Claude
+          </button>
+          <button
+            onClick={() => handleSourceChange("codex")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              source === "codex"
+                ? "bg-green-500/20 text-green-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5" />
+            Codex
+          </button>
+        </div>
       </div>
 
       {/* Navigation */}
@@ -73,12 +106,14 @@ export function Sidebar() {
             <div className="mt-1 space-y-0.5">
               {projects.map((project) => (
                 <button
-                  key={project.encodedName}
+                  key={project.id}
                   onClick={() =>
-                    navigate(`/projects/${project.encodedName}`)
+                    navigate(
+                      `/projects/${encodeURIComponent(project.id)}`
+                    )
                   }
                   className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors group ${
-                    isProjectActive(project.encodedName)
+                    isProjectActive(project.id)
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   }`}

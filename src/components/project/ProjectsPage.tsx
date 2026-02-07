@@ -7,11 +7,16 @@ import { zhCN } from "date-fns/locale";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
-  const { projects, loadProjects, projectsLoading } = useAppStore();
+  const { source, projects, loadProjects, projectsLoading } = useAppStore();
 
   useEffect(() => {
     loadProjects();
-  }, []);
+  }, [source]);
+
+  const emptyText =
+    source === "claude"
+      ? "未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。"
+      : "未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。";
 
   return (
     <div className="p-6">
@@ -20,16 +25,16 @@ export function ProjectsPage() {
       {projectsLoading ? (
         <div className="text-muted-foreground">加载项目列表...</div>
       ) : projects.length === 0 ? (
-        <div className="text-muted-foreground">
-          未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。
-        </div>
+        <div className="text-muted-foreground">{emptyText}</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {projects.map((project) => (
             <button
-              key={project.encodedName}
+              key={project.id}
               onClick={() =>
-                navigate(`/projects/${project.encodedName}`)
+                navigate(
+                  `/projects/${encodeURIComponent(project.id)}`
+                )
               }
               className="bg-card border border-border rounded-lg p-4 text-left hover:border-primary/50 hover:bg-accent/30 transition-all group"
             >
@@ -60,6 +65,11 @@ export function ProjectsPage() {
                       </span>
                     )}
                   </div>
+                  {project.modelProvider && (
+                    <span className="mt-2 inline-block text-xs px-2 py-0.5 bg-muted rounded">
+                      {project.modelProvider}
+                    </span>
+                  )}
                 </div>
               </div>
             </button>

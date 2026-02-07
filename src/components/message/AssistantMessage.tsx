@@ -9,17 +9,22 @@ import { formatTime } from "./utils";
 
 interface Props {
   message: DisplayMessage;
+  source: string;
 }
 
-export function AssistantMessage({ message }: Props) {
+export function AssistantMessage({ message, source }: Props) {
+  const assistantName = source === "codex" ? "Codex" : "Claude";
+  const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
+  const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
+
   return (
     <div className="flex gap-3">
-      <div className="shrink-0 w-7 h-7 rounded-full bg-orange-500/10 flex items-center justify-center">
-        <Bot className="w-3.5 h-3.5 text-orange-500" />
+      <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center`}>
+        <Bot className={`w-3.5 h-3.5 ${iconColor}`} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium">Claude</span>
+          <span className="text-sm font-medium">{assistantName}</span>
           {message.timestamp && (
             <span className="text-xs text-muted-foreground">
               {formatTime(message.timestamp)}
@@ -136,12 +141,24 @@ export function AssistantMessage({ message }: Props) {
           if (block.type === "thinking") {
             return <ThinkingBlock key={i} thinking={block.thinking} />;
           }
+          if (block.type === "reasoning") {
+            return <ReasoningBlock key={i} text={block.text} />;
+          }
           if (block.type === "tool_use") {
             return (
               <ToolCallBlock
                 key={i}
                 name={block.name}
                 input={block.input}
+              />
+            );
+          }
+          if (block.type === "function_call") {
+            return (
+              <FunctionCallBlock
+                key={i}
+                name={block.name}
+                arguments={block.arguments}
               />
             );
           }
@@ -178,6 +195,32 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
   );
 }
 
+function ReasoningBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-2 mb-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <Brain className="w-3.5 h-3.5" />
+        推理过程
+        {expanded ? (
+          <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronRight className="w-3 h-3" />
+        )}
+      </button>
+      {expanded && (
+        <div className="mt-1 pl-5 text-xs text-muted-foreground whitespace-pre-wrap border-l-2 border-muted">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ToolCallBlock({ name, input }: { name: string; input: string }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -201,6 +244,36 @@ function ToolCallBlock({ name, input }: { name: string; input: string }) {
             {input.length > 5000
               ? input.slice(0, 5000) + "\n... (truncated)"
               : input}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FunctionCallBlock({ name, arguments: args }: { name: string; arguments: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="mt-2 mb-2 border border-border rounded-md overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-xs bg-muted/50 hover:bg-muted transition-colors"
+      >
+        <Wrench className="w-3.5 h-3.5 text-green-500" />
+        <span className="font-mono font-medium">{name}</span>
+        {expanded ? (
+          <ChevronDown className="w-3 h-3 ml-auto" />
+        ) : (
+          <ChevronRight className="w-3 h-3 ml-auto" />
+        )}
+      </button>
+      {expanded && (
+        <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto">
+          <pre className="whitespace-pre-wrap break-all">
+            {args.length > 5000
+              ? args.slice(0, 5000) + "\n... (truncated)"
+              : args}
           </pre>
         </div>
       )}

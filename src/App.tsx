@@ -12,9 +12,9 @@ function App() {
       <Route element={<AppLayout />}>
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/projects/:encodedName" element={<SessionsPage />} />
+        <Route path="/projects/:projectId" element={<SessionsPage />} />
         <Route
-          path="/projects/:encodedName/:sessionId"
+          path="/projects/:projectId/session/*"
           element={<MessagesPage />}
         />
         <Route path="/search" element={<SearchPage />} />

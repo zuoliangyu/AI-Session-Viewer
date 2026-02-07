@@ -3,14 +3,21 @@ use std::sync::mpsc;
 use tauri::{AppHandle, Emitter};
 
 use crate::parser::path_encoder::get_projects_dir;
+use crate::provider::codex;
 
-/// Start watching the Claude projects directory for changes.
+/// Start watching both Claude and Codex directories for changes.
 /// Emits "fs-change" events to the frontend when files are modified.
 pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
-    let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
+    let claude_dir = get_projects_dir();
+    let codex_dir = codex::get_sessions_dir();
 
-    if !projects_dir.exists() {
-        return Err("Projects directory does not exist".to_string());
+    // At least one directory must exist
+    if claude_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
+        || codex_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
+    {
+        // ok, proceed
+    } else {
+        return Err("Neither Claude nor Codex directory exists".to_string());
     }
 
     std::thread::spawn(move || {
@@ -24,22 +31,34 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
             }
         };
 
-        if let Err(e) = watcher.watch(&projects_dir, RecursiveMode::Recursive) {
-            eprintln!("Failed to watch directory: {}", e);
-            return;
+        // Watch Claude projects directory
+        if let Some(ref dir) = claude_dir {
+            if dir.exists() {
+                if let Err(e) = watcher.watch(dir, RecursiveMode::Recursive) {
+                    eprintln!("Failed to watch Claude directory: {}", e);
+                }
+            }
+        }
+
+        // Watch Codex sessions directory
+        if let Some(ref dir) = codex_dir {
+            if dir.exists() {
+                if let Err(e) = watcher.watch(dir, RecursiveMode::Recursive) {
+                    eprintln!("Failed to watch Codex directory: {}", e);
+                }
+            }
         }
 
         for event in rx {
             match event {
                 Ok(event) => {
-                    // Only emit for relevant file changes
-                    let dominated_by_jsonl = event.paths.iter().any(|p| {
+                    let relevant = event.paths.iter().any(|p| {
                         p.extension()
                             .map(|e| e == "jsonl" || e == "json")
                             .unwrap_or(false)
                     });
 
-                    if dominated_by_jsonl {
+                    if relevant {
                         let paths: Vec<String> = event
                             .paths
                             .iter()

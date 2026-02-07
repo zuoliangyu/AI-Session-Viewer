@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// The stats-cache.json file structure
+/// The stats-cache.json file structure (Claude-specific)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatsCache {
@@ -29,17 +29,24 @@ pub struct DailyModelTokens {
     pub tokens_by_model: HashMap<String, u64>,
 }
 
+/// Unified token usage summary (works for both Claude and Codex)
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUsageSummary {
+    pub total_input_tokens: u64,
+    pub total_output_tokens: u64,
     pub total_tokens: u64,
     pub tokens_by_model: HashMap<String, u64>,
     pub daily_tokens: Vec<DailyTokenEntry>,
+    pub session_count: u64,
+    pub message_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DailyTokenEntry {
     pub date: String,
-    pub tokens: u64,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub total_tokens: u64,
 }

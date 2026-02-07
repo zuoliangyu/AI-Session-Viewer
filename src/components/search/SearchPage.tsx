@@ -5,7 +5,7 @@ import { Search, Loader2, MessageSquare } from "lucide-react";
 
 export function SearchPage() {
   const navigate = useNavigate();
-  const { searchResults, searchLoading, search } = useAppStore();
+  const { source, searchResults, searchLoading, search } = useAppStore();
   const [query, setQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
 
@@ -33,6 +33,20 @@ export function SearchPage() {
         {text.slice(idx + q.length)}
       </>
     );
+  };
+
+  const handleResultClick = (result: (typeof searchResults)[0]) => {
+    const encodedProjectId = encodeURIComponent(result.projectId);
+    const encodedFilePath = encodeURIComponent(result.filePath);
+    navigate(
+      `/projects/${encodedProjectId}/session/${encodedFilePath}`
+    );
+  };
+
+  const getRoleLabel = (role: string) => {
+    if (role === "user") return "用户";
+    if (role === "tool") return "Tool";
+    return source === "codex" ? "Codex" : "Claude";
   };
 
   return (
@@ -64,11 +78,7 @@ export function SearchPage() {
           {searchResults.map((result, i) => (
             <div
               key={i}
-              onClick={() =>
-                navigate(
-                  `/projects/${result.encodedName}/${result.sessionId}`
-                )
-              }
+              onClick={() => handleResultClick(result)}
               className="bg-card border border-border rounded-lg p-4 hover:border-primary/50 hover:bg-accent/30 transition-all cursor-pointer"
             >
               <div className="flex items-center gap-2 mb-2">
@@ -76,7 +86,7 @@ export function SearchPage() {
                   {result.projectName}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {result.role === "user" ? "用户" : "Claude"}
+                  {getRoleLabel(result.role)}
                 </span>
                 {result.timestamp && (
                   <span className="text-xs text-muted-foreground">

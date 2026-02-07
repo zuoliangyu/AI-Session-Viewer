@@ -20,11 +20,11 @@ import {
 } from "lucide-react";
 
 export function StatsPage() {
-  const { stats, tokenSummary, statsLoading, loadStats } = useAppStore();
+  const { source, tokenSummary, statsLoading, loadStats } = useAppStore();
 
   useEffect(() => {
     loadStats();
-  }, []);
+  }, [source]);
 
   if (statsLoading) {
     return (
@@ -35,120 +35,117 @@ export function StatsPage() {
     );
   }
 
-  if (!stats) {
+  if (!tokenSummary) {
+    const hint =
+      source === "claude"
+        ? "请确认 ~/.claude/ 目录下存在统计数据。"
+        : "请确认 ~/.codex/sessions/ 目录下存在会话数据。";
     return (
       <div className="p-6 text-muted-foreground">
-        未找到统计数据。请确认 ~/.claude/stats-cache.json 文件存在。
+        未找到统计数据。{hint}
       </div>
     );
   }
 
-  // Calculate totals
-  const totalMessages = stats.dailyActivity.reduce(
-    (sum, d) => sum + d.messageCount,
-    0
-  );
-  const totalSessions = stats.dailyActivity.reduce(
-    (sum, d) => sum + d.sessionCount,
-    0
-  );
-  const totalToolCalls = stats.dailyActivity.reduce(
-    (sum, d) => sum + d.toolCallCount,
-    0
-  );
-
-  // Format token count for display
   const formatTokens = (n: number) => {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
     return n.toString();
   };
 
-  // Prepare chart data
-  const activityData = stats.dailyActivity.map((d) => ({
+  // Daily token chart data
+  const dailyData = tokenSummary.dailyTokens.map((d) => ({
     date: d.date.slice(5), // "MM-DD"
-    messages: d.messageCount,
-    sessions: d.sessionCount,
-    tools: d.toolCallCount,
+    input: d.inputTokens,
+    output: d.outputTokens,
+    total: d.totalTokens,
   }));
 
-  const tokenData = tokenSummary?.dailyTokens.map((d) => ({
-    date: d.date.slice(5),
-    tokens: d.tokens,
-  })) || [];
-
   // Model breakdown
-  const modelBreakdown = tokenSummary
-    ? Object.entries(tokenSummary.tokensByModel)
-        .sort(([, a], [, b]) => b - a)
-        .map(([model, tokens]) => ({
-          model: model.replace("claude-", "").replace(/-\d+$/, ""),
-          tokens,
-          pct: ((tokens / tokenSummary.totalTokens) * 100).toFixed(1),
-        }))
-    : [];
+  const modelBreakdown = Object.entries(tokenSummary.tokensByModel)
+    .sort(([, a], [, b]) => b - a)
+    .map(([model, tokens]) => ({
+      model,
+      tokens,
+      pct:
+        tokenSummary.totalTokens > 0
+          ? ((tokens / tokenSummary.totalTokens) * 100).toFixed(1)
+          : "0",
+    }));
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">使用统计</h1>
+      <h1 className="text-2xl font-bold mb-6">
+        使用统计
+        <span className="text-sm font-normal text-muted-foreground ml-2">
+          ({source === "claude" ? "Claude" : "Codex"})
+        </span>
+      </h1>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <StatCard
-          icon={<MessageSquare className="w-5 h-5" />}
-          label="总消息数"
-          value={totalMessages.toLocaleString()}
-        />
-        <StatCard
           icon={<Calendar className="w-5 h-5" />}
           label="总会话数"
-          value={totalSessions.toLocaleString()}
+          value={tokenSummary.sessionCount.toLocaleString()}
+        />
+        <StatCard
+          icon={<MessageSquare className="w-5 h-5" />}
+          label="总消息数"
+          value={tokenSummary.messageCount.toLocaleString()}
         />
         <StatCard
           icon={<Zap className="w-5 h-5" />}
-          label="工具调用"
-          value={totalToolCalls.toLocaleString()}
+          label="输入 Token"
+          value={formatTokens(tokenSummary.totalInputTokens)}
         />
         <StatCard
           icon={<Activity className="w-5 h-5" />}
           label="总 Token"
-          value={formatTokens(tokenSummary?.totalTokens || 0)}
+          value={formatTokens(tokenSummary.totalTokens)}
         />
       </div>
 
-      {/* Activity chart */}
-      <div className="bg-card border border-border rounded-lg p-4 mb-6">
-        <h2 className="text-sm font-medium mb-4">每日活动</h2>
-        <ResponsiveContainer width="100%" height={250}>
-          <BarChart data={activityData}>
-            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-            />
-            <YAxis
-              tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-            />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: "hsl(var(--card))",
-                border: "1px solid hsl(var(--border))",
-                borderRadius: "6px",
-                fontSize: 12,
-              }}
-            />
-            <Bar dataKey="messages" fill="#3b82f6" name="消息" radius={[2, 2, 0, 0]} />
-            <Bar dataKey="tools" fill="#f59e0b" name="工具调用" radius={[2, 2, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Daily token chart */}
+      {dailyData.length > 0 && (
+        <div className="bg-card border border-border rounded-lg p-4 mb-6">
+          <h2 className="text-sm font-medium mb-4">每日 Token 用量</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <BarChart data={dailyData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+              />
+              <YAxis
+                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                tickFormatter={(v) => formatTokens(v)}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "hsl(var(--card))",
+                  border: "1px solid hsl(var(--border))",
+                  borderRadius: "6px",
+                  fontSize: 12,
+                }}
+                formatter={(value: number, name: string) => [
+                  formatTokens(value),
+                  name === "input" ? "输入" : name === "output" ? "输出" : "总计",
+                ]}
+              />
+              <Bar dataKey="input" fill="#3b82f6" name="input" radius={[2, 2, 0, 0]} stackId="a" />
+              <Bar dataKey="output" fill="#f59e0b" name="output" radius={[2, 2, 0, 0]} stackId="a" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
-      {/* Token usage chart */}
-      {tokenData.length > 0 && (
+      {/* Token trend */}
+      {dailyData.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4 mb-6">
           <h2 className="text-sm font-medium mb-4">Token 用量趋势</h2>
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={tokenData}>
+            <AreaChart data={dailyData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
               <XAxis
                 dataKey="date"
@@ -169,7 +166,7 @@ export function StatsPage() {
               />
               <Area
                 type="monotone"
-                dataKey="tokens"
+                dataKey="total"
                 stroke="#8b5cf6"
                 fill="#8b5cf6"
                 fillOpacity={0.2}
