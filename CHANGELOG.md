@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-02-10
+
+### Fixed
+
+#### Claude 每日 Token 用量图表空白
+- **根因**: `stats-cache.json` 中的 `dailyModelTokens` 只有按模型汇总的 token 总量，没有 input/output 拆分。后端构建 `DailyTokenEntry` 时将 `input_tokens` 和 `output_tokens` 硬编码为 0，而前端柱状图仅渲染 input + output 的堆叠柱，导致图表看似空白
+- **修复**: 解析 `stats-cache.json` 中的 `modelUsage` 字段获取全局 input/output 比例，按此比例将每日 token 总量分配为 input 和 output；同时修复摘要卡片中"输入 Token"始终显示为 0 的问题
+
+#### Claude 恢复会话路径解析不准确
+- **根因**: `resume_session` 仅使用前端传入的 `project_path`，该路径可能来自解码后的目录名而非真实项目路径，导致在终端中无法正确 `cd` 到项目目录
+- **修复**: 新增 `file_path` 参数，从会话文件所在目录的 `sessions-index.json` 中读取 `originalPath` 作为优先项目路径；同时在恢复前将孤儿会话写入索引，确保 `claude --resume` 能发现该会话
+
+---
+
 ## [0.6.0] - 2026-02-10
 
 ### Fixed
@@ -186,6 +200,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.6.1]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.6.1
 [0.6.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.6.0
 [0.5.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.5.0
 [0.4.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.4.0

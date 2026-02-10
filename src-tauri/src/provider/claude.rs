@@ -110,21 +110,32 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
             .map_err(|e| format!("Failed to parse sessions index: {}", e))?;
 
         if !index.entries.is_empty() {
+            let original_path = index.original_path.clone();
+
             // Collect indexed session IDs
             let indexed_ids: std::collections::HashSet<String> =
                 index.entries.iter().map(|e| e.session_id.clone()).collect();
 
-            // Start with index entries
+            // Start with index entries, fill missing project_path from original_path
             let mut entries: Vec<SessionIndexEntry> = index
                 .entries
                 .into_iter()
-                .map(|e| convert_index_entry(e, &project_dir))
+                .map(|e| {
+                    let mut entry = convert_index_entry(e, &project_dir);
+                    if entry.project_path.is_none() {
+                        entry.project_path = original_path.clone();
+                    }
+                    entry
+                })
                 .collect();
 
             // Find sessions on disk but missing from index, scan them individually
             for (session_id, path) in &disk_sessions {
                 if !indexed_ids.contains(session_id) {
-                    if let Some(entry) = scan_single_session(path, session_id) {
+                    if let Some(mut entry) = scan_single_session(path, session_id) {
+                        if entry.project_path.is_none() {
+                            entry.project_path = original_path.clone();
+                        }
                         entries.push(entry);
                     }
                 }

@@ -312,7 +312,7 @@ AI-Session-Viewer/
 | `global_search` | `source, query, maxResults` | `SearchResult[]` | 全局搜索 |
 | `get_token_stats` | `source` | `TokenUsageSummary` | Token 统计 |
 | `get_project_token_stats` | `source, projectId` | `TokenUsageSummary` | 项目 Token 统计 |
-| `resume_session` | `source, sessionId, projectPath` | `()` | 终端中恢复会话 |
+| `resume_session` | `source, sessionId, projectPath, filePath?` | `()` | 终端中恢复会话 |
 | `delete_session` | `filePath` | `()` | 删除会话文件 |
 
 ## Build
@@ -335,8 +335,8 @@ npx tauri build
 项目使用 GitHub Actions 自动化构建和发布。创建一个 `v*` 格式的 tag 即可触发多平台构建：
 
 ```bash
-git tag v0.5.0
-git push origin v0.5.0
+git tag v0.6.1
+git push origin v0.6.1
 ```
 
 GitHub Actions 会自动：

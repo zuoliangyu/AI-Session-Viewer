@@ -57,7 +57,7 @@ export function MessagesPage() {
     const path = session.projectPath || session.cwd || project?.displayPath;
     if (!path) return;
     try {
-      await resumeSession(source, session.sessionId, path);
+      await resumeSession(source, session.sessionId, path, session.filePath);
     } catch (err) {
       console.error("Failed to resume session:", err);
     }

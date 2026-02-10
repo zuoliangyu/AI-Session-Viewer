@@ -53,12 +53,13 @@ export function SessionsPage() {
   const handleResume = async (
     e: React.MouseEvent,
     sessionId: string,
-    projectPath: string | null
+    projectPath: string | null,
+    filePath?: string
   ) => {
     e.stopPropagation();
     if (!projectPath) return;
     try {
-      await resumeSession(source, sessionId, projectPath);
+      await resumeSession(source, sessionId, projectPath, filePath);
     } catch (err) {
       console.error("Failed to resume session:", err);
     }
@@ -149,7 +150,8 @@ export function SessionsPage() {
                       handleResume(
                         e,
                         session.sessionId,
-                        session.projectPath || session.cwd || project?.displayPath || null
+                        session.projectPath || session.cwd || project?.displayPath || null,
+                        session.filePath
                       )
                     }
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"

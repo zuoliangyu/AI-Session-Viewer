@@ -51,7 +51,8 @@ export async function deleteSession(filePath: string): Promise<void> {
 export async function resumeSession(
   source: string,
   sessionId: string,
-  projectPath: string
+  projectPath: string,
+  filePath?: string
 ): Promise<void> {
-  return invoke<void>("resume_session", { source, sessionId, projectPath });
+  return invoke<void>("resume_session", { source, sessionId, projectPath, filePath });
 }

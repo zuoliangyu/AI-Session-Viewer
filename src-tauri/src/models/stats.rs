@@ -11,6 +11,21 @@ pub struct StatsCache {
     pub daily_activity: Vec<DailyActivity>,
     #[serde(default)]
     pub daily_model_tokens: Vec<DailyModelTokens>,
+    #[serde(default)]
+    pub model_usage: HashMap<String, ModelUsageEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelUsageEntry {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+    #[serde(default)]
+    pub cache_read_input_tokens: u64,
+    #[serde(default)]
+    pub cache_creation_input_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
