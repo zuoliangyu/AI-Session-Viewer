@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-02-10
+
+### Fixed
+
+#### Ctrl+C 退出的会话在列表中丢失
+- **根因**: Claude CLI 的 `sessions-index.json` 由 CLI 自身维护，当用户通过 Ctrl+C 强制退出时，CLI 可能来不及将当前会话写入索引。`get_sessions()` 优先信任索引，如果索引存在就只返回索引中的会话，忽略磁盘上存在但不在索引中的 `.jsonl` 文件
+- **修复**: `get_sessions()` 现在执行合并逻辑——先读取索引条目，再扫描磁盘上所有 `.jsonl` 文件，对不在索引中的会话执行 fallback 扫描并合并到结果中
+
+### Changed
+
+#### 重构: 提取 `scan_single_session()` 函数
+- 从 `scan_sessions_from_dir()` 的循环体中提取单文件扫描逻辑为独立的 `scan_single_session()` 函数
+- `scan_sessions_from_dir()` 和合并逻辑共同复用此函数，消除代码重复
+
+---
+
 ## [0.5.0] - 2026-02-07
 
 ### Highlights
@@ -170,6 +186,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.6.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.6.0
 [0.5.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.5.0
 [0.4.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.4.0
 [0.3.0]: https://github.com/zuoliangyu/claude-memory-viewer/releases/tag/v0.3.0

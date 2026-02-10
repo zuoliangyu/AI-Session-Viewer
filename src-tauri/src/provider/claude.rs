@@ -85,7 +85,23 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
         return Err(format!("Project directory not found: {}", encoded_name));
     }
 
-    // Try reading sessions-index.json first
+    // Collect all .jsonl files on disk: session_id -> path
+    let mut disk_sessions: std::collections::HashMap<String, PathBuf> =
+        std::collections::HashMap::new();
+    if let Ok(dir_entries) = fs::read_dir(&project_dir) {
+        for entry in dir_entries.flatten() {
+            let path = entry.path();
+            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !session_id.is_empty() {
+                        disk_sessions.insert(session_id.to_string(), path);
+                    }
+                }
+            }
+        }
+    }
+
+    // Try reading sessions-index.json
     let index_path = project_dir.join("sessions-index.json");
     if index_path.exists() {
         let content = fs::read_to_string(&index_path)
@@ -94,11 +110,26 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
             .map_err(|e| format!("Failed to parse sessions index: {}", e))?;
 
         if !index.entries.is_empty() {
+            // Collect indexed session IDs
+            let indexed_ids: std::collections::HashSet<String> =
+                index.entries.iter().map(|e| e.session_id.clone()).collect();
+
+            // Start with index entries
             let mut entries: Vec<SessionIndexEntry> = index
                 .entries
                 .into_iter()
                 .map(|e| convert_index_entry(e, &project_dir))
                 .collect();
+
+            // Find sessions on disk but missing from index, scan them individually
+            for (session_id, path) in &disk_sessions {
+                if !indexed_ids.contains(session_id) {
+                    if let Some(entry) = scan_single_session(path, session_id) {
+                        entries.push(entry);
+                    }
+                }
+            }
+
             entries.sort_by(|a, b| b.modified.cmp(&a.modified));
             return Ok(entries);
         }
@@ -213,54 +244,60 @@ fn scan_sessions_from_dir(project_dir: &std::path::Path) -> Result<Vec<SessionIn
                 continue;
             }
 
-            let first_prompt = claude_parser::extract_first_prompt(&path);
-            let metadata = claude_parser::extract_session_metadata(&path);
-            let (_, git_branch, project_path) = metadata.unwrap_or((String::new(), None, None));
-            let message_count = count_messages(&path);
-
-            let file_meta = fs::metadata(&path).ok();
-            let modified = file_meta.as_ref().and_then(|m| {
-                m.modified().ok().map(|t| {
-                    let d = t
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-
-            let created = file_meta.as_ref().and_then(|m| {
-                m.created().ok().map(|t| {
-                    let d = t
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-
-            entries.push(SessionIndexEntry {
-                source: "claude".to_string(),
-                session_id,
-                file_path: path.to_string_lossy().to_string(),
-                first_prompt,
-                message_count,
-                created,
-                modified,
-                git_branch,
-                project_path,
-                is_sidechain: Some(false),
-                cwd: None,
-                model_provider: None,
-                cli_version: None,
-            });
+            if let Some(entry) = scan_single_session(&path, &session_id) {
+                entries.push(entry);
+            }
         }
     }
 
     entries.sort_by(|a, b| b.modified.cmp(&a.modified));
     Ok(entries)
+}
+
+fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<SessionIndexEntry> {
+    let first_prompt = claude_parser::extract_first_prompt(path);
+    let metadata = claude_parser::extract_session_metadata(path);
+    let (_, git_branch, project_path) = metadata.unwrap_or((String::new(), None, None));
+    let message_count = count_messages(path);
+
+    let file_meta = fs::metadata(path).ok();
+    let modified = file_meta.as_ref().and_then(|m| {
+        m.modified().ok().map(|t| {
+            let d = t
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        })
+    });
+
+    let created = file_meta.as_ref().and_then(|m| {
+        m.created().ok().map(|t| {
+            let d = t
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default()
+        })
+    });
+
+    Some(SessionIndexEntry {
+        source: "claude".to_string(),
+        session_id: session_id.to_string(),
+        file_path: path.to_string_lossy().to_string(),
+        first_prompt,
+        message_count,
+        created,
+        modified,
+        git_branch,
+        project_path,
+        is_sidechain: Some(false),
+        cwd: None,
+        model_provider: None,
+        cli_version: None,
+    })
 }
 
 fn count_messages(path: &std::path::Path) -> u32 {

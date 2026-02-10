@@ -58,7 +58,7 @@
 
 ### Session List
 
-- Claude：读取 `sessions-index.json` 索引文件，毫秒级加载
+- Claude：读取 `sessions-index.json` 索引文件并与磁盘 `.jsonl` 文件合并，确保 Ctrl+C 退出的会话不会丢失
 - Codex：扫描 `~/.codex/sessions/` 目录下所有 `rollout-*.jsonl` 文件，提取元数据
 - 展示每个会话的首条 Prompt、消息数量、Git 分支、创建/修改时间
 - 支持删除会话（带确认弹窗）
@@ -358,6 +358,7 @@ GitHub Actions 会自动：
 - [x] GitHub Actions 多平台自动构建
 - [x] 会话删除
 - [x] **双数据源支持（Claude Code + Codex CLI）**
+- [x] 修复 Ctrl+C 退出会话在列表中丢失的问题
 - [ ] 暗色 / 亮色主题切换
 - [ ] 自定义标题栏
 - [ ] 更多 AI CLI 数据源支持（Gemini CLI 等）
