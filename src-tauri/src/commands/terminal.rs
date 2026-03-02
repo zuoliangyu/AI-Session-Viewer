@@ -62,7 +62,7 @@ pub fn fork_and_resume(
     Ok(result)
 }
 
-fn open_terminal(project_path: &str, cli_cmd: &str, shell: Option<&str>) -> Result<(), String> {
+fn open_terminal(project_path: &str, cli_cmd: &str, _shell: Option<&str>) -> Result<(), String> {
     if !Path::new(project_path).exists() {
         return Err(format!("项目路径不存在: {}", project_path));
     }
@@ -72,7 +72,7 @@ fn open_terminal(project_path: &str, cli_cmd: &str, shell: Option<&str>) -> Resu
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        if shell == Some("powershell") {
+        if _shell == Some("powershell") {
             let ps_cmd = format!(
                 "Set-Location '{}'; {}",
                 project_path.replace('\'', "''"),
