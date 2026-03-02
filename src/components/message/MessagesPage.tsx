@@ -237,13 +237,15 @@ export function MessagesPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const { terminalShell } = useAppStore();
+
   const handleResume = async () => {
     if (!session) return;
     if (__IS_TAURI__) {
       const path = session.projectPath || session.cwd || project?.displayPath;
       if (!path) return;
       try {
-        await api.resumeSession(source, session.sessionId, path, session.filePath);
+        await api.resumeSession(source, session.sessionId, path, session.filePath, terminalShell);
       } catch (err) {
         console.error("Failed to resume session:", err);
       }
@@ -368,6 +370,7 @@ export function MessagesPage() {
             filePath={filePath}
             sessionTitle={session?.alias || session?.firstPrompt || session?.sessionId}
             projectName={project?.shortName || projectId}
+            projectPath={chatProjectPath}
           />
         )}
         {!messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (

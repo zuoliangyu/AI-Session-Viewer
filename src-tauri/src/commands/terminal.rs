@@ -4,6 +4,7 @@ use std::process::Command;
 
 use session_core::models::session::{SessionsIndex, SessionsIndexFileEntry};
 use session_core::parser::jsonl as claude_parser;
+use session_core::parser::jsonl::ForkResult;
 
 #[tauri::command]
 pub fn resume_session(
@@ -11,6 +12,7 @@ pub fn resume_session(
     session_id: String,
     project_path: String,
     file_path: Option<String>,
+    shell: Option<String>,
 ) -> Result<(), String> {
     // Try to derive the correct project path from the session file location
     let project_path = resolve_project_path(&source, &project_path, file_path.as_deref());
@@ -34,16 +36,60 @@ pub fn resume_session(
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
+    open_terminal(&project_path, &cli_cmd, shell.as_deref())
+}
+
+#[tauri::command]
+pub fn fork_and_resume(
+    source: String,
+    original_file_path: String,
+    user_msg_uuid: String,
+    project_path: String,
+    shell: Option<String>,
+) -> Result<ForkResult, String> {
+    if source != "claude" {
+        return Err("Fork is only supported for Claude sessions".to_string());
+    }
+
+    let original_path = Path::new(&original_file_path);
+    let result =
+        claude_parser::fork_session_from_message(original_path, &user_msg_uuid, Some(&project_path))?;
+
+    let resolved_path = resolve_project_path(&source, &project_path, Some(&original_file_path));
+    let cli_cmd = format!("claude --resume {}", result.new_session_id);
+    open_terminal(&resolved_path, &cli_cmd, shell.as_deref())?;
+
+    Ok(result)
+}
+
+fn open_terminal(project_path: &str, cli_cmd: &str, shell: Option<&str>) -> Result<(), String> {
+    if !Path::new(project_path).exists() {
+        return Err(format!("项目路径不存在: {}", project_path));
+    }
+
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        Command::new("cmd")
-            .args(["/c", "start", "", "/d", &project_path, "cmd", "/k", &cli_cmd])
-            .creation_flags(CREATE_NO_WINDOW)
-            .spawn()
-            .map_err(|e| format!("Failed to open terminal: {}", e))?;
+        if shell == Some("powershell") {
+            let ps_cmd = format!(
+                "Set-Location '{}'; {}",
+                project_path.replace('\'', "''"),
+                cli_cmd
+            );
+            Command::new("cmd")
+                .args(["/c", "start", "", "powershell", "-NoExit", "-Command", &ps_cmd])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("Failed to open PowerShell: {}", e))?;
+        } else {
+            Command::new("cmd")
+                .args(["/c", "start", "", "/d", project_path, "cmd", "/k", cli_cmd])
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+        }
     }
 
     #[cfg(target_os = "macos")]

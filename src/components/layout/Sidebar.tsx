@@ -697,6 +697,7 @@ function CliConfigDisplay() {
 }
 
 function ChatSettingsTab() {
+  const { terminalShell, setTerminalShell } = useAppStore();
   const {
     skipPermissions,
     setSkipPermissions,
@@ -705,6 +706,8 @@ function ChatSettingsTab() {
     availableClis,
     detectCli,
   } = useChatStore();
+
+  const isWindows = __IS_TAURI__ && navigator.platform.startsWith("Win");
 
   return (
     <div className="p-4 space-y-4 text-sm">
@@ -759,6 +762,39 @@ function ChatSettingsTab() {
           <ProviderModelManager />
         </div>
       </section>
+
+      {isWindows && (
+        <section>
+          <h3 className="font-medium mb-2 text-foreground">终端类型</h3>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="terminalShell"
+                value="cmd"
+                checked={terminalShell === "cmd"}
+                onChange={() => setTerminalShell("cmd")}
+                className="rounded-full border-border"
+              />
+              <span className="text-xs text-foreground">CMD</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="radio"
+                name="terminalShell"
+                value="powershell"
+                checked={terminalShell === "powershell"}
+                onChange={() => setTerminalShell("powershell")}
+                className="rounded-full border-border"
+              />
+              <span className="text-xs text-foreground">PowerShell</span>
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            恢复会话时使用的终端类型
+          </p>
+        </section>
+      )}
 
       <section>
         <h3 className="font-medium mb-2 text-foreground">权限模式</h3>

@@ -20,6 +20,10 @@ interface AppState {
   toggleTimestamp: () => void;
   toggleModel: () => void;
 
+  // Terminal shell (Windows only)
+  terminalShell: "cmd" | "powershell";
+  setTerminalShell: (shell: "cmd" | "powershell") => void;
+
   // Projects
   projects: ProjectEntry[];
   projectsLoading: boolean;
@@ -115,6 +119,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = !get().showModel;
     localStorage.setItem("showModel", String(next));
     set({ showModel: next });
+  },
+
+  terminalShell: (localStorage.getItem("terminalShell") === "powershell" ? "powershell" : "cmd") as "cmd" | "powershell",
+  setTerminalShell: (shell) => {
+    localStorage.setItem("terminalShell", shell);
+    set({ terminalShell: shell });
   },
 
   projects: [],

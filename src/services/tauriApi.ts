@@ -95,9 +95,33 @@ export async function resumeSession(
   source: string,
   sessionId: string,
   projectPath: string,
-  filePath?: string
+  filePath?: string,
+  shell?: string
 ): Promise<void> {
-  return invoke<void>("resume_session", { source, sessionId, projectPath, filePath });
+  return invoke<void>("resume_session", { source, sessionId, projectPath, filePath, shell });
+}
+
+export interface ForkResult {
+  newSessionId: string;
+  newFilePath: string;
+  messageCount: number;
+  firstPrompt: string | null;
+}
+
+export async function forkAndResume(
+  source: string,
+  originalFilePath: string,
+  userMsgUuid: string,
+  projectPath: string,
+  shell?: string
+): Promise<ForkResult> {
+  return invoke<ForkResult>("fork_and_resume", {
+    source,
+    originalFilePath,
+    userMsgUuid,
+    projectPath,
+    shell,
+  });
 }
 
 export async function getInstallType(): Promise<"installed" | "portable"> {

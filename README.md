@@ -116,6 +116,7 @@ environment:
 | 功能 | 桌面应用 | Web 服务器 |
 |------|---------|-----------|
 | 恢复会话 | 打开系统终端 | 复制命令到剪贴板 |
+| 会话分叉 | 创建新会话 + 终端打开 | 不适用 |
 | CLI 对话 | 本地 spawn CLI 进程 | WebSocket 转发 |
 | 快速问答 | Tauri 事件流 | SSE 流式响应 |
 | 自动更新 | 应用内更新 | 不适用 |
@@ -193,6 +194,20 @@ environment:
 | Windows | `cmd /c start /d` 启动独立终端进程 |
 | macOS | AppleScript 调用 Terminal.app |
 | Linux | 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm，`setsid` 脱离父进程 |
+
+### 会话分叉（Fork）
+
+在消息详情页中，hover 任意用户消息时右侧会出现操作按钮组：
+
+| 按钮 | 图标 | 功能 |
+|------|------|------|
+| Resume | ▶ Play | 在终端中恢复当前会话 |
+| Fork | 🔀 GitFork | 从此消息处分叉出新会话 |
+| Star | ⭐ Star | 收藏此消息 |
+
+**Fork 流程**：复制当前消息及之前的所有会话内容到新的 JSONL 文件（生成新 sessionId）→ 自动注册到 `sessions-index.json` → 在系统终端中用 `claude --resume {新ID}` 打开。适用于想从历史对话的某个节点开始新的分支探索。
+
+> 仅在 Tauri 桌面模式 + Claude 数据源下可用。
 
 ### 全局搜索
 
@@ -421,6 +436,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 对话轮次分组 + Token 详细统计 + 虚拟化滚动
 - [x] 模型智能记忆与自动选择（持久化 + 历史会话模型匹配）
 - [x] 收藏系统（会话级 + 消息级收藏，跳转导航）
+- [x] 会话分叉（Fork）— 从任意用户消息处分叉新会话
+- [x] 终端类型选择（Windows CMD / PowerShell）
 
 ## Star History
 

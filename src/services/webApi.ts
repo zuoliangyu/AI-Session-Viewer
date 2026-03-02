@@ -172,12 +172,30 @@ export async function getCrossProjectTags(
   return apiFetch("/api/cross-tags", { source });
 }
 
+export interface ForkResult {
+  newSessionId: string;
+  newFilePath: string;
+  messageCount: number;
+  firstPrompt: string | null;
+}
+
+export async function forkAndResume(
+  _source: string,
+  _originalFilePath: string,
+  _userMsgUuid: string,
+  _projectPath: string,
+  _shell?: string
+): Promise<ForkResult> {
+  throw new Error("Fork is not available in web mode");
+}
+
 // Web mode: resume not available, use clipboard instead
 export async function resumeSession(
   _source: string,
   _sessionId: string,
   _projectPath: string,
-  _filePath?: string
+  _filePath?: string,
+  _shell?: string
 ): Promise<void> {
   // No-op in web mode; handled by UI directly
 }

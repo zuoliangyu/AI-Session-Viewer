@@ -1,6 +1,6 @@
 [package]
 name = "session-core"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2021"
 
 [dependencies]
@@ -16,3 +16,4 @@ tokio = { version = "1", features = ["rt"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 toml = "0.8"
+uuid = { version = "1", features = ["v4"] }

@@ -81,6 +81,8 @@ export function SessionsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const { terminalShell } = useAppStore();
+
   const handleResume = async (
     e: React.MouseEvent,
     sessionId: string,
@@ -91,7 +93,7 @@ export function SessionsPage() {
     if (__IS_TAURI__) {
       if (!projectPath) return;
       try {
-        await api.resumeSession(source, sessionId, projectPath, filePath);
+        await api.resumeSession(source, sessionId, projectPath, filePath, terminalShell);
       } catch (err) {
         console.error("Failed to resume session:", err);
       }

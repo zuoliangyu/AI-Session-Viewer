@@ -24,6 +24,7 @@ pub fn run() {
             commands::search::global_search,
             commands::stats::get_stats,
             commands::terminal::resume_session,
+            commands::terminal::fork_and_resume,
             commands::updater::get_install_type,
             commands::chat::detect_cli,
             commands::chat::get_cli_config,

@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-03-02
+
+### Added
+
+#### 会话分叉（Fork）
+- 在消息详情页，hover 任意用户消息可看到三个操作按钮：Resume（恢复）、Fork（分叉）、Star（收藏）
+- **Fork**：从选中的用户消息处分叉出一个全新会话，复制该消息及之前的所有 JSONL 内容到新文件（生成新 sessionId），自动注册到 `sessions-index.json`，并在系统终端中用 `claude --resume {新ID}` 打开
+- **Resume**：直接在终端中恢复当前会话（与顶栏 Resume 按钮效果一致）
+- 仅在 Tauri 桌面模式 + Claude 数据源下显示
+- Fork 成功后按钮短暂变绿，后台自动刷新会话列表
+- 后端新增 `fork_session_from_message()` 核心函数（`session-core`），逐行解析 JSONL 并替换 sessionId
+- 后端新增 `fork_and_resume` Tauri 命令，重构终端启动代码为可复用的 `open_terminal()` 私有函数
+- 前端 `tauriApi.ts` 新增 `forkAndResume()` API；`webApi.ts` 提供 no-op 实现
+
+#### 终端类型选择（Windows）
+- 设置面板新增「终端类型」选项，可切换 CMD 或 PowerShell
+- 恢复会话和分叉会话时使用用户选择的终端类型
+- 偏好持久化到 localStorage
+
+---
+
 ## [1.8.0] - 2026-03-01
 
 ### Added
@@ -603,6 +624,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.0
 [1.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.8.0
 [1.7.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.7.1
 [1.7.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.7.0

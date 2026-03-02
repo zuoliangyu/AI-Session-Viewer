@@ -1,10 +1,11 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 
 use crate::models::message::{
     ContentBlock, ContentValue, DisplayContentBlock, DisplayMessage, PaginatedMessages, RawRecord,
 };
+use crate::models::session::{SessionsIndex, SessionsIndexFileEntry};
 
 /// Types of records to skip during parsing (large/irrelevant)
 const SKIP_TYPES: &[&str] = &["file-history-snapshot", "progress"];
@@ -336,4 +337,206 @@ fn truncate_string(s: &str, max_len: usize) -> String {
         let truncated: String = s.chars().take(max_len).collect();
         format!("{}...", truncated)
     }
+}
+
+// ── Fork session logic ──
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkResult {
+    pub new_session_id: String,
+    pub new_file_path: String,
+    pub message_count: u32,
+    pub first_prompt: Option<String>,
+}
+
+/// Fork a session from a specific user message.
+/// Copies all JSONL lines up to (and including) the target user message and its
+/// assistant reply, replacing sessionId with a new UUID. Registers the new session
+/// in sessions-index.json.
+pub fn fork_session_from_message(
+    original_file_path: &Path,
+    user_msg_uuid: &str,
+    project_path: Option<&str>,
+) -> Result<ForkResult, String> {
+    let new_session_id = uuid::Uuid::new_v4().to_string();
+
+    let file =
+        File::open(original_file_path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let reader = BufReader::new(file);
+
+    // Phase 1: collect lines up to and including the target user message
+    let mut collected_lines: Vec<String> = Vec::new();
+    let mut found_target = false;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            collected_lines.push(line);
+            continue;
+        }
+
+        collected_lines.push(line.clone());
+
+        // Check if this line contains the target uuid
+        if !found_target {
+            if let Ok(record) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                if record.get("uuid").and_then(|v| v.as_str()) == Some(user_msg_uuid)
+                    && record.get("type").and_then(|v| v.as_str()) == Some("user")
+                {
+                    found_target = true;
+                }
+            }
+        } else {
+            // Phase 2: after finding the user message, look for the assistant reply
+            if let Ok(record) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                let is_assistant =
+                    record.get("type").and_then(|v| v.as_str()) == Some("assistant");
+                let parent_matches = record.get("parentUuid").and_then(|v| v.as_str())
+                    == Some(user_msg_uuid);
+                if is_assistant && parent_matches {
+                    // Found the assistant reply — stop collecting
+                    break;
+                }
+                // If we hit another user message, the target had no assistant reply
+                let is_user = record.get("type").and_then(|v| v.as_str()) == Some("user");
+                if is_user {
+                    // Remove this line (it's the next user message, not part of the fork)
+                    collected_lines.pop();
+                    break;
+                }
+            }
+        }
+    }
+
+    if !found_target {
+        return Err(format!(
+            "User message with uuid '{}' not found",
+            user_msg_uuid
+        ));
+    }
+
+    // Replace sessionId in every line
+    let mut output_lines: Vec<String> = Vec::new();
+    let mut message_count: u32 = 0;
+    let mut first_prompt: Option<String> = None;
+
+    for line in &collected_lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            output_lines.push(line.clone());
+            continue;
+        }
+
+        // Try to parse and replace sessionId
+        if let Ok(mut value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if value.get("sessionId").is_some() {
+                value["sessionId"] = serde_json::Value::String(new_session_id.clone());
+            }
+
+            // Count user/assistant messages
+            if let Some(t) = value.get("type").and_then(|v| v.as_str()) {
+                if t == "user" || t == "assistant" {
+                    message_count += 1;
+                }
+                // Extract first user prompt
+                if t == "user" && first_prompt.is_none() {
+                    if let Some(msg) = value.get("message") {
+                        if let Some(content) = msg.get("content") {
+                            if let Some(s) = content.as_str() {
+                                if !s.is_empty() {
+                                    first_prompt = Some(truncate_string(s, 200));
+                                }
+                            } else if let Some(blocks) = content.as_array() {
+                                for block in blocks {
+                                    if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+                                        if let Some(text) =
+                                            block.get("text").and_then(|v| v.as_str())
+                                        {
+                                            if !text.is_empty() {
+                                                first_prompt =
+                                                    Some(truncate_string(text, 200));
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            output_lines
+                .push(serde_json::to_string(&value).unwrap_or_else(|_| line.clone()));
+        } else {
+            output_lines.push(line.clone());
+        }
+    }
+
+    // Write new JSONL file in the same directory
+    let parent_dir = original_file_path
+        .parent()
+        .ok_or("Cannot determine parent directory")?;
+    let new_file_name = format!("{}.jsonl", new_session_id);
+    let new_file_path = parent_dir.join(&new_file_name);
+
+    let mut out_file =
+        File::create(&new_file_path).map_err(|e| format!("Failed to create file: {}", e))?;
+    for line in &output_lines {
+        writeln!(out_file, "{}", line).map_err(|e| format!("Failed to write line: {}", e))?;
+    }
+
+    // Update sessions-index.json
+    let index_path = parent_dir.join("sessions-index.json");
+    let mut index: SessionsIndex = if index_path.exists() {
+        match fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+        {
+            Some(idx) => idx,
+            None => SessionsIndex {
+                version: Some(1),
+                entries: Vec::new(),
+                original_path: project_path.map(|s| s.to_string()),
+            },
+        }
+    } else {
+        SessionsIndex {
+            version: Some(1),
+            entries: Vec::new(),
+            original_path: project_path.map(|s| s.to_string()),
+        }
+    };
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let new_file_path_str = new_file_path.to_string_lossy().to_string();
+
+    index.entries.push(SessionsIndexFileEntry {
+        session_id: new_session_id.clone(),
+        full_path: Some(new_file_path_str.clone()),
+        file_mtime: None,
+        first_prompt: first_prompt.clone(),
+        message_count: Some(message_count),
+        created: Some(now.clone()),
+        modified: Some(now),
+        git_branch: None,
+        project_path: project_path.map(|s| s.to_string()),
+        is_sidechain: Some(false),
+    });
+
+    if let Ok(json) = serde_json::to_string_pretty(&index) {
+        let _ = fs::write(&index_path, json);
+    }
+
+    Ok(ForkResult {
+        new_session_id,
+        new_file_path: new_file_path_str,
+        message_count,
+        first_prompt,
+    })
 }
