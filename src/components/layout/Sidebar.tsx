@@ -43,7 +43,7 @@ export function Sidebar() {
     useAppStore();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"guide" | "chat" | "about">("guide");
+  const [settingsTab, setSettingsTab] = useState<"guide" | "chat" | "update" | "about">("guide");
   useUpdateChecker();
   useFileWatcher();
 
@@ -76,7 +76,7 @@ export function Sidebar() {
     <aside className="w-64 h-full border-r border-border bg-card flex flex-col shrink-0">
       {/* Header */}
       <div className="p-4 border-b border-border">
-        <h1 className="text-sm font-semibold text-foreground mb-3">
+        <h1 className="text-sm font-semibold text-foreground mb-3 text-center">
           AI Session Viewer
         </h1>
         {/* Source Tabs */}
@@ -214,11 +214,11 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t border-border space-y-2">
+      <div className="p-3 border-t border-border">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs text-muted-foreground">
-              {projects.length} 个项目
+              v{__APP_VERSION__}
             </span>
             <button
               onClick={() => setShowSettings(true)}
@@ -258,7 +258,6 @@ export function Sidebar() {
             </button>
           </div>
         </div>
-        {__IS_TAURI__ && <UpdateIndicator />}
       </div>
 
       {/* Settings Modal */}
@@ -303,6 +302,18 @@ export function Sidebar() {
               >
                 对话设置
               </button>
+              {__IS_TAURI__ && (
+                <button
+                  onClick={() => setSettingsTab("update")}
+                  className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                    settingsTab === "update"
+                      ? "text-foreground border-b-2 border-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  更新检查
+                </button>
+              )}
               <button
                 onClick={() => setSettingsTab("about")}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
@@ -318,6 +329,10 @@ export function Sidebar() {
             <div className="max-h-[70vh] overflow-y-auto">
               {settingsTab === "chat" ? (
                 <ChatSettingsTab />
+              ) : settingsTab === "update" && __IS_TAURI__ ? (
+                <div className="p-4">
+                  <UpdateIndicator />
+                </div>
               ) : settingsTab === "guide" ? (
                 <div className="p-4 space-y-4 text-sm text-foreground">
                   <section>

@@ -233,8 +233,8 @@ environment:
 | **安装版** (MSI/NSIS/DMG/DEB) | 应用内一键下载 + 自动安装 + 重启 |
 | **便携版** (Windows Portable ZIP) | 检测到新版后引导跳转 GitHub Release 下载 |
 
-- 启动后自动检查，Sidebar 底部显示版本号 + 手动检查按钮
-- 有更新时版本号旁显示蓝色脉冲圆点，点击展开内嵌更新面板
+- 启动后自动检查，设置弹窗「更新检查」选项卡中显示完整更新面板
+- 有更新时可在设置中查看版本变化、Release Notes 并一键更新
 - 支持忽略特定版本，不再重复提示
 - 基于 `tauri-plugin-updater` + Ed25519 签名验证
 
@@ -439,6 +439,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 会话分叉（Fork）— 从任意用户消息处分叉新会话
 - [x] 终端类型选择（Windows CMD / PowerShell）
 - [x] Docker GLIBC 兼容性修复 + CI 构建流水线加速
+- [x] 侧边栏布局优化（macOS 兼容）+ 更新检测移入设置弹窗
 
 ## Star History
 
