@@ -83,6 +83,7 @@ async fn handle_chat_socket(mut socket: WebSocket) {
 
                                 // Spawn the CLI process
                                 let tx_clone = tx.clone();
+                                let tx_err = tx.clone();
                                 let mut cancel_rx = cancel_sender.subscribe();
 
                                 tokio::spawn(async move {
@@ -96,8 +97,17 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                         tx_clone,
                                         &mut cancel_rx,
                                     ).await {
-                                        // Error already sent via tx in run_cli_process
                                         tracing::error!("CLI process error: {}", e);
+                                        let err_msg = serde_json::json!({
+                                            "type": "error",
+                                            "data": e
+                                        }).to_string();
+                                        let _ = tx_err.send(err_msg).await;
+                                        let complete_msg = serde_json::json!({
+                                            "type": "complete",
+                                            "success": false
+                                        }).to_string();
+                                        let _ = tx_err.send(complete_msg).await;
                                     }
                                 });
                             }
