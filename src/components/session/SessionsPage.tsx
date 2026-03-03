@@ -83,6 +83,8 @@ export function SessionsPage() {
 
   const { terminalShell } = useAppStore();
 
+  const [resumeError, setResumeError] = useState<string | null>(null);
+
   const handleResume = async (
     e: React.MouseEvent,
     sessionId: string,
@@ -90,12 +92,15 @@ export function SessionsPage() {
     filePath?: string
   ) => {
     e.stopPropagation();
+    setResumeError(null);
     if (__IS_TAURI__) {
       if (!projectPath) return;
       try {
         await api.resumeSession(source, sessionId, projectPath, filePath, terminalShell);
       } catch (err) {
-        console.error("Failed to resume session:", err);
+        const msg = typeof err === "string" ? err : String(err);
+        setResumeError(msg);
+        setTimeout(() => setResumeError(null), 5000);
       }
     } else {
       await handleCopyCommand(e, sessionId);
@@ -169,6 +174,13 @@ export function SessionsPage() {
               清除筛选
             </button>
           )}
+        </div>
+      )}
+
+      {/* Resume error toast */}
+      {resumeError && (
+        <div className="mb-3 px-4 py-2 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+          {resumeError}
         </div>
       )}
 

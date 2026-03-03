@@ -122,6 +122,9 @@ pub struct SessionMeta {
     pub cli_version: Option<String>,
     pub model_provider: Option<String>,
     pub git_branch: Option<String>,
+    /// Session source: "cli", "vscode", "exec", "mcp", or an object for "subagent".
+    /// Only "cli" and "vscode" are interactive sessions that should be shown to users.
+    pub is_interactive: bool,
 }
 
 pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
@@ -170,12 +173,22 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
                     .and_then(|v| v.as_str())
                     .map(String::from);
 
+                // Determine if this is an interactive session.
+                // Codex uses rename_all="lowercase": Cli→"cli", VSCode→"vscode",
+                // SubAgent→{"subagent":{...}} (object), Exec→"exec", Mcp→"mcp"
+                let is_interactive = match payload.get("source") {
+                    Some(Value::String(s)) => s == "cli" || s == "vscode",
+                    None => true, // missing source → assume interactive (old format)
+                    _ => false,   // object (subagent) or other → non-interactive
+                };
+
                 return Some(SessionMeta {
                     id,
                     cwd,
                     cli_version,
                     model_provider,
                     git_branch,
+                    is_interactive,
                 });
             }
         }
@@ -191,18 +204,28 @@ fn list_all_sessions() -> Result<Vec<SessionIndexEntry>, String> {
 
     for file_path in files {
         let meta = extract_session_meta(&file_path);
+
+        // Skip non-interactive sessions (SubAgent, Exec, Mcp, etc.)
+        // Only show Cli and VSCode sessions, matching Codex's INTERACTIVE_SESSION_SOURCES
+        if let Some(ref m) = meta {
+            if !m.is_interactive {
+                continue;
+            }
+        }
+
         let first_prompt = extract_first_prompt(&file_path);
         let message_count = count_messages(&file_path);
 
         let (session_id, cwd, model_provider, cli_version, git_branch) = match meta {
             Some(m) => (m.id, m.cwd, m.model_provider, m.cli_version, m.git_branch),
             None => {
+                // Try to extract UUID from filename: rollout-YYYY-MM-DDThh-mm-ss-UUID.jsonl
                 let stem = file_path
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                (stem, String::new(), None, None, None)
+                    .unwrap_or("unknown");
+                let id = extract_uuid_from_filename(stem).unwrap_or_else(|| stem.to_string());
+                (id, String::new(), None, None, None)
             }
         };
 
@@ -755,6 +778,23 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
         session_count,
         message_count,
     })
+}
+
+/// Extract UUID from a rollout filename stem like "rollout-2025-01-05T12-00-00-550e8400-..."
+/// The UUID is 36 chars at the end (8-4-4-4-12 with hyphens).
+fn extract_uuid_from_filename(stem: &str) -> Option<String> {
+    // UUID is always 36 chars: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    if stem.len() < 36 {
+        return None;
+    }
+    let candidate = &stem[stem.len() - 36..];
+    // Quick validation: check hyphen positions (8, 13, 18, 23)
+    let bytes = candidate.as_bytes();
+    if bytes[8] == b'-' && bytes[13] == b'-' && bytes[18] == b'-' && bytes[23] == b'-' {
+        Some(candidate.to_string())
+    } else {
+        None
+    }
 }
 
 fn truncate_string(s: &str, max_len: usize) -> String {

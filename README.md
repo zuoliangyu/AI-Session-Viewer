@@ -147,7 +147,7 @@ environment:
 ### 会话列表
 
 - Claude：读取 `sessions-index.json` 索引文件并与磁盘 `.jsonl` 文件合并，确保 Ctrl+C 退出的会话不会丢失
-- Codex：扫描 `~/.codex/sessions/` 目录下所有 `rollout-*.jsonl` 文件，提取元数据
+- Codex：扫描 `~/.codex/sessions/` 目录下所有 `rollout-*.jsonl` 文件，提取元数据，自动过滤非交互式会话（SubAgent、Exec 等内部会话）
 - 展示每个会话的首条 Prompt、消息数量、Git 分支、创建/修改时间
 - 支持删除会话（带确认弹窗）
 

@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.1] - 2026-03-03
+
+### Fixed
+
+#### Codex 非交互式会话误显示
+- **根因**：Codex 内部的 SubAgent、Exec、Mcp 等非交互式会话也出现在会话列表中，这些会话是 CLI 内部使用的，对用户无意义
+- **修复**：解析 Codex session_meta 中的 `source` 字段，仅保留 `cli` 和 `vscode` 来源的交互式会话（与 Codex 自身的 `INTERACTIVE_SESSION_SOURCES` 一致）；`source` 缺失时默认视为交互式（兼容旧格式）
+
+#### Resume 失败无前端反馈
+- **根因**：当会话对应的项目路径已被删除时，后端返回"项目路径不存在"错误，但前端仅 `console.error` 静默吞掉，用户看不到任何反馈
+- **修复**：会话列表页和消息详情页的 Resume 按钮均新增错误提示条（红色 toast），显示具体错误信息，5 秒后自动消失
+
+#### Codex 会话 ID 提取不准确
+- **根因**：当 Codex 会话文件缺少 session_meta 时，fallback 使用完整文件名（如 `rollout-2025-01-05T12-00-00-UUID`）作为 sessionId，导致 `codex resume` 无法识别
+- **修复**：新增 `extract_uuid_from_filename()` 函数，从文件名末尾提取标准 UUID 格式的 36 字符 ID
+
+---
+
 ## [1.9.0] - 2026-03-02
 
 ### Added
@@ -624,6 +642,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.1
 [1.9.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.0
 [1.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.8.0
 [1.7.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.7.1

@@ -239,15 +239,20 @@ export function MessagesPage() {
 
   const { terminalShell } = useAppStore();
 
+  const [resumeError, setResumeError] = useState<string | null>(null);
+
   const handleResume = async () => {
     if (!session) return;
+    setResumeError(null);
     if (__IS_TAURI__) {
       const path = session.projectPath || session.cwd || project?.displayPath;
       if (!path) return;
       try {
         await api.resumeSession(source, session.sessionId, path, session.filePath, terminalShell);
       } catch (err) {
-        console.error("Failed to resume session:", err);
+        const msg = typeof err === "string" ? err : String(err);
+        setResumeError(msg);
+        setTimeout(() => setResumeError(null), 5000);
       }
     } else {
       const cmd = getResumeCommand();
@@ -335,6 +340,13 @@ export function MessagesPage() {
           </button>
         </div>
       </div>
+
+      {/* Resume error toast */}
+      {resumeError && (
+        <div className="mx-4 mt-2 px-4 py-2 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
+          {resumeError}
+        </div>
+      )}
 
       {/* Messages */}
       <div
