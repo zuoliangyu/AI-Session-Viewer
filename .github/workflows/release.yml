@@ -145,33 +145,12 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} session-web-${{ github.ref_name }}-linux-x86_64.tar.gz --clobber
 
-      - name: Upload binary for Docker job
-        uses: actions/upload-artifact@v4
-        with:
-          name: session-web-binary
-          path: target/release/session-web
-          retention-days: 1
 
   docker:
     runs-on: ubuntu-22.04
     needs: web-server
     steps:
-      - name: Download pre-built binary
-        uses: actions/download-artifact@v4
-        with:
-          name: session-web-binary
-          path: docker-context
-
-      - name: Generate Dockerfile
-        run: |
-          cat > docker-context/Dockerfile <<'EOF'
-          FROM debian:bookworm-slim
-          RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
-          COPY session-web /usr/local/bin/
-          RUN chmod +x /usr/local/bin/session-web
-          EXPOSE 3000
-          ENTRYPOINT ["session-web", "--host", "0.0.0.0"]
-          EOF
+      - uses: actions/checkout@v4
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -193,8 +172,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: docker-context
-          file: docker-context/Dockerfile
+          context: .
+          file: Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

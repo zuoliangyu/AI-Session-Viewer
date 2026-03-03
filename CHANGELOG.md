@@ -4,18 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.4] - 2026-03-03
+
+### Fixed
+
+#### CI Docker 镜像 GLIBC 不兼容
+- **根因**：v1.9.2 的 CI 优化将 Docker 镜像构建改为复用 `web-server` job 在 GitHub Actions runner（ubuntu-22.04）上编译的二进制，但 runner 的 GLIBC 已被滚动更新到 2.39，而运行镜像 `debian:bookworm-slim` 只有 GLIBC 2.36，导致容器启动即崩溃（`GLIBC_2.39 not found`）
+- **修复**：CI 的 docker job 改回使用仓库的多阶段 Dockerfile 构建（`rust:1-bookworm` 编译 + `debian:bookworm-slim` 运行），确保编译和运行环境 GLIBC 版本一致，移除不再需要的 artifact 传递
+
+---
+
 ## [1.9.3] - 2026-03-03
 
 ### Improved
 
 #### 侧边栏布局优化（macOS 兼容）
 - **标题居中**：「AI Session Viewer」标题改为居中显示，避免与 macOS 左上角窗口控制按钮（红绿灯）重叠
-- **左下角版本号**：Sidebar 底部左侧显示当前版本号（如 `v1.9.3`），取代原来的"N 个项目"文字
+- **左下角版本号**：Sidebar 底部左侧显示当前版本号，取代原来的"N 个项目"文字
 - **更新检测移入设置**：桌面端的更新检查面板从 Sidebar 底部移入设置弹窗的「更新检查」选项卡，保持底栏简洁
-
-#### Docker 本地构建验证
-- 验证 `docker build` + `docker run` 在本地环境正常工作
-- 确认 `debian:bookworm-slim` 运行镜像在 Rocky Linux 等 RHEL 系宿主机上通过容器化方式完全兼容
 
 ---
 
@@ -673,6 +679,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.4]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.4
 [1.9.3]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.3
 [1.9.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.2
 [1.9.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.1
