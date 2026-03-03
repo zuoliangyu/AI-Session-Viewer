@@ -82,6 +82,17 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 | `--port` | `ASV_PORT` | `3000` | 监听端口 |
 | `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证，不设则免认证 |
 
+**直接运行 vs Docker：**
+
+|  | 直接运行二进制（推荐） | Docker |
+|---|---|---|
+| CLI 对话 / Resume | ✅ 完整支持（直接调用宿主机 CLI） | ❌ 容器隔离，无法访问宿主机 CLI |
+| 系统依赖 | 无（musl 静态编译） | 需要 Docker |
+| 部署方式 | 下载 → `chmod +x` → 运行 | `docker compose up` |
+| 适用场景 | **个人服务器、需要对话功能** | **团队共享、只浏览历史记录** |
+
+> **建议**：如果你在服务器上安装了 Claude CLI 并且需要对话/Resume 功能，请使用直接运行。Docker 由于容器隔离，无法调用宿主机的 CLI 工具，仅适合纯浏览历史会话记录的场景。
+
 **Docker 运行：**
 
 ```bash
@@ -92,24 +103,22 @@ docker compose up
 
 **公网访问：**
 
-Web 服务器支持公网访问。将 `--host` 设为 `0.0.0.0` 即可监听所有网卡：
-
 ```bash
 # 直接运行
 ./session-web --host 0.0.0.0 --port 8080 --token my-secret
 
-# Docker（取消 docker-compose.yml 中 ASV_TOKEN 的注释，映射端口到公网）
+# Docker
 docker compose up -d
 ```
 
-Docker 默认已监听 `0.0.0.0`（通过 `ports: "3000:3000"`），只需在 `docker-compose.yml` 中取消 `ASV_TOKEN` 的注释并设置密钥即可安全地公网使用：
+Docker 默认已监听 `0.0.0.0`，在 `docker-compose.yml` 中取消 `ASV_TOKEN` 注释并设置密钥即可安全使用：
 
 ```yaml
 environment:
   ASV_TOKEN: my-secret
 ```
 
-> **安全提示：** 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含完整会话记录。公网暴露时**务必设置 Token** 启用 Bearer Token 认证。此外，应用本身不提供 HTTPS，生产环境建议前置 Nginx / Caddy 做反向代理并启用 TLS。
+> **安全提示：** 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含完整会话记录。公网暴露时**务必设置 Token**。应用本身不提供 HTTPS，生产环境建议前置 Nginx / Caddy 做反向代理并启用 TLS。
 
 ### Web 版与桌面版的差异
 

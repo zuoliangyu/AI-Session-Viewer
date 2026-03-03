@@ -54,6 +54,21 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Extract changelog
+        id: changelog
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "body<<CHANGELOG_EOF"
+            awk -v ver="$VERSION" '
+              /^## \[/ { if (found) exit; if (index($0, "[" ver "]")) { found=1; next } }
+              /^---$/ { if (found) exit }
+              found { print }
+            ' CHANGELOG.md
+            echo "CHANGELOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -64,7 +79,7 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'AI Session Viewer ${{ github.ref_name }}'
           releaseBody: |
-            See the [CHANGELOG](https://github.com/zuoliangyu/AI-Session-Viewer/blob/main/CHANGELOG.md) for details.
+            ${{ steps.changelog.outputs.body }}
 
             ## Downloads
 
