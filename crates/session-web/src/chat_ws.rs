@@ -137,7 +137,7 @@ async fn run_cli_process(
     project_path: &str,
     prompt: &str,
     model: &str,
-    skip_permissions: bool,
+    _skip_permissions: bool,
     resume_session_id: Option<&str>,
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
@@ -157,15 +157,19 @@ async fn run_cli_process(
     }
     cmd.arg("--output-format").arg("stream-json");
     cmd.arg("--verbose");
-    if skip_permissions {
-        cmd.arg("--dangerously-skip-permissions");
-    }
+    // Web mode has no interactive terminal for permission prompts,
+    // so always skip permissions to prevent the CLI from hanging
+    cmd.arg("--dangerously-skip-permissions");
+
+    // Web mode: no interactive terminal, close stdin so CLI doesn't hang
+    // waiting for permission confirmation or other interactive prompts
+    cmd.stdin(Stdio::null());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
 
     if !project_path.is_empty() {
         cmd.current_dir(project_path);
     }
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
 
     let mut child = cmd
         .spawn()
