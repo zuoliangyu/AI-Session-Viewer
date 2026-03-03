@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { useUpdateStore } from "../../stores/updateStore";
 import {
   ArrowDownToLine,
@@ -108,8 +109,8 @@ export function UpdateIndicator() {
                 v{currentVersion} → v{newVersion}
               </div>
               {releaseNotes && (
-                <div className="text-xs text-muted-foreground max-h-20 overflow-y-auto border-t border-border pt-2 whitespace-pre-wrap">
-                  {releaseNotes}
+                <div className="text-xs text-muted-foreground max-h-48 overflow-y-auto border-t border-border pt-2 prose prose-xs dark:prose-invert prose-headings:text-xs prose-headings:font-semibold prose-headings:mt-2 prose-headings:mb-1 prose-p:my-0.5 prose-li:my-0 prose-ul:my-0.5">
+                  <ReactMarkdown>{releaseNotes}</ReactMarkdown>
                 </div>
               )}
               {installType === "installed" ? (
