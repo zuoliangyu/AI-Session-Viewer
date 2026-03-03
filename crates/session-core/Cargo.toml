@@ -1,6 +1,6 @@
 [package]
 name = "session-core"
-version = "1.9.6"
+version = "1.9.7"
 edition = "2021"
 
 [dependencies]

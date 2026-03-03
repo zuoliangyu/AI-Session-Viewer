@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.7] - 2026-03-04
+
+### Fixed
+
+#### Web 模式 CLI 对话稳定性修复
+- **CLI 启动错误无前端反馈**：当 CLI 未安装或启动失败时，错误仅记录在服务端日志，WebSocket 不发送任何消息，前端永远停留在"等待响应"状态。修复后通过 WebSocket 发送 error + complete 消息，前端正确显示错误信息（如"Claude CLI not found"）
+- **CLI 权限确认导致卡死**：Web 模式下 CLI 子进程继承了 session-web 的 stdin，当 CLI 需要交互式权限确认时无限等待，因为 Web 前端无法提供终端输入。修复：将 stdin 设为 `Stdio::null()`，并在 Web 模式下自动传递 `--dangerously-skip-permissions` 参数
+
+### Improved
+
+#### 开发工具链
+- `.gitignore` 新增 `.playwright-mcp/` 忽略规则
+
+---
+
 ## [1.9.6] - 2026-03-04
 
 ### Improved
@@ -696,6 +711,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.7]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.7
 [1.9.6]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.6
 [1.9.4]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.4
 [1.9.3]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.3

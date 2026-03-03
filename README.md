@@ -450,6 +450,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] Docker GLIBC 兼容性修复 + CI 构建流水线加速
 - [x] 侧边栏布局优化（macOS 兼容）+ 更新检测移入设置弹窗
 - [x] Web 服务器 musl 静态编译 — 零依赖跨发行版运行
+- [x] Web 模式 CLI 对话稳定性修复（错误反馈 + 权限确认卡死）
 
 ## Star History
 
