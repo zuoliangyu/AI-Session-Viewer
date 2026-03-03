@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.9.5] - 2026-03-04
+## [1.9.6] - 2026-03-04
 
 ### Improved
 
@@ -13,6 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - **效果**：不再依赖特定 GLIBC 版本，Rocky 8/9、Ubuntu 18+、Debian、Alpine、CentOS 等任何 Linux 发行版下载即可运行
 - **Docker**：编译阶段从 `rust:1-bookworm` 改为 `rust:1-alpine`（原生 musl 环境），运行时阶段从 `debian:bookworm-slim`（~80MB）改为 `alpine:latest`（~5MB），镜像体积大幅缩减
 - **根因回顾**：v1.9.2～v1.9.4 反复修复的 GLIBC 不兼容问题（GitHub Actions runner GLIBC 2.39 vs 运行环境 GLIBC 2.34/2.36），通过 musl 静态编译从根本上消除
+
+#### 更新面板体验优化
+- **Release Notes Markdown 渲染**：更新面板中的版本说明从纯文本改为 Markdown 渲染（ReactMarkdown），标题、加粗、代码块等格式正确显示
+- **动态 Release Notes**：CI 发布时从 CHANGELOG.md 自动提取当前版本的更新内容作为 GitHub Release body，用户检查更新时直接看到具体改了什么，不再是"See CHANGELOG"链接
+- **显示区域扩大**：Release Notes 区域最大高度从 80px 提升到 192px，避免内容被截断
 
 ---
 
@@ -691,7 +696,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
-[1.9.5]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.5
+[1.9.6]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.6
 [1.9.4]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.4
 [1.9.3]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.3
 [1.9.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.2
