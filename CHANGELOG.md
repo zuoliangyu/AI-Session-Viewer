@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.2] - 2026-03-03
+
+### Fixed
+
+#### Docker 镜像 GLIBC 兼容性
+- **根因**：Dockerfile 中 `rust:1` 基础镜像已升级到 Debian Trixie（GLIBC 2.39），而运行镜像 `debian:bookworm-slim` 仍是 GLIBC 2.36，导致编译出的二进制在运行镜像中无法启动
+- **修复**：将编译镜像固定为 `rust:1-bookworm`，确保编译和运行环境 GLIBC 版本一致（2.36）
+
+### Improved
+
+#### CI Docker 构建加速
+- CI 的 `docker` job 不再从源码完整编译 Rust，改为复用 `web-server` job 已编译的二进制（通过 Actions artifact 传递）
+- Docker 镜像构建从数十分钟缩短到几秒，且确保镜像中的二进制与 Release 中上传的完全一致
+
+---
+
 ## [1.9.1] - 2026-03-03
 
 ### Fixed
@@ -642,6 +658,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.2
 [1.9.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.1
 [1.9.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.0
 [1.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.8.0

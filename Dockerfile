@@ -7,7 +7,7 @@ COPY public/ public/
 COPY index.html vite.config.ts tsconfig*.json tailwind.config.js postcss.config.js ./
 RUN npm run build:web
 
-FROM rust:1 AS backend
+FROM rust:1-bookworm AS backend
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY crates/ crates/

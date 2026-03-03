@@ -438,6 +438,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 收藏系统（会话级 + 消息级收藏，跳转导航）
 - [x] 会话分叉（Fork）— 从任意用户消息处分叉新会话
 - [x] 终端类型选择（Windows CMD / PowerShell）
+- [x] Docker GLIBC 兼容性修复 + CI 构建流水线加速
 
 ## Star History
 
