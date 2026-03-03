@@ -61,9 +61,9 @@
 
 ### Web 服务器
 
-适合无 GUI 的服务器环境，通过浏览器远程访问。
+适合无 GUI 的服务器环境，通过浏览器远程访问。二进制为 musl 静态编译，**零系统依赖**，任何 Linux 发行版（Ubuntu、Debian、Rocky、CentOS、Alpine 等）下载即可运行。
 
-**直接运行：**
+**直接运行（推荐）：**
 
 ```bash
 # 最简启动（监听 127.0.0.1:3000）
@@ -440,6 +440,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 终端类型选择（Windows CMD / PowerShell）
 - [x] Docker GLIBC 兼容性修复 + CI 构建流水线加速
 - [x] 侧边栏布局优化（macOS 兼容）+ 更新检测移入设置弹窗
+- [x] Web 服务器 musl 静态编译 — 零依赖跨发行版运行
 
 ## Star History
 

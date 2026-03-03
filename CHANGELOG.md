@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.5] - 2026-03-04
+
+### Improved
+
+#### Web 服务器 musl 静态编译 — 彻底解决跨发行版兼容性
+- **CI**：web-server 构建目标从 glibc 动态链接改为 `x86_64-unknown-linux-musl` 静态链接，产出零系统依赖的独立二进制
+- **效果**：不再依赖特定 GLIBC 版本，Rocky 8/9、Ubuntu 18+、Debian、Alpine、CentOS 等任何 Linux 发行版下载即可运行
+- **Docker**：编译阶段从 `rust:1-bookworm` 改为 `rust:1-alpine`（原生 musl 环境），运行时阶段从 `debian:bookworm-slim`（~80MB）改为 `alpine:latest`（~5MB），镜像体积大幅缩减
+- **根因回顾**：v1.9.2～v1.9.4 反复修复的 GLIBC 不兼容问题（GitHub Actions runner GLIBC 2.39 vs 运行环境 GLIBC 2.34/2.36），通过 musl 静态编译从根本上消除
+
+---
+
 ## [1.9.4] - 2026-03-03
 
 ### Fixed
@@ -679,6 +691,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.9.5]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.5
 [1.9.4]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.4
 [1.9.3]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.3
 [1.9.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.2
