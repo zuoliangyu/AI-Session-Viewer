@@ -304,6 +304,7 @@ function ReadContent({
           style={oneDark}
           language={lang}
           showLineNumbers
+          wrapLongLines={true}
           startingLineNumber={parsed?.offset ? Number(parsed.offset) : 1}
           customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
           lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
@@ -391,6 +392,7 @@ function WriteContent({
           style={oneDark}
           language={lang}
           showLineNumbers
+          wrapLongLines={true}
           customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
           lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
         >
