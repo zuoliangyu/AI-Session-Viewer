@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.1] - 2026-03-15
+
+### Fixed
+
+#### 工具调用展开渲染优化
+- **统一 tool_use 渲染**：`AssistantMessage` 中的工具调用块改为复用 `ToolViewer`（原先为独立的裸 JSON `<pre>` 显示），现与会话详情页行为一致，支持结构化字段展示和 markdown 渲染
+- **Markdown 文件内容渲染**：`Read` / `Write` 工具展开时，若目标文件为 `.md` / `.mdx`，内容改用 `ReactMarkdown + remark-gfm` 渲染（支持表格、代码块、链接），不再显示原始 `\n` 转义字面量
+- **DefaultContent 结构化显示**：未识别工具不再裸输出原始 JSON；改为解析后按字段名对齐显示（中文标签 + 固定宽度列），并自动过滤 `timeout`、`run_in_background`、`dangerouslyDisableSandbox` 等噪声字段；短值内联，长值 / 代码值使用深色代码块
+
+#### Linux 环境变量读取
+- **Shell rc 文件 fallback**：在 Linux 上，桌面应用（Tauri）和 Web 服务器二进制（session-web）通过 systemd service 或桌面快捷方式启动时，不会自动 source `.bashrc`，导致用户在 shell 中配置的 `ANTHROPIC_API_KEY` 等变量无法读取。新增静态解析 `~/.bashrc`、`~/.bash_profile`、`~/.profile`、`~/.zshrc`、`~/.zprofile` 作为最低优先级 fallback，仅在 `#[cfg(unix)]` 下生效，Windows 无影响
+
+---
+
 ## [2.0.0] - 2026-03-15
 
 ### Added

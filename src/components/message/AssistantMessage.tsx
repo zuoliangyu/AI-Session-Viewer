@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { formatTime, stripAnsi } from "./utils";
+import { ToolViewer } from "../chat/tool-viewers/ToolViewers";
 
 interface Props {
   message: DisplayMessage;
@@ -153,7 +154,7 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
           }
           if (block.type === "tool_use") {
             return (
-              <ToolCallBlock
+              <ToolViewer
                 key={i}
                 name={block.name}
                 input={block.input}
@@ -222,39 +223,6 @@ function ReasoningBlock({ text }: { text: string }) {
       {expanded && (
         <div className="mt-1 pl-5 text-xs text-muted-foreground whitespace-pre-wrap border-l-2 border-muted">
           {text}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolCallBlock({ name, input }: { name: string; input: string }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="mt-2 mb-2 border border-border rounded-md overflow-hidden">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 text-xs bg-muted/50 hover:bg-muted transition-colors"
-      >
-        <Wrench className="w-3.5 h-3.5 text-muted-foreground" />
-        <span className="font-mono font-medium">{name}</span>
-        {expanded ? (
-          <ChevronDown className="w-3 h-3 ml-auto" />
-        ) : (
-          <ChevronRight className="w-3 h-3 ml-auto" />
-        )}
-      </button>
-      {expanded && (
-        <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto">
-          <pre className="whitespace-pre-wrap break-all">
-            {(() => {
-              const cleaned = stripAnsi(input);
-              return cleaned.length > 5000
-                ? cleaned.slice(0, 5000) + "\n... (truncated)"
-                : cleaned;
-            })()}
-          </pre>
         </div>
       )}
     </div>

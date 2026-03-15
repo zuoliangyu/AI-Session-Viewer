@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { DiffView } from "./DiffView";
 
 /* ── Types ─────────────────────────────────────────── */
@@ -59,6 +61,69 @@ function getLanguageFromPath(filePath: string): string {
 
 function getFileName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
+}
+
+/* ── Markdown renderer (for .md/.mdx file content) ── */
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="p-3 prose prose-sm max-w-none text-xs leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          code({ className, children }) {
+            const match = /language-(\w+)/.exec(className || "");
+            const codeStr = String(children).replace(/\n$/, "");
+            if (match) {
+              return (
+                <SyntaxHighlighter
+                  style={oneDark}
+                  language={match[1]}
+                  PreTag="div"
+                  className="rounded text-[11px] !mt-1.5 !mb-1.5"
+                >
+                  {codeStr}
+                </SyntaxHighlighter>
+              );
+            }
+            return (
+              <code className="bg-muted px-1 py-0.5 rounded text-[11px] font-mono">
+                {children}
+              </code>
+            );
+          },
+          pre({ children }) {
+            return <div className="not-prose my-1.5">{children}</div>;
+          },
+          table({ children }) {
+            return (
+              <div className="overflow-x-auto my-2">
+                <table className="min-w-full text-xs border-collapse border border-border rounded">
+                  {children}
+                </table>
+              </div>
+            );
+          },
+          th({ children }) {
+            return (
+              <th className="bg-muted/50 px-3 py-1.5 text-left text-xs font-medium border border-border">
+                {children}
+              </th>
+            );
+          },
+          td({ children }) {
+            return (
+              <td className="px-3 py-1.5 text-xs border border-border">
+                {children}
+              </td>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -212,7 +277,7 @@ function ToolContent({
     case "Glob":
       return <SearchContent name={name} parsed={parsed} result={result} />;
     default:
-      return <DefaultContent rawInput={rawInput} result={result} />;
+      return <DefaultContent parsed={parsed} rawInput={rawInput} result={result} />;
   }
 }
 
@@ -237,7 +302,6 @@ function ReadContent({
     return <div className="p-3 text-xs text-muted-foreground">无内容</div>;
   }
 
-  // Truncate if very long
   const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
 
   return (
@@ -245,16 +309,20 @@ function ReadContent({
       <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
         <CopyButton text={content} />
       </div>
-      <SyntaxHighlighter
-        style={oneDark}
-        language={lang}
-        showLineNumbers
-        startingLineNumber={parsed?.offset ? Number(parsed.offset) : 1}
-        customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
-        lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
-      >
-        {display}
-      </SyntaxHighlighter>
+      {lang === "markdown" ? (
+        <MarkdownContent content={display} />
+      ) : (
+        <SyntaxHighlighter
+          style={oneDark}
+          language={lang}
+          showLineNumbers
+          startingLineNumber={parsed?.offset ? Number(parsed.offset) : 1}
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
+          lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
+        >
+          {display}
+        </SyntaxHighlighter>
+      )}
     </div>
   );
 }
@@ -328,15 +396,19 @@ function WriteContent({
       <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
         <CopyButton text={content} />
       </div>
-      <SyntaxHighlighter
-        style={oneDark}
-        language={lang}
-        showLineNumbers
-        customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
-        lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
-      >
-        {display}
-      </SyntaxHighlighter>
+      {lang === "markdown" ? (
+        <MarkdownContent content={display} />
+      ) : (
+        <SyntaxHighlighter
+          style={oneDark}
+          language={lang}
+          showLineNumbers
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
+          lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
+        >
+          {display}
+        </SyntaxHighlighter>
+      )}
     </div>
   );
 }
@@ -440,10 +512,94 @@ function SearchContent({
 
 /* ── Default (generic tool) ───────────────────────── */
 
+// Fields that carry no useful meaning for readers — always hidden
+const HIDDEN_FIELDS = new Set([
+  "timeout",
+  "run_in_background",
+  "dangerouslyDisableSandbox",
+  "isolation",
+]);
+
+// Priority display order for well-known fields, with Chinese labels and code-block hint
+const FIELD_META: Record<string, { label: string; code?: boolean }> = {
+  command:     { label: "命令",   code: true  },
+  file_path:   { label: "文件"               },
+  description: { label: "描述"               },
+  pattern:     { label: "模式",   code: true  },
+  path:        { label: "路径"               },
+  url:         { label: "地址"               },
+  prompt:      { label: "提示词"             },
+  query:       { label: "查询"               },
+  content:     { label: "内容",   code: true  },
+  text:        { label: "文本"               },
+  code:        { label: "代码",   code: true  },
+  element:     { label: "元素"               },
+  skill:       { label: "技能"               },
+  args:        { label: "参数"               },
+  taskId:      { label: "任务ID"             },
+  subject:     { label: "主题"               },
+  status:      { label: "状态"               },
+  questions:   { label: "问题"               },
+  new_string:  { label: "新内容", code: true  },
+  old_string:  { label: "旧内容", code: true  },
+};
+
+const PRIORITY_ORDER = [
+  "command", "file_path", "description", "pattern", "path",
+  "url", "prompt", "query", "content", "text", "code",
+];
+
+function FieldList({ parsed }: { parsed: ToolInput }) {
+  const entries = Object.entries(parsed).filter(([k]) => !HIDDEN_FIELDS.has(k));
+
+  // Known fields first (in priority order), then the rest alphabetically
+  entries.sort(([a], [b]) => {
+    const ai = PRIORITY_ORDER.indexOf(a);
+    const bi = PRIORITY_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="divide-y divide-border/50">
+      {entries.map(([key, value]) => {
+        const meta = FIELD_META[key];
+        const label = meta?.label ?? key;
+        const strVal =
+          typeof value === "string" ? value : JSON.stringify(value, null, 2);
+        const isCode = meta?.code ?? false;
+        const isBlock = isCode || strVal.includes("\n") || strVal.length > 80;
+
+        return (
+          <div key={key} className="flex text-xs">
+            {/* Fixed-width label column — right-aligned for clean grid feel */}
+            <span className="shrink-0 w-[4.5rem] px-3 py-1.5 text-right text-muted-foreground bg-muted/30 font-sans select-none">
+              {label}
+            </span>
+            {isBlock ? (
+              <pre className="flex-1 px-3 py-1.5 font-mono text-[11px] whitespace-pre-wrap break-all bg-[#1e1e1e] text-foreground overflow-x-auto max-h-48 overflow-y-auto">
+                {strVal.length > 5000 ? strVal.slice(0, 5000) + "…" : strVal}
+              </pre>
+            ) : (
+              <span className="flex-1 px-3 py-1.5 break-all">{strVal}</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function DefaultContent({
+  parsed,
   rawInput,
   result,
 }: {
+  parsed: ToolInput | null;
   rawInput: string;
   result?: { content: string; isError: boolean } | null;
 }) {
@@ -451,21 +607,25 @@ function DefaultContent({
 
   return (
     <div>
-      {/* Input */}
-      <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto max-h-40 overflow-y-auto border-b border-border">
-        <pre className="whitespace-pre-wrap break-all">
-          {rawInput.length > 5000 ? rawInput.slice(0, 5000) + "\n... (truncated)" : rawInput}
-        </pre>
-      </div>
+      {/* Input: structured fields or raw fallback */}
+      {parsed ? (
+        <FieldList parsed={parsed} />
+      ) : (
+        <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto max-h-40 overflow-y-auto border-b border-border">
+          <pre className="whitespace-pre-wrap break-all">
+            {rawInput.length > 5000 ? rawInput.slice(0, 5000) + "\n…" : rawInput}
+          </pre>
+        </div>
+      )}
 
       {/* Output */}
       {output && (
         <pre
-          className={`p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto ${
+          className={`p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto border-t border-border ${
             result?.isError ? "text-red-400 bg-red-500/5" : "text-muted-foreground"
           }`}
         >
-          {output.length > 10000 ? output.slice(0, 10000) + "\n... (truncated)" : output}
+          {output.length > 10000 ? output.slice(0, 10000) + "\n…" : output}
         </pre>
       )}
     </div>
