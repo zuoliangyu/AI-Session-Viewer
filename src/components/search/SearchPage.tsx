@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
-import { Search, Loader2, MessageSquare, MessagesSquare, Tag } from "lucide-react";
+import { Search, Loader2, MessageSquare, MessagesSquare, Tag, Copy, Check } from "lucide-react";
 
 export function SearchPage() {
   const navigate = useNavigate();
@@ -18,6 +18,14 @@ export function SearchPage() {
   const [query, setQuery] = useState("");
   const [searchMode, setSearchMode] = useState<"messages" | "sessions">("messages");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const [copiedFilePath, setCopiedFilePath] = useState<string | null>(null);
+
+  const handleCopySessionName = (e: React.MouseEvent, filePath: string, name: string) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(name);
+    setCopiedFilePath(filePath);
+    setTimeout(() => setCopiedFilePath(null), 2000);
+  };
 
   useEffect(() => {
     // Ensure cross-project tags are loaded for filtering
@@ -63,6 +71,7 @@ export function SearchPage() {
   const getRoleLabel = (role: string) => {
     if (role === "user") return "用户";
     if (role === "tool") return "Tool";
+    if (role === "session") return "会话名";
     return source === "codex" ? "Codex" : "Claude";
   };
 
@@ -106,6 +115,8 @@ export function SearchPage() {
       matchCount: number;
       latestTimestamp: string;
       matchedTexts: string[];
+      totalMessageCount: number;
+      firstMatchedMessageId: string | null;
     }>();
     for (const r of filteredResults) {
       const existing = groups.get(r.filePath);
@@ -128,6 +139,8 @@ export function SearchPage() {
           matchCount: 1,
           latestTimestamp: r.timestamp || "",
           matchedTexts: [r.matchedText],
+          totalMessageCount: r.totalMessageCount,
+          firstMatchedMessageId: r.matchedMessageId ?? null,
         });
       }
     }
@@ -280,7 +293,10 @@ export function SearchPage() {
                 onClick={() => {
                   const encodedProjectId = encodeURIComponent(session.projectId);
                   const encodedFilePath = encodeURIComponent(session.filePath);
-                  navigate(`/projects/${encodedProjectId}/session/${encodedFilePath}`);
+                  const scrollParam = session.firstMatchedMessageId
+                    ? `?scrollTo=${encodeURIComponent(session.firstMatchedMessageId)}`
+                    : "";
+                  navigate(`/projects/${encodedProjectId}/session/${encodedFilePath}${scrollParam}`);
                 }}
                 className="bg-card border border-border rounded-lg p-4 hover:border-primary/50 hover:bg-accent/30 transition-all cursor-pointer"
               >
@@ -289,7 +305,7 @@ export function SearchPage() {
                     {session.projectName}
                   </span>
                   <span className="text-xs px-2 py-0.5 bg-primary/15 text-primary rounded font-medium">
-                    {session.matchCount} 条匹配
+                    {session.matchCount} 条匹配 / 共 {session.totalMessageCount} 条
                   </span>
                   {session.latestTimestamp && (
                     <span className="text-xs text-muted-foreground ml-auto">
@@ -298,10 +314,25 @@ export function SearchPage() {
                   )}
                 </div>
                 {(session.alias || session.firstPrompt) && (
-                  <p className="text-sm text-foreground mb-2 flex items-center gap-1">
+                  <div className="flex items-center gap-1 mb-2 group/title">
                     <MessagesSquare className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate">{session.alias || session.firstPrompt}</span>
-                  </p>
+                    <span className="text-sm text-foreground truncate flex-1">
+                      {session.alias || session.firstPrompt}
+                    </span>
+                    <button
+                      onClick={(e) =>
+                        handleCopySessionName(e, session.filePath, session.alias || session.firstPrompt || "")
+                      }
+                      className="shrink-0 p-1 rounded opacity-0 group-hover/title:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                      title="复制会话名"
+                    >
+                      {copiedFilePath === session.filePath ? (
+                        <Check className="w-3 h-3 text-green-500" />
+                      ) : (
+                        <Copy className="w-3 h-3" />
+                      )}
+                    </button>
+                  </div>
                 )}
                 {/* Tags */}
                 {session.tags && session.tags.length > 0 && (
