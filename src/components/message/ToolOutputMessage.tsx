@@ -82,7 +82,13 @@ function OutputBlock({
       {expanded && (
         <div className="border-t border-border">
           {viewMode === "md" ? (
-            <MarkdownContent content={content} />
+            <div className="max-h-80 overflow-y-auto">
+              <MarkdownContent content={
+                content.length > 10000
+                  ? content.slice(0, 10000) + "\n\n... (truncated)"
+                  : content
+              } />
+            </div>
           ) : (
             <pre
               className={`px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all
