@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useAppStore } from "../../stores/appStore";
 import {
   BarChart,
@@ -19,12 +19,85 @@ import {
   Calendar,
 } from "lucide-react";
 
+type TimePreset = "today" | "week" | "month" | "30d" | "all" | "custom";
+
+function getDateRange(
+  preset: TimePreset,
+  customStart: string,
+  customEnd: string
+): { start: string; end: string } {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const today = fmt(now);
+
+  switch (preset) {
+    case "today":
+      return { start: today, end: today };
+    case "week": {
+      const d = new Date(now);
+      d.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
+      return { start: fmt(d), end: today };
+    }
+    case "month": {
+      const d = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { start: fmt(d), end: today };
+    }
+    case "30d": {
+      const d = new Date(now);
+      d.setDate(now.getDate() - 29);
+      return { start: fmt(d), end: today };
+    }
+    case "custom":
+      return { start: customStart, end: customEnd };
+    default:
+      return { start: "", end: "" };
+  }
+}
+
 export function StatsPage() {
   const { source, tokenSummary, statsLoading, loadStats } = useAppStore();
+  const [preset, setPreset] = useState<TimePreset>("all");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
 
   useEffect(() => {
     loadStats();
   }, [source]);
+
+  const { start, end } = useMemo(
+    () => getDateRange(preset, customStart, customEnd),
+    [preset, customStart, customEnd]
+  );
+
+  const filteredDays = useMemo(() => {
+    if (!tokenSummary) return [];
+    const days = tokenSummary.dailyTokens;
+    if (!start && !end) return days;
+    return days.filter(
+      (d) => (!start || d.date >= start) && (!end || d.date <= end)
+    );
+  }, [tokenSummary, start, end]);
+
+  const filteredTotals = useMemo(() => {
+    const totalTokens = filteredDays.reduce((s, d) => s + d.totalTokens, 0);
+    const totalInputTokens = filteredDays.reduce((s, d) => s + d.inputTokens, 0);
+    const totalOutputTokens = filteredDays.reduce((s, d) => s + d.outputTokens, 0);
+
+    const ratio =
+      tokenSummary && tokenSummary.totalTokens > 0
+        ? totalTokens / tokenSummary.totalTokens
+        : 0;
+    const tokensByModel: Record<string, number> = {};
+    if (tokenSummary) {
+      for (const [model, tokens] of Object.entries(tokenSummary.tokensByModel)) {
+        tokensByModel[model] = Math.round(tokens * ratio);
+      }
+    }
+
+    return { totalTokens, totalInputTokens, totalOutputTokens, tokensByModel };
+  }, [filteredDays, tokenSummary]);
 
   if (statsLoading) {
     return (
@@ -54,7 +127,7 @@ export function StatsPage() {
   };
 
   // Daily token chart data
-  const dailyData = tokenSummary.dailyTokens.map((d) => ({
+  const dailyData = filteredDays.map((d) => ({
     date: d.date.slice(5), // "MM-DD"
     input: d.inputTokens,
     output: d.outputTokens,
@@ -62,14 +135,14 @@ export function StatsPage() {
   }));
 
   // Model breakdown
-  const modelBreakdown = Object.entries(tokenSummary.tokensByModel)
+  const modelBreakdown = Object.entries(filteredTotals.tokensByModel)
     .sort(([, a], [, b]) => b - a)
     .map(([model, tokens]) => ({
       model,
       tokens,
       pct:
-        tokenSummary.totalTokens > 0
-          ? ((tokens / tokenSummary.totalTokens) * 100).toFixed(1)
+        filteredTotals.totalTokens > 0
+          ? ((tokens / filteredTotals.totalTokens) * 100).toFixed(1)
           : "0",
     }));
 
@@ -81,6 +154,42 @@ export function StatsPage() {
           ({source === "claude" ? "Claude" : "Codex"})
         </span>
       </h1>
+
+      {/* Time range filter */}
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        {(["today", "week", "month", "30d", "all"] as const).map((p) => {
+          const labels: Record<string, string> = {
+            today: "今天", week: "本周", month: "本月", "30d": "最近30天", all: "全部",
+          };
+          return (
+            <button
+              key={p}
+              onClick={() => { setPreset(p); setCustomStart(""); setCustomEnd(""); }}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                preset === p
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {labels[p]}
+            </button>
+          );
+        })}
+        <span className="text-xs text-muted-foreground ml-2">自定义：</span>
+        <input
+          type="date"
+          value={customStart}
+          onChange={(e) => { setCustomStart(e.target.value); setPreset("custom"); }}
+          className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground"
+        />
+        <span className="text-xs text-muted-foreground">~</span>
+        <input
+          type="date"
+          value={customEnd}
+          onChange={(e) => { setCustomEnd(e.target.value); setPreset("custom"); }}
+          className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground"
+        />
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -97,12 +206,12 @@ export function StatsPage() {
         <StatCard
           icon={<Zap className="w-5 h-5" />}
           label="输入 Token"
-          value={formatTokens(tokenSummary.totalInputTokens)}
+          value={formatTokens(filteredTotals.totalInputTokens)}
         />
         <StatCard
           icon={<Activity className="w-5 h-5" />}
           label="总 Token"
-          value={formatTokens(tokenSummary.totalTokens)}
+          value={formatTokens(filteredTotals.totalTokens)}
         />
       </div>
 
