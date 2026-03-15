@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-03-15
+
+### Added
+
+#### ToolViewer 代码/预览切换
+- **Code/Preview 切换按钮**：ToolViewer 顶栏新增代码/预览双模式切换按钮（Code2 图标），支持在结构化字段视图与原始代码视图之间切换，方便调试时查看完整原始内容
+
+#### 统计页时间范围筛选
+- **时间范围过滤器**：统计页新增时间范围下拉筛选（今日 / 本周 / 本月 / 近 3 月 / 近半年 / 今年 / 自定义），精确统计指定时段内的 token 用量和活跃度
+- **数据范围标签**：统计摘要卡片新增当前筛选范围说明文字，清晰标注数据来源周期
+
+### Fixed
+
+#### 统计页日期逻辑
+- **周预设 Sunday bug**：修复"本周"预设将周日计算为下周起点的问题，改为以周一为一周开始
+- **自定义日期重置**：切换预设时正确清空自定义日期输入框，避免残留值干扰筛选
+
+#### ToolViewer 显示优化
+- **Bash 工具默认展开**：Bash 工具调用默认展开显示，无需手动点击即可看到命令内容
+- **完整命令显示**：修复长命令被截断的问题，现在显示完整命令文本
+- **浅色模式文字**：修复 ToolViewer 在浅色主题下文字颜色不可读的问题
+- **Code2 按钮折叠状态标题**：优化折叠状态下切换按钮的 title 提示文字，准确反映当前可切换的目标模式
+
+#### 代理兼容
+- **Bearer Auth 支持**：快速问答和 CLI 对话检测 API Key 时新增对 `ANTHROPIC_AUTH_TOKEN` 环境变量的读取，使用自定义代理（`ANTHROPIC_BASE_URL`）时发送 `Authorization: Bearer` 认证头，与主流代理服务兼容
+
+---
+
 ## [2.0.1] - 2026-03-15
 
 ### Fixed
@@ -746,6 +774,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.1.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.1.0
 [1.9.7]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.7
 [1.9.6]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.6
 [1.9.4]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.4
