@@ -83,6 +83,8 @@ export interface SearchResult {
   role: string;
   timestamp: string | null;
   filePath: string;
+  totalMessageCount: number;
+  matchedMessageId: string | null;
 }
 
 export interface Bookmark {
