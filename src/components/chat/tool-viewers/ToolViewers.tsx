@@ -222,6 +222,7 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
               <SyntaxHighlighter
                 style={oneDark}
                 language="json"
+                wrapLongLines={true}
                 customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
               >
                 {input.length > 15000
