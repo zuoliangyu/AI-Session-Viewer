@@ -37,7 +37,9 @@ function getDateRange(
       return { start: today, end: today };
     case "week": {
       const d = new Date(now);
-      d.setDate(now.getDate() - now.getDay() + (now.getDay() === 0 ? -6 : 1));
+      const dayOfWeek = now.getDay(); // 0=Sunday
+      const daysFromMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      d.setDate(now.getDate() - daysFromMonday);
       return { start: fmt(d), end: today };
     }
     case "month": {
@@ -179,14 +181,24 @@ export function StatsPage() {
         <input
           type="date"
           value={customStart}
-          onChange={(e) => { setCustomStart(e.target.value); setPreset("custom"); }}
+          onChange={(e) => {
+            const val = e.target.value;
+            setCustomStart(val);
+            if (!val && !customEnd) setPreset("all");
+            else setPreset("custom");
+          }}
           className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground"
         />
         <span className="text-xs text-muted-foreground">~</span>
         <input
           type="date"
           value={customEnd}
-          onChange={(e) => { setCustomEnd(e.target.value); setPreset("custom"); }}
+          onChange={(e) => {
+            const val = e.target.value;
+            setCustomEnd(val);
+            if (!val && !customStart) setPreset("all");
+            else setPreset("custom");
+          }}
           className="text-xs border border-border rounded px-2 py-1 bg-background text-foreground"
         />
       </div>
@@ -195,12 +207,12 @@ export function StatsPage() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <StatCard
           icon={<Calendar className="w-5 h-5" />}
-          label="总会话数"
+          label="总会话数（全期）"
           value={tokenSummary.sessionCount.toLocaleString()}
         />
         <StatCard
           icon={<MessageSquare className="w-5 h-5" />}
-          label="总消息数"
+          label="总消息数（全期）"
           value={tokenSummary.messageCount.toLocaleString()}
         />
         <StatCard
@@ -288,7 +300,10 @@ export function StatsPage() {
       {/* Model breakdown */}
       {modelBreakdown.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4">
-          <h2 className="text-sm font-medium mb-4">模型用量分布</h2>
+          <h2 className="text-sm font-medium mb-4">
+            模型用量分布
+            <span className="text-xs font-normal text-muted-foreground ml-1">（按比例估算）</span>
+          </h2>
           <div className="space-y-3">
             {modelBreakdown.map(({ model, tokens, pct }) => (
               <div key={model}>
