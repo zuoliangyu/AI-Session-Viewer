@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-03-16
+
+### Added
+
+#### Tool Output 折叠与 Markdown 渲染
+- **折叠支持**：`>_ Tool Output` 区域内容超过 400 字符时默认折叠，标题栏显示字符数，点击可展开；短内容默认展开，用户可手动折叠
+- **MD / 源码切换**：标题栏常驻 `</>` / `MD` 切换按钮，随时在 Markdown 渲染和原始文本之间切换；MD 模式使用 ReactMarkdown + remark-gfm，支持标题、表格、代码块等格式
+- **两种 block 统一**：`tool_result` 和 `function_call_output` 两种类型统一使用 `OutputBlock` 子组件，行为完全一致
+- **错误状态保留**：`tool_result` isError 时保持红色边框和背景
+
+### Fixed
+
+#### ToolViewer 长行自动换行
+- **代码视图**：ToolViewer 切换到 `</>` 代码模式时，JSON 中超长字符串（如 `content` 字段大段文本）现在按容器宽度自动换行，不再出现水平滚动条
+- **Read / Write 内容视图**：ReadContent 和 WriteContent 的语法高亮区域同步启用 `wrapLongLines`，读取或写入的长行代码不再水平溢出
+
+### Refactored
+
+- **MarkdownContent 提取为共享组件**：将 `ToolViewers.tsx` 内部的 Markdown 渲染函数提取为 `src/components/message/MarkdownContent.tsx` 独立导出组件，`ToolOutputMessage` 可直接复用，消除重复逻辑
+
+---
+
 ## [2.1.0] - 2026-03-15
 
 ### Added
@@ -774,6 +796,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.2.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.2.0
 [2.1.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.1.0
 [1.9.7]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.7
 [1.9.6]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.6
