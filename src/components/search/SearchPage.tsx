@@ -19,13 +19,21 @@ export function SearchPage() {
   const [searchMode, setSearchMode] = useState<"messages" | "sessions">("messages");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [copiedFilePath, setCopiedFilePath] = useState<string | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleCopySessionName = (e: React.MouseEvent, filePath: string, name: string) => {
     e.stopPropagation();
     navigator.clipboard.writeText(name);
     setCopiedFilePath(filePath);
-    setTimeout(() => setCopiedFilePath(null), 2000);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopiedFilePath(null), 2000);
   };
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     // Ensure cross-project tags are loaded for filtering
@@ -140,7 +148,7 @@ export function SearchPage() {
           latestTimestamp: r.timestamp || "",
           matchedTexts: [r.matchedText],
           totalMessageCount: r.totalMessageCount,
-          firstMatchedMessageId: r.matchedMessageId ?? null,
+          firstMatchedMessageId: r.matchedMessageId,
         });
       }
     }
