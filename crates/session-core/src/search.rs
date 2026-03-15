@@ -130,6 +130,7 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
             if let Ok(messages) = claude::parse_all_messages(file_path) {
                 let total_message_count = messages.len() as u32;
                 let mut session_name_matched = false;
+                let mut message_match_count = 0usize;
 
                 // Check alias for session-name match
                 if let Some(a) = &alias {
@@ -205,7 +206,8 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 matched_message_id: msg.uuid.clone(),
                             });
 
-                            if file_results.len() >= 5 {
+                            message_match_count += 1;
+                            if message_match_count >= 5 {
                                 return file_results;
                             }
                         }
@@ -269,6 +271,7 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
             if let Ok(messages) = codex::parse_all_messages(file_path) {
                 let total_message_count = messages.len() as u32;
                 let mut session_name_matched = false;
+                let mut message_match_count = 0usize;
 
                 // Check alias for session-name match
                 if let Some(a) = &alias {
@@ -344,7 +347,8 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 matched_message_id: msg.uuid.clone(),
                             });
 
-                            if file_results.len() >= 5 {
+                            message_match_count += 1;
+                            if message_match_count >= 5 {
                                 return file_results;
                             }
                         }
