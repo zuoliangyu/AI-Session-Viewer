@@ -299,7 +299,9 @@ export function MessagesPage() {
               {session?.alias || session?.firstPrompt || session?.sessionId || "Session"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {messagesTotal} 条消息
+              {messages.length < messagesTotal
+                ? `已加载 ${messages.length} / ${messagesTotal} 条消息`
+                : `${messagesTotal} 条消息`}
               {session?.gitBranch && ` · ${session.gitBranch}`}
               {` · ${assistantName}`}
             </p>
@@ -340,6 +342,16 @@ export function MessagesPage() {
           </button>
         </div>
       </div>
+
+      {/* Load progress bar — only visible when not all messages are loaded */}
+      {messagesHasMore && messages.length < messagesTotal && (
+        <div className="h-0.5 bg-muted shrink-0">
+          <div
+            className="h-full bg-primary/40 transition-all duration-300"
+            style={{ width: `${Math.round((messages.length / messagesTotal) * 100)}%` }}
+          />
+        </div>
+      )}
 
       {/* Resume error toast */}
       {resumeError && (
