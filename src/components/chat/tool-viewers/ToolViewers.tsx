@@ -257,7 +257,7 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
               ? "text-blue-400"
               : "text-muted-foreground hover:text-foreground"
           }`}
-          title={viewMode === "code" ? "切换到预览模式" : "切换到原始 JSON"}
+          title={!expanded ? "展开并显示原始 JSON" : viewMode === "code" ? "切换到预览模式" : "切换到原始 JSON"}
         >
           <Code2 className="w-3.5 h-3.5" />
         </button>
