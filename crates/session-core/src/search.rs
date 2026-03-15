@@ -20,6 +20,8 @@ pub struct SearchResult {
     pub role: String,
     pub timestamp: Option<String>,
     pub file_path: String,
+    pub total_message_count: u32,
+    pub matched_message_id: Option<String>,
 }
 
 /// Safely truncate a string to approximately `max_chars` characters
@@ -126,12 +128,56 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 .filter(|t| !t.is_empty());
 
             if let Ok(messages) = claude::parse_all_messages(file_path) {
+                let total_message_count = messages.len() as u32;
+                let mut session_name_matched = false;
+
+                // Check alias for session-name match
+                if let Some(a) = &alias {
+                    if a.to_lowercase().contains(query_lower) {
+                        session_name_matched = true;
+                        file_results.push(SearchResult {
+                            source: "claude".to_string(),
+                            project_id: encoded_name.clone(),
+                            project_name: project_name.clone(),
+                            session_id: session_id.clone(),
+                            first_prompt: None,
+                            alias: alias.clone(),
+                            tags: tags.clone(),
+                            matched_text: a.clone(),
+                            role: "session".to_string(),
+                            timestamp: None,
+                            file_path: file_path.to_string_lossy().to_string(),
+                            total_message_count,
+                            matched_message_id: None,
+                        });
+                    }
+                }
+
                 let mut first_prompt = None;
                 for msg in &messages {
                     if msg.role == "user" && first_prompt.is_none() {
                         for block in &msg.content {
                             if let DisplayContentBlock::Text { text } = block {
                                 first_prompt = Some(safe_truncate(text, 100));
+                                // Check first_prompt for session-name match (only once, and only if alias didn't already match)
+                                if !session_name_matched && text.to_lowercase().contains(query_lower) {
+                                    session_name_matched = true;
+                                    file_results.push(SearchResult {
+                                        source: "claude".to_string(),
+                                        project_id: encoded_name.clone(),
+                                        project_name: project_name.clone(),
+                                        session_id: session_id.clone(),
+                                        first_prompt: first_prompt.clone(),
+                                        alias: alias.clone(),
+                                        tags: tags.clone(),
+                                        matched_text: safe_truncate(text, 100),
+                                        role: "session".to_string(),
+                                        timestamp: msg.timestamp.clone(),
+                                        file_path: file_path.to_string_lossy().to_string(),
+                                        total_message_count,
+                                        matched_message_id: msg.uuid.clone(),
+                                    });
+                                }
                                 break;
                             }
                         }
@@ -155,6 +201,8 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 role: msg.role.clone(),
                                 timestamp: msg.timestamp.clone(),
                                 file_path: file_path.to_string_lossy().to_string(),
+                                total_message_count,
+                                matched_message_id: msg.uuid.clone(),
                             });
 
                             if file_results.len() >= 5 {
@@ -219,12 +267,56 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 .filter(|t| !t.is_empty());
 
             if let Ok(messages) = codex::parse_all_messages(file_path) {
+                let total_message_count = messages.len() as u32;
+                let mut session_name_matched = false;
+
+                // Check alias for session-name match
+                if let Some(a) = &alias {
+                    if a.to_lowercase().contains(query_lower) {
+                        session_name_matched = true;
+                        file_results.push(SearchResult {
+                            source: "codex".to_string(),
+                            project_id: cwd.clone(),
+                            project_name: short_name.clone(),
+                            session_id: session_id.clone(),
+                            first_prompt: None,
+                            alias: alias.clone(),
+                            tags: tags.clone(),
+                            matched_text: a.clone(),
+                            role: "session".to_string(),
+                            timestamp: None,
+                            file_path: file_path.to_string_lossy().to_string(),
+                            total_message_count,
+                            matched_message_id: None,
+                        });
+                    }
+                }
+
                 let mut first_prompt = None;
                 for msg in &messages {
                     if msg.role == "user" && first_prompt.is_none() {
                         for block in &msg.content {
                             if let DisplayContentBlock::Text { text } = block {
                                 first_prompt = Some(safe_truncate(text, 100));
+                                // Check first_prompt for session-name match (only once, and only if alias didn't already match)
+                                if !session_name_matched && text.to_lowercase().contains(query_lower) {
+                                    session_name_matched = true;
+                                    file_results.push(SearchResult {
+                                        source: "codex".to_string(),
+                                        project_id: cwd.clone(),
+                                        project_name: short_name.clone(),
+                                        session_id: session_id.clone(),
+                                        first_prompt: first_prompt.clone(),
+                                        alias: alias.clone(),
+                                        tags: tags.clone(),
+                                        matched_text: safe_truncate(text, 100),
+                                        role: "session".to_string(),
+                                        timestamp: msg.timestamp.clone(),
+                                        file_path: file_path.to_string_lossy().to_string(),
+                                        total_message_count,
+                                        matched_message_id: msg.uuid.clone(),
+                                    });
+                                }
                                 break;
                             }
                         }
@@ -248,6 +340,8 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 role: msg.role.clone(),
                                 timestamp: msg.timestamp.clone(),
                                 file_path: file_path.to_string_lossy().to_string(),
+                                total_message_count,
+                                matched_message_id: msg.uuid.clone(),
                             });
 
                             if file_results.len() >= 5 {
