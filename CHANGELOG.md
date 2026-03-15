@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.0.0] - 2026-03-15
+
+### Added
+
+#### 搜索增强
+- **搜索会话名称**：全局搜索现在同时匹配会话的自定义别名（alias）和首条 Prompt，搜索结果中标记为"会话名"角色，消息模式和会话模式均可展示
+- **总消息数显示**：搜索会话模式中，每个会话卡片新增"X 条匹配 / 共 N 条"统计，方便快速判断会话规模
+- **复制会话名**：会话卡片标题悬停时右侧出现复制图标，可直接复制别名或首条 Prompt，不触发会话跳转
+- **跳转匹配消息**：从搜索结果点击进入会话时，自动滚动定位到第一条匹配消息并高亮（复用现有 `scrollTo` 机制）
+
+#### 消息详情
+- **加载进度指示器**：消息详情页顶部新增"已加载 N / M 条消息"文字计数和细进度条，解决分页加载时滚动条位置与实际内容长度不对应的问题；全部加载完成后自动隐藏进度条
+
+### Fixed
+
+#### 显示优化
+- **ANSI 转义码清除**：工具调用结果（tool_result）、函数调用输出（function_call_output）、工具调用参数及 AI 文本块中的 ANSI 转义码（颜色码、光标控制、OSC 标题序列、BEL 字符等）现在被正确过滤，终端输出不再显示为 `\x1b[32m` 等乱码
+- **ANTHROPIC_AUTH_TOKEN 环境变量未识别**：快速问答 / CLI 对话的 API Key 检测新增对 `ANTHROPIC_AUTH_TOKEN` 环境变量的读取（之前仅检测 `ANTHROPIC_API_KEY`），与 Claude CLI 的环境变量命名保持一致
+
+---
+
 ## [1.9.7] - 2026-03-04
 
 ### Fixed

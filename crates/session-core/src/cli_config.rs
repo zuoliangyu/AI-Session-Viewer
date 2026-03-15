@@ -72,6 +72,7 @@ fn read_claude_config() -> Result<(String, String, String, String), String> {
         .filter(|s| !s.is_empty())
         .or_else(|| settings.env.get("ANTHROPIC_API_KEY").filter(|s| !s.is_empty()))
         .cloned()
+        .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok().filter(|s| !s.is_empty()))
         .or_else(|| env::var("ANTHROPIC_API_KEY").ok().filter(|s| !s.is_empty()))
         .unwrap_or_default();
 

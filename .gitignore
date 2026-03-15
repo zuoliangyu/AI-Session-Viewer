@@ -25,6 +25,8 @@ dev.ps1
 build.ps1
 dev-web.ps1
 build-web.ps1
+build-linux.ps1
+deploy-rocky.ps1
 
 # Claude Code
 CLAUDE.md
@@ -36,3 +38,5 @@ src-tauri/gen/
 
 .spec-workflow/
 .playwright-mcp/
+
+session-web-linux-x86_64
