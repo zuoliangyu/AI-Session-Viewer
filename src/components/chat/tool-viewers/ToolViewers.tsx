@@ -12,6 +12,7 @@ import {
   Copy,
   Check,
   AlertCircle,
+  Code2,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -207,6 +208,7 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
 
 export function ToolViewer({ name, input, result }: ToolViewerProps) {
   const [expanded, setExpanded] = useState(false);
+  const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
   const parsed = useMemo(() => tryParseJson(input), [input]);
   const summary = useMemo(() => toolSummary(name, parsed), [name, parsed]);
   const hasError = result?.isError ?? false;
@@ -218,33 +220,83 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
       }`}
     >
       {/* Header */}
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className={`w-full flex items-center gap-2 px-3 py-2 text-xs transition-colors ${
+      <div
+        className={`flex items-center text-xs transition-colors ${
           hasError
             ? "bg-red-500/5 hover:bg-red-500/10"
             : "bg-muted/50 hover:bg-muted"
         }`}
       >
-        {toolIcon(name) || <div className="w-3.5 h-3.5" />}
-        <span className="font-mono font-medium">{name}</span>
-        {summary && (
-          <span className="text-muted-foreground truncate max-w-[20rem]">
-            {summary}
-          </span>
-        )}
-        {hasError && <AlertCircle className="w-3 h-3 text-red-400" />}
-        {expanded ? (
-          <ChevronDown className="w-3 h-3 ml-auto shrink-0" />
-        ) : (
-          <ChevronRight className="w-3 h-3 ml-auto shrink-0" />
-        )}
-      </button>
+        {/* 主点击区域：展开/折叠 */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex-1 flex items-center gap-2 px-3 py-2 min-w-0"
+        >
+          {toolIcon(name) || <div className="w-3.5 h-3.5" />}
+          <span className="font-mono font-medium">{name}</span>
+          {summary && (
+            <span className="text-muted-foreground truncate max-w-[20rem]">
+              {summary}
+            </span>
+          )}
+          {hasError && <AlertCircle className="w-3 h-3 text-red-400" />}
+        </button>
+
+        {/* Code/Preview 切换按钮 */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!expanded) {
+              setExpanded(true);
+              setViewMode("code");
+            } else {
+              setViewMode(viewMode === "code" ? "preview" : "code");
+            }
+          }}
+          className={`shrink-0 px-2 py-2 transition-colors ${
+            viewMode === "code" && expanded
+              ? "text-blue-400"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          title={viewMode === "code" ? "切换到预览模式" : "切换到原始 JSON"}
+        >
+          <Code2 className="w-3.5 h-3.5" />
+        </button>
+
+        {/* 折叠/展开箭头 */}
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="shrink-0 px-2 py-2 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? (
+            <ChevronDown className="w-3 h-3" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+        </button>
+      </div>
 
       {/* Expanded content */}
       {expanded && (
         <div className="border-t border-border">
-          <ToolContent name={name} parsed={parsed} rawInput={input} result={result} />
+          {viewMode === "code" ? (
+            <div className="relative group">
+              <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+                <CopyButton text={input} />
+              </div>
+              <SyntaxHighlighter
+                style={oneDark}
+                language="json"
+                customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
+              >
+                {input.length > 15000
+                  ? input.slice(0, 15000) + "\n... (truncated)"
+                  : input}
+              </SyntaxHighlighter>
+            </div>
+          ) : (
+            <ToolContent name={name} parsed={parsed} rawInput={input} result={result} />
+          )}
         </div>
       )}
     </div>
