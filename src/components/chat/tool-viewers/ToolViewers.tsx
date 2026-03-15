@@ -187,8 +187,7 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
       return fp ? `${getFileName(fp)} ${lines} 行` : "";
     }
     case "Bash": {
-      const cmd = String(parsed.command || "");
-      return cmd.length > 60 ? cmd.slice(0, 60) + "..." : cmd;
+      return String(parsed.command || "");
     }
     case "Grep": {
       const pat = String(parsed.pattern || "");
@@ -207,7 +206,7 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
 /* ── Main ToolViewer ──────────────────────────────── */
 
 export function ToolViewer({ name, input, result }: ToolViewerProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
   const parsed = useMemo(() => tryParseJson(input), [input]);
   const summary = useMemo(() => toolSummary(name, parsed), [name, parsed]);
@@ -488,7 +487,7 @@ function BashContent({
       )}
       <div className="flex items-start gap-2 px-3 py-2 bg-[#1e1e1e] font-mono text-xs">
         <span className="text-green-400 select-none shrink-0">$</span>
-        <pre className="whitespace-pre-wrap break-all text-foreground">{command}</pre>
+        <pre className="whitespace-pre-wrap break-all text-[#d4d4d4]">{command}</pre>
       </div>
 
       {/* Output */}

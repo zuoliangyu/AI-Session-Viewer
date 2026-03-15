@@ -72,6 +72,7 @@ async fn fetch_anthropic_models(api_key: &str, base_url: &str) -> Result<Vec<Mod
     let resp = client
         .get(&url)
         .header("x-api-key", api_key)
+        .header("Authorization", format!("Bearer {}", api_key))
         .header("anthropic-version", "2023-06-01")
         .send()
         .await

@@ -52,6 +52,7 @@ pub async fn stream_chat(
     let resp = client
         .post(&url)
         .header("x-api-key", &api_key)
+        .header("Authorization", format!("Bearer {}", api_key))
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&body)
