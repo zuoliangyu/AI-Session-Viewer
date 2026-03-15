@@ -5,7 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { formatTime } from "./utils";
+import { formatTime, stripAnsi } from "./utils";
 
 interface Props {
   message: DisplayMessage;
@@ -140,7 +140,7 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
                     },
                   }}
                 >
-                  {block.text}
+                  {stripAnsi(block.text)}
                 </ReactMarkdown>
               </div>
             );
@@ -248,9 +248,12 @@ function ToolCallBlock({ name, input }: { name: string; input: string }) {
       {expanded && (
         <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto">
           <pre className="whitespace-pre-wrap break-all">
-            {input.length > 5000
-              ? input.slice(0, 5000) + "\n... (truncated)"
-              : input}
+            {(() => {
+              const cleaned = stripAnsi(input);
+              return cleaned.length > 5000
+                ? cleaned.slice(0, 5000) + "\n... (truncated)"
+                : cleaned;
+            })()}
           </pre>
         </div>
       )}
@@ -278,9 +281,12 @@ function FunctionCallBlock({ name, arguments: args }: { name: string; arguments:
       {expanded && (
         <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto">
           <pre className="whitespace-pre-wrap break-all">
-            {args.length > 5000
-              ? args.slice(0, 5000) + "\n... (truncated)"
-              : args}
+            {(() => {
+              const cleaned = stripAnsi(args);
+              return cleaned.length > 5000
+                ? cleaned.slice(0, 5000) + "\n... (truncated)"
+                : cleaned;
+            })()}
           </pre>
         </div>
       )}

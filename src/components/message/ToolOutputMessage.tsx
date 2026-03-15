@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Terminal, ChevronDown, ChevronRight } from "lucide-react";
-import { formatTime } from "./utils";
+import { formatTime, stripAnsi } from "./utils";
 
 interface Props {
   message: DisplayMessage;
@@ -25,7 +25,7 @@ export function ToolOutputMessage({ message, showTimestamp }: Props) {
         </div>
         {message.content.map((block, i) => {
           if (block.type === "function_call_output") {
-            const output = block.output;
+            const output = stripAnsi(block.output);
             const isLong = output.length > 300;
 
             return (
@@ -76,9 +76,12 @@ export function ToolOutputMessage({ message, showTimestamp }: Props) {
                 }`}
               >
                 <pre className="whitespace-pre-wrap break-all">
-                  {block.content.length > 2000
-                    ? block.content.slice(0, 2000) + "\n... (truncated)"
-                    : block.content}
+                  {(() => {
+                    const cleaned = stripAnsi(block.content);
+                    return cleaned.length > 2000
+                      ? cleaned.slice(0, 2000) + "\n... (truncated)"
+                      : cleaned;
+                  })()}
                 </pre>
               </div>
             );
