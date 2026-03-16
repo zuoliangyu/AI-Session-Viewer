@@ -66,10 +66,13 @@
 **直接运行（推荐）：**
 
 ```bash
-# 最简启动（监听 127.0.0.1:3000）
+# 最简启动（默认监听 0.0.0.0:3000，所有网卡可访问）
 ./session-web
 
-# 完整参数
+# 限制只监听本机（仅 localhost 可访问）
+./session-web --host 127.0.0.1
+
+# 完整参数（公网暴露时务必设置 --token）
 ./session-web --host 0.0.0.0 --port 8080 --token my-secret
 
 # 环境变量
@@ -78,9 +81,9 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 
 | 参数 | 环境变量 | 默认值 | 说明 |
 |------|---------|--------|------|
-| `--host` | `ASV_HOST` | `127.0.0.1` | 监听地址 |
+| `--host` | `ASV_HOST` | `0.0.0.0` | 监听地址（`0.0.0.0` = 所有网卡，`127.0.0.1` = 仅本机） |
 | `--port` | `ASV_PORT` | `3000` | 监听端口 |
-| `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证，不设则免认证 |
+| `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证，不设则**免认证**（局域网/公网部署必须设置） |
 
 **直接运行 vs Docker：**
 
@@ -104,7 +107,7 @@ docker compose up
 **公网访问：**
 
 ```bash
-# 直接运行
+# 直接运行（必须设置 Token）
 ./session-web --host 0.0.0.0 --port 8080 --token my-secret
 
 # Docker
@@ -118,7 +121,17 @@ environment:
   ASV_TOKEN: my-secret
 ```
 
-> **安全提示：** 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含完整会话记录。公网暴露时**务必设置 Token**。应用本身不提供 HTTPS，生产环境建议前置 Nginx / Caddy 做反向代理并启用 TLS。
+> ⚠️ **安全警告**
+>
+> 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含**完整会话记录（含 API Key、代码、隐私对话）**。
+>
+> | 场景 | 建议措施 |
+> |------|---------|
+> | **仅本机使用** | 使用默认 `0.0.0.0` 或 `127.0.0.1`，防火墙封闭端口 |
+> | **局域网共享** | 设置 `ASV_TOKEN`，防火墙限制端口仅内网可达 |
+> | **公网暴露** | 必须设置 `ASV_TOKEN` + 前置 Nginx/Caddy 反向代理 + 启用 HTTPS/TLS |
+>
+> 应用本身**不提供 HTTPS**，明文 HTTP 场景下 Token 亦以明文传输，生产环境务必在反向代理层终止 TLS。
 
 ### Web 版与桌面版的差异
 
@@ -456,6 +469,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 侧边栏布局优化（macOS 兼容）+ 更新检测移入设置弹窗
 - [x] Web 服务器 musl 静态编译 — 零依赖跨发行版运行
 - [x] Web 模式 CLI 对话稳定性修复（错误反馈 + 权限确认卡死）
+- [x] Web 服务器默认监听 0.0.0.0，局域网/远程直接可达 + crypto.randomUUID HTTP 兼容修复
 
 ## Star History
 

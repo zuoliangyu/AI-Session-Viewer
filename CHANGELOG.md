@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.1] - 2026-03-16
+
+### Fixed
+
+#### Web 服务器默认绑定地址
+- **默认监听所有网卡**：`session-web` 默认绑定地址从 `127.0.0.1` 改为 `0.0.0.0`，直接用本机 IP 或局域网地址访问无需再手动指定 `--host`
+- **旧行为**：仅接受 localhost 连接，非 localhost IP 访问时浏览器无响应
+- **新行为**：监听所有网卡，可通过任意 IP 直接访问；如需限制来源仍可用 `--host <ip>` 或 `ASV_HOST=<ip>` 覆盖
+
+#### Web 前端 crypto.randomUUID 兼容性
+- **HTTP 非 localhost 场景**：通过 HTTP（非 HTTPS）且非 localhost 访问时，浏览器限制 `crypto.randomUUID()` 仅在安全上下文可用，导致发送消息时报错
+- **polyfill 降级**：新增 `generateUUID()` 函数，安全上下文使用原生 `crypto.randomUUID()`，否则自动降级为基于 `crypto.getRandomValues()` 的 RFC 4122 兼容实现（`getRandomValues` 在非安全上下文仍可用）
+- **覆盖范围**：`parseClaudeStreamLine`（assistant / user / result 消息）、`startNewChat`、`continueExistingChat` 共 5 处调用全部替换
+
+### Security
+
+> **⚠️ 重要提示**：`0.0.0.0` 意味着服务器会在**所有网络接口**上监听，包括公网网卡。请务必根据部署环境配置以下安全措施：
+>
+> - **内网自用**：防火墙限制端口仅允许可信 IP，或使用 `--host <局域网IP>` 绑定到指定网卡
+> - **公网暴露**：必须设置 `--token` / `ASV_TOKEN` 启用 Bearer Token 认证
+> - **生产环境**：前置 Nginx / Caddy 反向代理，启用 HTTPS / TLS，避免明文传输
+
+---
+
 ## [2.2.0] - 2026-03-16
 
 ### Added

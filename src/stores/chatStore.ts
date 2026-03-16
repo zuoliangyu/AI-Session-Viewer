@@ -67,6 +67,20 @@ interface ChatState {
   setModel: (m: string) => void;
 }
 
+function generateUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-secure contexts (HTTP + non-localhost)
+  // crypto.getRandomValues() is still available in non-secure contexts
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (
+      +c ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))
+    ).toString(16)
+  );
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseClaudeStreamLine(line: string): ChatMessage | null {
   let data: any;
@@ -97,7 +111,7 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     if (usage && (usage.output_tokens ?? 0) === 0) return null;
 
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "assistant",
       content,
       model: msg.model || data.model,
@@ -120,7 +134,7 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     if (content.length === 0) return null;
 
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "user",
       content,
       timestamp: data.timestamp || new Date().toISOString(),
@@ -150,7 +164,7 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     }
 
     return {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       role: "system",
       content: [{ type: "text", text: `${text}${durationInfo}${tokenInfo}` }],
       timestamp: new Date().toISOString(),
@@ -329,7 +343,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       error: null,
       messages: [
         {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           role: "user",
           content: [{ type: "text", text: prompt }],
           timestamp: new Date().toISOString(),
@@ -368,7 +382,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: [
         ...state.messages,
         {
-          id: crypto.randomUUID(),
+          id: generateUUID(),
           role: "user",
           content: [{ type: "text", text: prompt }],
           timestamp: new Date().toISOString(),

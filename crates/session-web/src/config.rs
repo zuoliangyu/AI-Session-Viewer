@@ -4,7 +4,7 @@ use clap::Parser;
 #[command(name = "session-web", about = "AI Session Viewer Web Server")]
 pub struct Config {
     /// Host to bind to
-    #[arg(long, default_value = "127.0.0.1", env = "ASV_HOST")]
+    #[arg(long, default_value = "0.0.0.0", env = "ASV_HOST")]
     pub host: String,
 
     /// Port to listen on
