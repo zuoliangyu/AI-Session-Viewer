@@ -46,6 +46,12 @@ export function SessionsPage() {
   const [deleting, setDeleting] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
 
+  const [showCleanDialog, setShowCleanDialog] = useState(false);
+  const [cleanSelected, setCleanSelected] = useState<Set<string>>(new Set());
+  const [cleaning, setCleaning] = useState(false);
+
+  const emptySessions = sessions.filter((s) => s.messageCount === 0);
+
   useEffect(() => {
     if (projectId) {
       selectProject(projectId);
@@ -147,6 +153,18 @@ export function SessionsPage() {
             </p>
           )}
         </div>
+        {emptySessions.length > 0 && (
+          <button
+            onClick={() => {
+              setCleanSelected(new Set(emptySessions.map((s) => s.filePath)));
+              setShowCleanDialog(true);
+            }}
+            className="ml-auto text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center gap-1.5"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            清理空会话 ({emptySessions.length})
+          </button>
+        )}
       </div>
 
       {/* Tag filter bar */}
@@ -386,6 +404,92 @@ export function SessionsPage() {
           currentTags={editSession.tags}
           onClose={() => setEditingSession(null)}
         />
+      )}
+
+      {/* 清理空会话对话框 */}
+      {showCleanDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-1">清理空会话</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              以下会话没有消息记录，选择后点击删除。
+            </p>
+            <div className="space-y-1 max-h-60 overflow-y-auto mb-4">
+              {emptySessions.map((s) => (
+                <label
+                  key={s.filePath}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={cleanSelected.has(s.filePath)}
+                    onChange={(e) => {
+                      const next = new Set(cleanSelected);
+                      if (e.target.checked) next.add(s.filePath);
+                      else next.delete(s.filePath);
+                      setCleanSelected(next);
+                    }}
+                    className="rounded"
+                  />
+                  <span className="text-xs text-muted-foreground font-mono truncate flex-1">
+                    {s.sessionId.slice(0, 8)}...
+                  </span>
+                  {s.modified && (
+                    <span className="text-xs text-muted-foreground/60 shrink-0">
+                      {new Date(s.modified).toLocaleDateString()}
+                    </span>
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => {
+                  if (cleanSelected.size === emptySessions.length) {
+                    setCleanSelected(new Set());
+                  } else {
+                    setCleanSelected(new Set(emptySessions.map((s) => s.filePath)));
+                  }
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {cleanSelected.size === emptySessions.length ? "取消全选" : "全选"}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowCleanDialog(false)}
+                  disabled={cleaning}
+                  className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={async () => {
+                    if (cleanSelected.size === 0) return;
+                    setCleaning(true);
+                    try {
+                      const targets = emptySessions.filter((s) => cleanSelected.has(s.filePath));
+                      await Promise.all(
+                        targets.map((s) => deleteSession(s.filePath, s.sessionId))
+                      );
+                      await selectProject(projectId);
+                    } catch (err) {
+                      console.error("Failed to clean sessions:", err);
+                    } finally {
+                      setCleaning(false);
+                      setShowCleanDialog(false);
+                      setCleanSelected(new Set());
+                    }
+                  }}
+                  disabled={cleaning || cleanSelected.size === 0}
+                  className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
+                >
+                  {cleaning ? "删除中..." : `删除已选 ${cleanSelected.size} 个`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
