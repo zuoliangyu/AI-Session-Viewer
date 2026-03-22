@@ -39,4 +39,7 @@ src-tauri/gen/
 .spec-workflow/
 .playwright-mcp/
 
+# Design docs / specs (local only)
+docs/
+
 session-web-linux-x86_64
