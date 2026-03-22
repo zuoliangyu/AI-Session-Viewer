@@ -470,3 +470,11 @@ export async function addBookmark(bookmark: Omit<Bookmark, "id" | "createdAt"> &
 export async function removeBookmark(id: string): Promise<void> {
   await apiDelete(`/api/bookmarks/${encodeURIComponent(id)}`);
 }
+
+export async function setProjectAlias(
+  source: string,
+  projectId: string,
+  alias: string | null
+): Promise<void> {
+  await apiPut("/api/projects/alias", { source, projectId, alias });
+}

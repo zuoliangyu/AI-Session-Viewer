@@ -68,6 +68,7 @@ interface AppState {
   selectSession: (filePath: string) => Promise<void>;
   deleteSession: (filePath: string, sessionId?: string) => Promise<void>;
   deleteProject: (projectId: string) => Promise<void>;
+  setProjectAlias: (projectId: string, alias: string | null) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
   loadStats: () => Promise<void>;
@@ -247,6 +248,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       return { projects: filtered };
     });
+  },
+
+  setProjectAlias: async (projectId: string, alias: string | null) => {
+    const { source, projects } = get();
+    const prev = projects;
+    // 乐观更新
+    set({ projects: projects.map(p =>
+      p.id === projectId ? { ...p, alias } : p
+    )});
+    try {
+      await api.setProjectAlias(source, projectId, alias);
+    } catch (e) {
+      set({ projects: prev }); // 回滚
+      throw e;
+    }
   },
 
   loadMoreMessages: async () => {

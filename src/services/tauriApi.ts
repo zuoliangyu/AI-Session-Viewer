@@ -221,3 +221,11 @@ export async function addBookmark(bookmark: Omit<Bookmark, "id" | "createdAt"> &
 export async function removeBookmark(id: string): Promise<void> {
   return invoke<void>("remove_bookmark", { id });
 }
+
+export async function setProjectAlias(
+  source: string,
+  projectId: string,
+  alias: string | null
+): Promise<void> {
+  return invoke<void>("set_project_alias", { source, projectId, alias });
+}

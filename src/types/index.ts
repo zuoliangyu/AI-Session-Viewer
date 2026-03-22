@@ -6,6 +6,7 @@ export interface ProjectEntry {
   sessionCount: number;
   lastModified: string | null;
   modelProvider: string | null;
+  alias: string | null;
 }
 
 export interface SessionIndexEntry {
