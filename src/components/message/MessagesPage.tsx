@@ -32,6 +32,7 @@ export function MessagesPage() {
     messagesHasMore,
     messagesTotal,
     selectSession,
+    selectProject,
     loadMoreMessages,
     sessions,
     projects,
@@ -110,10 +111,24 @@ export function MessagesPage() {
   }, [filePath, clearChat]);
 
   useEffect(() => {
-    if (filePath) {
-      setInitialScrollDone(false);
-      selectSession(filePath);
-    }
+    if (!filePath) return;
+    let cancelled = false;
+    setInitialScrollDone(false);
+
+    const load = async () => {
+      // 从搜索跳转时 sessions 可能为空，需先加载项目会话列表
+      if (sessions.length === 0 && projectId) {
+        await selectProject(projectId);
+      }
+      if (!cancelled) {
+        selectSession(filePath);
+      }
+    };
+    load();
+
+    return () => {
+      cancelled = true;
+    };
   }, [filePath]);
 
   // Auto-scroll to bottom on initial load
