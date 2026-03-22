@@ -44,8 +44,10 @@ pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
 }
 
 /// 写入别名。
+///
 /// - alias 为 Some(s)：写入 / 更新 .project-meta.json 中的 alias 字段
 /// - alias 为 None：删除 alias 字段；若文件其余字段为空（{}）则删除文件
+///
 /// 使用 canonicalize + starts_with 防止路径遍历。
 pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), String> {
     let projects_dir = get_projects_dir()
