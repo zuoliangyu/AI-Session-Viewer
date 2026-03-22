@@ -207,9 +207,9 @@ export function Sidebar() {
                   <button
                     onClick={() => navigate(`/projects/${encodeURIComponent(project.id)}`)}
                     className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
-                    title={project.displayPath}
+                    title={project.displayPath + (project.pathExists === false ? " (路径不存在)" : "")}
                   >
-                    <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+                    <FolderOpen className={`w-3.5 h-3.5 shrink-0${project.pathExists === false ? " text-yellow-500" : ""}`} />
                     <span className="truncate flex-1 text-left">
                       {project.alias ?? project.shortName}
                     </span>

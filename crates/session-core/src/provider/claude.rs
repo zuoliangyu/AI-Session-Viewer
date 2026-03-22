@@ -5,7 +5,9 @@ use crate::models::message::{DisplayMessage, PaginatedMessages};
 use crate::models::project::ProjectEntry;
 use crate::models::session::{SessionIndexEntry, SessionsIndex, SessionsIndexFileEntry};
 use crate::parser::jsonl as claude_parser;
-use crate::parser::path_encoder::{decode_project_path, get_projects_dir, short_name_from_path};
+use crate::parser::path_encoder::{
+    decode_project_path_validated, get_projects_dir, short_name_from_path,
+};
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -136,7 +138,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
             .ok()
             .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
 
-        let display_path = parsed_index
+        let (display_path, path_exists) = parsed_index
             .as_ref()
             .and_then(|idx| {
                 // Primary: use originalPath from the index
@@ -145,7 +147,14 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                     idx.entries.iter().find_map(|e| e.project_path.clone())
                 })
             })
-            .unwrap_or_else(|| decode_project_path(&encoded_name));
+            .map(|p| {
+                let exists = std::path::Path::new(&p).exists();
+                (p, exists)
+            })
+            .unwrap_or_else(|| {
+                let decoded = decode_project_path_validated(&encoded_name);
+                (decoded.display_path, decoded.path_exists)
+            });
         let short_name = short_name_from_path(&display_path);
 
         // Count sessions consistently with get_sessions(): only those with messages
@@ -208,6 +217,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 last_modified,
                 model_provider: None,
                 alias,
+                path_exists,
             });
         }
     }
@@ -241,13 +251,16 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
         }
     }
 
-    // Try reading sessions-index.json
+    // Try reading sessions-index.json (fallback to dir scan on parse failure)
     let index_path = project_dir.join("sessions-index.json");
-    if index_path.exists() {
-        let content = fs::read_to_string(&index_path)
-            .map_err(|e| format!("Failed to read sessions index: {}", e))?;
-        let index: SessionsIndex = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse sessions index: {}", e))?;
+    let parsed_index = if index_path.exists() {
+        fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
+    } else {
+        None
+    };
+    if let Some(index) = parsed_index {
 
         if !index.entries.is_empty() {
             let original_path = index.original_path.clone();
@@ -346,7 +359,7 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
                 idx.original_path
                     .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
             })
-            .unwrap_or_else(|| decode_project_path(&encoded_name));
+            .unwrap_or_else(|| decode_project_path_validated(&encoded_name).display_path);
         let project_name = short_name_from_path(&display_path);
 
         if let Ok(dir_files) = fs::read_dir(&path) {

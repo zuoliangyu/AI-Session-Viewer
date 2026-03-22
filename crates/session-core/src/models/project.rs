@@ -19,4 +19,6 @@ pub struct ProjectEntry {
     pub model_provider: Option<String>,
     /// Custom alias for the project
     pub alias: Option<String>,
+    /// Whether the decoded display_path exists on the filesystem
+    pub path_exists: bool,
 }

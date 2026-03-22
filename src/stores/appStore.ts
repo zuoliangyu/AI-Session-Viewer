@@ -173,6 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectProject: async (projectId: string) => {
     set({
       selectedProject: projectId,
+      sessions: [],
       sessionsLoading: true,
       selectedFilePath: null,
       messages: [],
@@ -182,6 +183,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     try {
       const sessions = await api.getSessions(get().source, projectId);
+      // Stale check: ignore result if user already navigated to another project
+      if (get().selectedProject !== projectId) return;
       set((state) => ({
         sessions,
         sessionsLoading: false,
@@ -190,10 +193,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       }));
       // Load all tags for this project
-      get().loadAllTags();
+      if (get().selectedProject === projectId) {
+        get().loadAllTags();
+      }
     } catch (e) {
       console.error("Failed to load sessions:", e);
-      set({ sessionsLoading: false });
+      if (get().selectedProject === projectId) {
+        set({ sessions: [], sessionsLoading: false });
+      }
     }
   },
 
@@ -207,6 +214,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     try {
       const result = await api.getMessages(get().source, filePath, 0, 50, true);
+      if (get().selectedFilePath !== filePath) return;
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -216,7 +224,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("Failed to load messages:", e);
-      set({ messagesLoading: false });
+      if (get().selectedFilePath === filePath) {
+        set({ messagesLoading: false });
+      }
     }
   },
 

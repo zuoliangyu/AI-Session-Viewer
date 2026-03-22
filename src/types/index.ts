@@ -7,6 +7,7 @@ export interface ProjectEntry {
   lastModified: string | null;
   modelProvider: string | null;
   alias: string | null;
+  pathExists: boolean;
 }
 
 export interface SessionIndexEntry {

@@ -304,6 +304,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 last_modified: None,
                 model_provider: session.model_provider.clone(),
                 alias: None,
+                path_exists: std::path::Path::new(&cwd).exists(),
             });
 
         entry.session_count += 1;

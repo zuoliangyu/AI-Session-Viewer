@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.1] - 2026-03-23
+
+### Fixed
+
+- **项目路径智能解码**：新增 `decode_project_path_validated` 文件系统验证解码器，当 `sessions-index.json` 缺少 `originalPath` 时，通过逐段匹配文件系统目录项恢复原始路径（含中文、`.` 等被编码为 `-` 的字符），解决有损解码导致路径显示错误的问题
+- **路径存在性检测**：`ProjectEntry` 新增 `pathExists` 字段，后端在解码路径后自动检测路径是否存在于文件系统
+- **不存在路径视觉提示**：侧边栏和项目列表页对路径不存在的项目显示黄色警告图标和 tooltip 提示，帮助用户识别已删除或移动的项目目录
+- **Unix 隐藏目录启发式**：支持 `--` → `.` 的启发式匹配（如 `.claude`、`.config` 等隐藏目录）
+- **项目/会话切换竞态条件**：`selectProject` 和 `selectSession` 异步返回后增加 stale check，切换时立刻清空旧 sessions，避免闪显上一个项目的会话列表
+- **sessions-index.json 解析容错**：`fileMtime` 字段兼容 f64 浮点数（截断为 u64）；解析失败时自动 fallback 到逐文件扫描，不再直接报错
+
+---
+
 ## [2.6.0] - 2026-03-22
 
 ### Added

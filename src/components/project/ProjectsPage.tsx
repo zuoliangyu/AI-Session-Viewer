@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry } from "../../types";
-import { FolderOpen, Clock, Hash, Tag, MoreHorizontal } from "lucide-react";
+import { FolderOpen, Clock, Hash, Tag, MoreHorizontal, AlertCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
@@ -159,10 +159,13 @@ export function ProjectsPage() {
                     </p>
                   )}
                   <p
-                    className="text-xs text-muted-foreground truncate mt-1"
-                    title={project.displayPath}
+                    className={`text-xs truncate mt-1 ${project.pathExists === false ? "text-yellow-500" : "text-muted-foreground"}`}
+                    title={project.displayPath + (project.pathExists === false ? " (路径不存在，解码可能不准确)" : "")}
                   >
                     {project.displayPath}
+                    {project.pathExists === false && (
+                      <AlertCircle className="w-3 h-3 inline ml-1 -mt-0.5" />
+                    )}
                   </p>
                   {/* Project tags */}
                   {crossProjectTags[project.id] && crossProjectTags[project.id].length > 0 && (
