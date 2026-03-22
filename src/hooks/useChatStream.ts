@@ -73,7 +73,6 @@ export function useChatStream() {
         );
 
         cleanupRef.current = () => {
-          cancelled = true;
           unlistenOutput();
           unlistenError();
           unlistenComplete();
@@ -81,6 +80,14 @@ export function useChatStream() {
       };
 
       setupListeners();
+
+      return () => {
+        cancelled = true;
+        if (cleanupRef.current) {
+          cleanupRef.current();
+          cleanupRef.current = null;
+        }
+      };
     } else {
       // Web mode: listen to WebSocket messages
       let cancelled = false;
@@ -125,13 +132,5 @@ export function useChatStream() {
         }
       };
     }
-
-    return () => {
-      cancelled = true;
-      if (cleanupRef.current) {
-        cleanupRef.current();
-        cleanupRef.current = null;
-      }
-    };
   }, [sessionId, addStreamLine, setStreaming, setError]);
 }
