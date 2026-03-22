@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-03-22
+
+### Added
+
+#### 工程删除
+- **Hover 删除图标**：鼠标悬停到项目卡片时，右上角显示 `Trash2` 删除图标（仅 Claude 数据源可见），点击弹出确认对话框
+- **右键菜单**：项目卡片支持右键呼出上下文菜单，显示工程信息（名称、路径、会话数）及删除入口（仅 Claude 数据源），菜单自动避开视口边缘
+- **删除确认对话框**：展示工程名、路径、会话数量，操作不可逆，需二次确认；删除完成后自动导航回项目列表并清空下游状态
+- **后端实现**：`session-core` 新增 `delete_project` 函数，调用 `std::fs::remove_dir_all` 递归删除目录（含 `.session-viewer-meta.json`）；同时包含路径遍历防护（`canonicalize + starts_with` 验证）；Tauri command + Axum `DELETE /api/projects` 路由双端均已实现，缺失项目返回 HTTP 404
+
+#### 空会话批量清理
+- **清理按钮**：SessionsPage 标题行，当项目内存在 `messageCount === 0` 的空会话时，显示「清理空会话 (N)」按钮
+- **清理对话框**：列出所有空会话（SessionID 前缀 + 最后修改日期），支持逐条勾选或全选/取消全选，确认后批量删除并刷新会话列表
+
+### Fixed
+
+#### 流式回复内容重复
+- **Web 模式**：`useChatStream` 中 `getChatWebSocket()` 返回模块级单例，断线重建后新旧对象不同，`removeEventListener` 对新对象无效导致监听器泄漏叠加；修复：保存 ws 快照到局部变量，`handleMessage` 定义在 `setupWebSocket` 内部与快照绑定，cleanup 对同一快照调用 `removeEventListener`
+- **Tauri 模式**：`setupListeners` 在 `await import(...)` 完成后未检查 `cancelled`，组件卸载后监听器仍可能注册；修复：在 `await import` 之后、`await listen` 之前加 `if (cancelled) return` 检查，并在 cleanup 函数中直接设置 `cancelled = true`
+
+#### 消息不自动刷新
+- `refreshInBackground` 仅刷新 projects + sessions，Claude Code 写入 JSONL 后消息区不更新；在函数末尾追加静默消息刷新：仅当 `messagesPage === 0`（用户未上翻历史）时调用 `api.getMessages`，更新 `messages / messagesTotal / messagesHasMore`，不触发 loading 遮罩，失败静默忽略
+
+#### 搜索进入会话无法对话
+- 从全局搜索跳转到某个会话时，`appStore.sessions` 为空（用户未先进入项目页），`sessions.find(filePath)` 返回 `undefined`，导致 ChatInput 隐藏；修复：`MessagesPage` 的 `filePath` useEffect 改为异步，当目标 `filePath` 不在当前 sessions 中时先 `await selectProject(projectId)` 加载正确项目，再调用 `selectSession`，全程通过 `cancelled` 标志防止竞态
+
+---
+
 ## [2.2.1] - 2026-03-16
 
 ### Fixed
