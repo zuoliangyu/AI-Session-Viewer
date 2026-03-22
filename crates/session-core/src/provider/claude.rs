@@ -225,7 +225,13 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
             None => continue,
         };
 
-        let display_path = decode_project_path(&encoded_name);
+        // Prefer originalPath from sessions-index.json (same as get_projects)
+        let index_path = path.join("sessions-index.json");
+        let display_path = fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
+            .and_then(|idx| idx.original_path)
+            .unwrap_or_else(|| decode_project_path(&encoded_name));
         let project_name = short_name_from_path(&display_path);
 
         if let Ok(dir_files) = fs::read_dir(&path) {
@@ -365,6 +371,18 @@ fn count_jsonl_files(dir: &std::path::Path) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+/// Delete an entire project directory (and all sessions/metadata within it)
+pub fn delete_project(project_id: &str) -> Result<(), String> {
+    let dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?
+        .join(project_id);
+    if !dir.exists() {
+        return Err(format!("Project not found: {}", project_id));
+    }
+    std::fs::remove_dir_all(&dir)
+        .map_err(|e| format!("Failed to delete project: {}", e))
 }
 
 fn count_messages(path: &std::path::Path) -> u32 {

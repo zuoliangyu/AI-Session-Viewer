@@ -150,6 +150,7 @@ async fn main() {
     // API routes (with auth middleware)
     let api_routes = Router::new()
         .route("/api/projects", get(routes::projects::get_projects))
+        .route("/api/projects", delete(routes::projects::delete_project))
         .route("/api/sessions", get(routes::sessions::get_sessions))
         .route("/api/sessions", delete(routes::sessions::delete_session))
         .route(

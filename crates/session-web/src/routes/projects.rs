@@ -25,3 +25,26 @@ pub async fn get_projects(
 
     Ok(Json(result))
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteProjectQuery {
+    pub source: String,
+    pub project_id: String,
+}
+
+pub async fn delete_project(
+    Query(params): Query<DeleteProjectQuery>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    let source = params.source;
+    let project_id = params.project_id;
+    tokio::task::spawn_blocking(move || match source.as_str() {
+        "claude" => claude::delete_project(&project_id),
+        _ => Err(format!("Delete project not supported for source: {}", source)),
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(()))
+}
