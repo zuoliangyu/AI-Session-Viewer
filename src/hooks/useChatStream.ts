@@ -39,6 +39,7 @@ export function useChatStream() {
 
       const setupListeners = async () => {
         const { listen } = await import("@tauri-apps/api/event");
+        if (cancelled) return; // async 完成后检查是否已 cleanup
 
         const unlistenOutput = await listen<string>(
           `chat-output:${sessionId}`,
@@ -82,9 +83,13 @@ export function useChatStream() {
       setupListeners();
     } else {
       // Web mode: listen to WebSocket messages
+      let cancelled = false;
+
       const setupWebSocket = async () => {
         const { getChatWebSocket } = await import("../services/webApi");
-        const ws = getChatWebSocket();
+        const ws = getChatWebSocket(); // 保存快照，避免单例替换导致 removeEventListener 失效
+
+        if (cancelled) return; // async 完成后检查是否已 cleanup
 
         const handleMessage = (event: MessageEvent) => {
           try {
@@ -98,7 +103,6 @@ export function useChatStream() {
             } else if (data.type === "complete") {
               setStreaming(false);
             }
-            // session_id type is already handled in webApi.ts
           } catch {
             // non-JSON message, ignore
           }
@@ -107,11 +111,19 @@ export function useChatStream() {
         ws.addEventListener("message", handleMessage);
 
         cleanupRef.current = () => {
-          ws.removeEventListener("message", handleMessage);
+          ws.removeEventListener("message", handleMessage); // 对同一快照操作
         };
       };
 
       setupWebSocket();
+
+      return () => {
+        cancelled = true;
+        if (cleanupRef.current) {
+          cleanupRef.current();
+          cleanupRef.current = null;
+        }
+      };
     }
 
     return () => {
