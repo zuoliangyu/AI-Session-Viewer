@@ -228,24 +228,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteProject: async (projectId: string) => {
-    const { source, selectedProject } = get();
+    const { source } = get();
     await api.deleteProject(source, projectId);
-    // 若当前正在查看该项目，同时清空下游状态
-    if (selectedProject === projectId) {
-      set((state) => ({
-        projects: state.projects.filter((p) => p.id !== projectId),
-        selectedProject: null,
-        selectedFilePath: null,
-        sessions: [],
-        messages: [],
-        messagesTotal: 0,
-        messagesPage: 0,
-      }));
-    } else {
-      set((state) => ({
-        projects: state.projects.filter((p) => p.id !== projectId),
-      }));
-    }
+    // 在 await 完成后重新读取 selectedProject，避免竞态
+    set((state) => {
+      const filtered = state.projects.filter((p) => p.id !== projectId);
+      if (state.selectedProject === projectId) {
+        return {
+          projects: filtered,
+          selectedProject: null,
+          selectedFilePath: null,
+          sessions: [],
+          messages: [],
+          messagesTotal: 0,
+          messagesPage: 0,
+          messagesHasMore: false,
+        };
+      }
+      return { projects: filtered };
+    });
   },
 
   loadMoreMessages: async () => {
