@@ -17,3 +17,15 @@ pub fn delete_project(source: String, project_id: String) -> Result<(), String> 
         _ => Err(format!("Delete project not supported for source: {}", source)),
     }
 }
+
+#[tauri::command]
+pub fn set_project_alias(
+    source: String,
+    project_id: String,
+    alias: Option<String>,
+) -> Result<(), String> {
+    match source.as_str() {
+        "claude" => claude::set_project_alias(&project_id, alias),
+        _ => Err(format!("set_project_alias not supported for source: {}", source)),
+    }
+}
