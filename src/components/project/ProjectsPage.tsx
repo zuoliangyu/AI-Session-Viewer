@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import ReactDOM from "react-dom";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry } from "../../types";
-import { FolderOpen, Clock, Hash, Tag, Trash2 } from "lucide-react";
+import { FolderOpen, Clock, Hash, Tag, MoreHorizontal } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
+import { ProjectActionsMenu } from "./ProjectActionsMenu";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -19,18 +19,24 @@ export function ProjectsPage() {
     loadCrossProjectTags,
     setGlobalTagFilter,
     deleteProject,
+    setProjectAlias,
   } = useAppStore();
 
-  // 右键菜单状态
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
+  // ⋯ 操作菜单状态
+  const [actionsMenu, setActionsMenu] = useState<{
     project: ProjectEntry;
+    anchorRect: DOMRect;
   } | null>(null);
 
   // 删除确认对话框状态
   const [deleteTarget, setDeleteTarget] = useState<ProjectEntry | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // 重命名（别名）对话框状态
+  const [renameTarget, setRenameTarget] = useState<ProjectEntry | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameLoading, setRenameLoading] = useState(false);
 
   useEffect(() => {
     loadProjects();
@@ -128,31 +134,30 @@ export function ProjectsPage() {
                   navigate(`/projects/${encodeURIComponent(project.id)}`);
                 }
               }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextMenu({ x: e.clientX, y: e.clientY, project });
-              }}
               className="relative bg-card border border-border rounded-lg p-4 text-left hover:border-primary/50 hover:bg-accent/30 transition-all group cursor-pointer"
             >
-              {/* Hover 删除图标（仅 claude source） */}
-              {source === "claude" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(project);
-                  }}
-                  className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  title="删除工程"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
+              {/* ⋯ 操作按钮（所有数据源均显示） */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionsMenu({ project, anchorRect: e.currentTarget.getBoundingClientRect() });
+                }}
+                className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:bg-accent/50"
+                title="操作"
+              >
+                <MoreHorizontal className="w-3.5 h-3.5" />
+              </button>
               <div className="flex items-start gap-3">
                 <FolderOpen className="w-5 h-5 text-primary mt-0.5 shrink-0" />
                 <div className="min-w-0 flex-1">
                   <h3 className="font-medium text-foreground truncate">
-                    {project.shortName}
+                    {project.alias ?? project.shortName}
                   </h3>
+                  {project.alias && (
+                    <p className="text-[10px] text-muted-foreground/60 truncate">
+                      {project.shortName}
+                    </p>
+                  )}
                   <p
                     className="text-xs text-muted-foreground truncate mt-1"
                     title={project.displayPath}
@@ -200,20 +205,20 @@ export function ProjectsPage() {
       )}
     </div>
 
-    {/* 右键菜单（portal） */}
-    {contextMenu && ReactDOM.createPortal(
-      <ProjectContextMenu
-        x={contextMenu.x}
-        y={contextMenu.y}
-        project={contextMenu.project}
+    {/* ⋯ 操作菜单（portal） */}
+    {actionsMenu && (
+      <ProjectActionsMenu
+        project={actionsMenu.project}
         source={source}
-        onClose={() => setContextMenu(null)}
-        onDelete={(p) => {
-          setContextMenu(null);
-          setDeleteTarget(p);
+        anchorRect={actionsMenu.anchorRect}
+        onClose={() => setActionsMenu(null)}
+        onRename={(p) => {
+          setRenameTarget(p);
+          setRenameValue(p.alias ?? "");
+          setRenameError(null);
         }}
-      />,
-      document.body
+        onDelete={(p) => setDeleteTarget(p)}
+      />
     )}
 
     {/* 删除确认对话框 */}
@@ -222,7 +227,7 @@ export function ProjectsPage() {
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
           <h3 className="text-lg font-semibold mb-2">确认删除工程</h3>
           <p className="text-sm text-muted-foreground mb-1">
-            工程：<span className="font-medium text-foreground">{deleteTarget.shortName}</span>
+            工程：<span className="font-medium text-foreground">{deleteTarget.alias ?? deleteTarget.shortName}</span>
           </p>
           <p className="text-xs text-muted-foreground mb-1 break-all">
             路径：{deleteTarget.displayPath}
@@ -260,67 +265,86 @@ export function ProjectsPage() {
         </div>
       </div>
     )}
-    </>
-  );
-}
 
-function ProjectContextMenu({
-  x, y, project, source, onClose, onDelete,
-}: {
-  x: number;
-  y: number;
-  project: ProjectEntry;
-  source: string;
-  onClose: () => void;
-  onDelete: (p: ProjectEntry) => void;
-}) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [onClose]);
-
-  // 避免菜单超出右侧/底部视口
-  const menuWidth = 200;
-  const menuHeight = 100;
-  const left = x + menuWidth > window.innerWidth ? x - menuWidth : x;
-  const top = y + menuHeight > window.innerHeight ? y - menuHeight : y;
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[180px]"
-      style={{ left, top }}
-    >
-      {/* 工程信息 */}
-      <div className="px-3 py-2 border-b border-border">
-        <p className="text-xs font-medium text-foreground">{project.shortName}</p>
-        <p className="text-xs text-muted-foreground break-all mt-0.5">{project.displayPath}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{project.sessionCount} 个会话</p>
+    {/* 别名重命名对话框 */}
+    {renameTarget && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
+          <h3 className="text-lg font-semibold mb-1">设置工程别名</h3>
+          <p className="text-xs text-muted-foreground mb-3">
+            别名仅影响显示名称，不修改磁盘目录
+          </p>
+          <input
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            placeholder={renameTarget.shortName}
+            autoFocus
+            className="w-full bg-muted border border-border rounded px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setRenameTarget(null);
+                setRenameError(null);
+              }
+            }}
+          />
+          {renameError && (
+            <p className="text-xs text-red-400 mt-1">{renameError}</p>
+          )}
+          <div className="flex justify-between items-center mt-4">
+            <div>
+              {renameTarget.alias && (
+                <button
+                  onClick={async () => {
+                    setRenameLoading(true);
+                    try {
+                      await setProjectAlias(renameTarget.id, null);
+                      setRenameTarget(null);
+                      setRenameError(null);
+                    } catch (e) {
+                      setRenameError(e instanceof Error ? e.message : String(e));
+                    } finally {
+                      setRenameLoading(false);
+                    }
+                  }}
+                  disabled={renameLoading}
+                  className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  清除别名
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setRenameTarget(null); setRenameError(null); }}
+                disabled={renameLoading}
+                className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={async () => {
+                  setRenameLoading(true);
+                  setRenameError(null);
+                  try {
+                    await setProjectAlias(renameTarget.id, renameValue.trim() || null);
+                    setRenameTarget(null);
+                  } catch (e) {
+                    setRenameError(e instanceof Error ? e.message : String(e));
+                  } finally {
+                    setRenameLoading(false);
+                  }
+                }}
+                disabled={renameLoading}
+                className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                {renameLoading ? "保存中..." : "确认"}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
-      {/* 删除工程（仅 claude source） */}
-      {source === "claude" && (
-        <button
-          onClick={() => onDelete(project)}
-          className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          删除工程
-        </button>
-      )}
-    </div>
+    )}
+    </>
   );
 }
