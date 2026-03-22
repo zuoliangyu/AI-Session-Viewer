@@ -14,10 +14,25 @@ struct ProjectMeta {
 }
 
 /// 读取项目别名。文件不存在或 alias 字段缺失时返回 Ok(None)，不报错。
+/// 使用 canonicalize + starts_with 防止路径遍历。
 pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
     let projects_dir = get_projects_dir()
         .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
-    let meta_path = projects_dir.join(project_id).join(".project-meta.json");
+    let project_dir = projects_dir.join(project_id);
+    if !project_dir.exists() {
+        return Ok(None);
+    }
+    // 防止路径遍历：规范化后验证仍在 projects_dir 内
+    let canonical_dir = project_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+    let canonical_base = projects_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve projects directory: {}", e))?;
+    if !canonical_dir.starts_with(&canonical_base) {
+        return Ok(None); // 路径逃逸，静默返回无别名
+    }
+    let meta_path = canonical_dir.join(".project-meta.json");
     if !meta_path.exists() {
         return Ok(None);
     }
