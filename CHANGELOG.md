@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-03-22
+
+### Added
+
+#### 工程操作菜单（⋯ 按钮）
+- **统一操作入口**：用 `⋯`（MoreHorizontal）按钮替换原有的 hover 删除图标和右键上下文菜单，鼠标悬停时在项目卡片右上角和侧边栏项目行右侧显示，点击展开 portal dropdown 菜单
+- **路径复制**：dropdown 顶部显示工程完整路径，右侧复制图标一键写入剪贴板，成功后 300ms 切换为绿色对勾；剪贴板 API 不可用时静默降级
+- **工程别名**（仅 Claude 数据源）：可为工程设置自定义显示名称（不修改磁盘目录），别名持久化存储在各工程目录下的 `.project-meta.json`；已设置别名时卡片标题显示别名，原始目录名以小字辅助显示
+- **删除工程**（仅 Claude 数据源）：从 dropdown 进入删除确认对话框，行为与之前一致
+- **Codex 数据源**：dropdown 仅显示路径复制，不显示别名/删除入口（与现有 Codex 不可删除的行为一致）
+
+#### 后端实现
+- `session-core` 新增 `get_project_alias` / `set_project_alias`，别名存储在 `.project-meta.json`（使用 `serde_json::Map` 原始操作以保留未来扩展字段）；两个函数均包含 `canonicalize + starts_with` 路径遍历防护
+- `ProjectEntry` 新增 `alias: Option<String>` 字段，`list_projects` 时自动读取并合并
+- Tauri command `set_project_alias` + Axum `PUT /api/projects/alias` 路由双端均已实现
+
+#### 前端
+- `ProjectActionsMenu`：新建 portal-based dropdown 共享组件，`ProjectsPage` 和 `Sidebar` 共用
+- `appStore.setProjectAlias`：乐观更新（立即更新本地 projects 列表）+ 失败回滚
+
+---
+
 ## [2.3.0] - 2026-03-22
 
 ### Added
