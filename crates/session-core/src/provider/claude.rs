@@ -7,6 +7,83 @@ use crate::models::session::{SessionIndexEntry, SessionsIndex, SessionsIndexFile
 use crate::parser::jsonl as claude_parser;
 use crate::parser::path_encoder::{decode_project_path, get_projects_dir, short_name_from_path};
 
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMeta {
+    alias: Option<String>,
+}
+
+/// 读取项目别名。文件不存在或 alias 字段缺失时返回 Ok(None)，不报错。
+pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
+    let projects_dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let meta_path = projects_dir.join(project_id).join(".project-meta.json");
+    if !meta_path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&meta_path)
+        .map_err(|e| format!("Failed to read project meta: {}", e))?;
+    let meta: ProjectMeta = serde_json::from_str(&content)
+        .unwrap_or_default();
+    Ok(meta.alias)
+}
+
+/// 写入别名。
+/// - alias 为 Some(s)：写入 / 更新 .project-meta.json 中的 alias 字段
+/// - alias 为 None：删除 alias 字段；若文件其余字段为空（{}）则删除文件
+/// 使用 canonicalize + starts_with 防止路径遍历。
+pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), String> {
+    let projects_dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let project_dir = projects_dir.join(project_id);
+
+    if !project_dir.exists() {
+        return Err(format!("Project not found: {}", project_id));
+    }
+    let canonical_dir = project_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+    let canonical_base = projects_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve projects directory: {}", e))?;
+    if !canonical_dir.starts_with(&canonical_base) {
+        return Err(format!("Invalid project id: {}", project_id));
+    }
+
+    let meta_path = canonical_dir.join(".project-meta.json");
+
+    let mut raw: serde_json::Map<String, serde_json::Value> = if meta_path.exists() {
+        let content = fs::read_to_string(&meta_path)
+            .map_err(|e| format!("Failed to read project meta: {}", e))?;
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+
+    match alias {
+        Some(a) => {
+            raw.insert("alias".to_string(), serde_json::Value::String(a));
+        }
+        None => {
+            raw.remove("alias");
+        }
+    }
+
+    if raw.is_empty() {
+        if meta_path.exists() {
+            fs::remove_file(&meta_path)
+                .map_err(|e| format!("Failed to remove project meta: {}", e))?;
+        }
+    } else {
+        let json = serde_json::to_string(&raw)
+            .map_err(|e| format!("Failed to serialize project meta: {}", e))?;
+        fs::write(&meta_path, json)
+            .map_err(|e| format!("Failed to write project meta: {}", e))?;
+    }
+
+    Ok(())
+}
+
 /// Get all Claude projects
 pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
     let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
@@ -93,6 +170,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
             });
 
         if session_count > 0 {
+            let alias = get_project_alias(&encoded_name).unwrap_or(None);
             projects.push(ProjectEntry {
                 source: "claude".to_string(),
                 id: encoded_name,
@@ -101,6 +179,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 session_count,
                 last_modified,
                 model_provider: None,
+                alias,
             });
         }
     }

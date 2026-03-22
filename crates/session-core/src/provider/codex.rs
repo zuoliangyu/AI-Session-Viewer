@@ -303,6 +303,7 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 session_count: 0,
                 last_modified: None,
                 model_provider: session.model_provider.clone(),
+                alias: None,
             });
 
         entry.session_count += 1;
