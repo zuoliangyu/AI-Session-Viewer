@@ -375,13 +375,23 @@ fn count_jsonl_files(dir: &std::path::Path) -> usize {
 
 /// Delete an entire project directory (and all sessions/metadata within it)
 pub fn delete_project(project_id: &str) -> Result<(), String> {
-    let dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?
-        .join(project_id);
+    let projects_dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let dir = projects_dir.join(project_id);
     if !dir.exists() {
         return Err(format!("Project not found: {}", project_id));
     }
-    std::fs::remove_dir_all(&dir)
+    // 防止路径遍历：规范化后验证仍在 projects_dir 内
+    let canonical_dir = dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+    let canonical_base = projects_dir
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve projects directory: {}", e))?;
+    if !canonical_dir.starts_with(&canonical_base) {
+        return Err(format!("Invalid project id: {}", project_id));
+    }
+    std::fs::remove_dir_all(&canonical_dir)
         .map_err(|e| format!("Failed to delete project: {}", e))
 }
 
