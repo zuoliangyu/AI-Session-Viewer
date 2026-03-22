@@ -123,6 +123,13 @@ export async function deleteSession(
   await apiDelete("/api/sessions", params);
 }
 
+export async function deleteProject(
+  source: string,
+  projectId: string
+): Promise<void> {
+  await apiDelete("/api/projects", { source, projectId });
+}
+
 async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = getToken();

@@ -67,6 +67,7 @@ interface AppState {
   selectProject: (projectId: string) => Promise<void>;
   selectSession: (filePath: string) => Promise<void>;
   deleteSession: (filePath: string, sessionId?: string) => Promise<void>;
+  deleteProject: (projectId: string) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
   loadStats: () => Promise<void>;
@@ -224,6 +225,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       sessions: state.sessions.filter((s) => s.filePath !== filePath),
     }));
+  },
+
+  deleteProject: async (projectId: string) => {
+    const { source, selectedProject } = get();
+    await api.deleteProject(source, projectId);
+    // 若当前正在查看该项目，同时清空下游状态
+    if (selectedProject === projectId) {
+      set((state) => ({
+        projects: state.projects.filter((p) => p.id !== projectId),
+        selectedProject: null,
+        selectedFilePath: null,
+        sessions: [],
+        messages: [],
+        messagesTotal: 0,
+        messagesPage: 0,
+      }));
+    } else {
+      set((state) => ({
+        projects: state.projects.filter((p) => p.id !== projectId),
+      }));
+    }
   },
 
   loadMoreMessages: async () => {

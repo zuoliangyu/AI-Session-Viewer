@@ -62,6 +62,13 @@ export async function deleteSession(
   });
 }
 
+export async function deleteProject(
+  source: string,
+  projectId: string
+): Promise<void> {
+  return invoke<void>("delete_project", { source, projectId });
+}
+
 export async function updateSessionMeta(
   source: string,
   projectId: string,
