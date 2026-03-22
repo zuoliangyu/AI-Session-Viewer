@@ -74,7 +74,8 @@ export async function updateSessionMeta(
   projectId: string,
   sessionId: string,
   alias: string | null,
-  tags: string[]
+  tags: string[],
+  filePath: string | null
 ): Promise<void> {
   return invoke<void>("update_session_meta", {
     source,
@@ -82,6 +83,7 @@ export async function updateSessionMeta(
     sessionId,
     alias,
     tags,
+    filePath,
   });
 }
 

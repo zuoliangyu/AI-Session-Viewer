@@ -259,6 +259,11 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
                     if entry.project_path.is_none() {
                         entry.project_path = original_path.clone();
                     }
+                    // Read customTitle from JSONL; use entry.file_path (may be non-standard)
+                    if entry.alias.is_none() {
+                        let jsonl_path = std::path::Path::new(&entry.file_path);
+                        entry.alias = claude_parser::extract_custom_title(jsonl_path);
+                    }
                     entry
                 })
                 .collect();
@@ -412,6 +417,7 @@ fn scan_sessions_from_dir(project_dir: &std::path::Path) -> Result<Vec<SessionIn
 
 fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<SessionIndexEntry> {
     let first_prompt = claude_parser::extract_first_prompt(path);
+    let alias = claude_parser::extract_custom_title(path);
     let metadata = claude_parser::extract_session_metadata(path);
     let (_, git_branch, project_path) = metadata.unwrap_or((String::new(), None, None));
     let message_count = count_messages(path);
@@ -453,7 +459,7 @@ fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<Sessi
         cwd: None,
         model_provider: None,
         cli_version: None,
-        alias: None,
+        alias,
         tags: None,
     })
 }

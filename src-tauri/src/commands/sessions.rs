@@ -12,13 +12,21 @@ pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionInd
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
-    // Merge metadata (alias/tags) into session entries
+    // Merge tags from metadata; alias comes from JSONL (Claude) or metadata (Codex)
     let meta = metadata::load_metadata(&source, &project_id);
     for session in &mut sessions {
         if let Some(sm) = meta.sessions.get(&session.session_id) {
-            session.alias = sm.alias.clone();
-            if !sm.tags.is_empty() {
-                session.tags = Some(sm.tags.clone());
+            if source == "claude" {
+                // For Claude: alias is in JSONL (loaded in provider), only merge tags
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            } else {
+                // For Codex: keep alias+tags from metadata
+                session.alias = sm.alias.clone();
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
             }
         }
     }
@@ -52,8 +60,25 @@ pub fn update_session_meta(
     session_id: String,
     alias: Option<String>,
     tags: Vec<String>,
+    file_path: Option<String>,
 ) -> Result<(), String> {
-    metadata::update_session_meta(&source, &project_id, &session_id, alias, tags)
+    if source == "claude" {
+        // Write alias to JSONL (same format as CC /rename)
+        if let Some(ref fp) = file_path {
+            let path = std::path::Path::new(fp);
+            if path.exists() {
+                session_core::parser::jsonl::append_custom_title(
+                    path,
+                    &session_id,
+                    alias.as_deref(),
+                )?;
+            }
+        }
+        // Only persist tags to metadata (alias is now in JSONL for Claude)
+        metadata::update_session_meta(&source, &project_id, &session_id, None, tags)
+    } else {
+        metadata::update_session_meta(&source, &project_id, &session_id, alias, tags)
+    }
 }
 
 #[tauri::command]

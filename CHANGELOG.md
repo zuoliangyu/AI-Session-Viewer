@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-03-22
+
+### Added
+
+#### Session 命名与 Claude Code `/rename` 双向同步
+- **读取同步**：加载 Claude session 时，自动从 JSONL 文件扫描 `custom-title` 记录，将 Claude Code `/rename` 设置的名称作为 session alias 显示；多次重命名取最后一条
+- **写入同步**：在 app 内编辑 session alias 时，直接向 JSONL 追加 `{"type":"custom-title","customTitle":"..."}` 记录，与 Claude Code `/rename` 格式完全一致，JSONL 成为 Claude session 名称的唯一真实来源
+- **清空支持**：清空 alias 时追加空 `customTitle` 记录，下次读取自动回退到首条用户消息（`firstPrompt`）
+- **Codex 不受影响**：Codex session 的 alias 依然走 `.session-viewer-meta.json`，逻辑不变
+
+#### 后端实现
+- `session-core/parser/jsonl.rs` 新增 `extract_custom_title(path)`：扫描 JSONL 返回最后一条非空 customTitle（空字符串视为清空意图返回 None）
+- `session-core/parser/jsonl.rs` 新增 `append_custom_title(path, session_id, title)`：向 JSONL 追加 custom-title 记录
+- `provider/claude.rs` 的 `scan_single_session` 和 index 加载路径均调用 `extract_custom_title` 填充 alias
+- Tauri command `update_session_meta` 和 Axum handler 新增 `file_path` 参数：Claude source 写 JSONL，Codex source 继续写 metadata
+
+#### 前端
+- `appStore.updateSessionMeta` action 内部查找当前 session 的 `filePath` 并传给 API
+- `tauriApi.ts` / `webApi.ts` 的 `updateSessionMeta` 函数新增 `filePath` 参数
+
+---
+
 ## [2.4.0] - 2026-03-22
 
 ### Added

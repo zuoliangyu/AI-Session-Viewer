@@ -179,7 +179,8 @@ environment:
 ### 标签与别名
 
 - 为任意会话设置**自定义别名**（替代首条 Prompt 作为标题）和**多个标签**
-- 标签数据存储在 `.session-viewer-meta.json`，不侵入原始会话文件
+- **与 Claude Code `/rename` 命令双向同步**：在 CC 中执行 `/rename xxx` 后，app 自动显示新名称；在 app 内修改别名，会直接写入 JSONL 文件，CC 也能识别
+- 标签数据存储在 `.session-viewer-meta.json`，别名写入 JSONL（Claude），不依赖额外存储
 - **项目列表页**：按标签筛选项目——只显示拥有匹配标签的项目
 - **会话列表页**：按标签筛选当前项目内的会话
 - **搜索结果页**：按标签筛选全局搜索结果

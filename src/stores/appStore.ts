@@ -377,9 +377,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     alias: string | null,
     tags: string[]
   ) => {
-    const { source, selectedProject } = get();
+    const { source, selectedProject, sessions } = get();
     if (!selectedProject) return;
-    await api.updateSessionMeta(source, selectedProject, sessionId, alias, tags);
+    const session = sessions.find(s => s.sessionId === sessionId);
+    const filePath = session?.filePath ?? null;
+    await api.updateSessionMeta(source, selectedProject, sessionId, alias, tags, filePath);
     // Update local state
     set((state) => ({
       sessions: state.sessions.map((s) =>

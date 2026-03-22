@@ -25,13 +25,19 @@ pub async fn get_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        // Merge metadata
+        // Merge tags from metadata; alias comes from JSONL (Claude) or metadata (Codex)
         let meta = metadata::load_metadata(&source, &project_id);
         for session in &mut sessions {
             if let Some(sm) = meta.sessions.get(&session.session_id) {
-                session.alias = sm.alias.clone();
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
+                if source == "claude" {
+                    if !sm.tags.is_empty() {
+                        session.tags = Some(sm.tags.clone());
+                    }
+                } else {
+                    session.alias = sm.alias.clone();
+                    if !sm.tags.is_empty() {
+                        session.tags = Some(sm.tags.clone());
+                    }
                 }
             }
         }
@@ -94,19 +100,40 @@ pub struct UpdateMetaBody {
     pub alias: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    pub file_path: Option<String>,
 }
 
 pub async fn update_session_meta(
     Json(body): Json<UpdateMetaBody>,
 ) -> Result<Json<()>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        metadata::update_session_meta(
-            &body.source,
-            &body.project_id,
-            &body.session_id,
-            body.alias,
-            body.tags,
-        )
+        if body.source == "claude" {
+            if let Some(ref fp) = body.file_path {
+                let path = std::path::Path::new(fp);
+                if path.exists() {
+                    session_core::parser::jsonl::append_custom_title(
+                        path,
+                        &body.session_id,
+                        body.alias.as_deref(),
+                    )?;
+                }
+            }
+            metadata::update_session_meta(
+                &body.source,
+                &body.project_id,
+                &body.session_id,
+                None,
+                body.tags,
+            )
+        } else {
+            metadata::update_session_meta(
+                &body.source,
+                &body.project_id,
+                &body.session_id,
+                body.alias,
+                body.tags,
+            )
+        }
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

@@ -184,6 +184,69 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
     Ok(messages)
 }
 
+/// Extract the custom title set by CC `/rename` from a JSONL file.
+/// Returns the LAST non-empty `customTitle` found.
+/// If the last `custom-title` record has an empty `customTitle`, returns None
+/// (this represents a "clear alias" intent written by the app).
+pub fn extract_custom_title(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+    let mut last_title: Option<String> = None; // None means "no record yet" or "cleared"
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.contains("\"type\":\"custom-title\"") {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            if value.get("type").and_then(|v| v.as_str()) == Some("custom-title") {
+                let title = value
+                    .get("customTitle")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                if title.trim().is_empty() {
+                    // Empty = "clear" intent; reset to None
+                    last_title = None;
+                } else {
+                    last_title = Some(title.trim().to_string());
+                }
+            }
+        }
+    }
+
+    last_title
+}
+
+/// Append a `custom-title` record to a JSONL file.
+/// Matches the format written by CC `/rename`.
+///
+/// - `title = Some("name")` → appends `{"type":"custom-title","customTitle":"name","sessionId":"..."}`
+/// - `title = None` or `title = Some("")` → appends `{"type":"custom-title","customTitle":"","sessionId":"..."}`
+///   (empty string acts as "clear" signal; `extract_custom_title` will return None next read)
+pub fn append_custom_title(path: &Path, session_id: &str, title: Option<&str>) -> Result<(), String> {
+    use std::io::Write as IoWrite;
+
+    let title_str = title.unwrap_or("").trim();
+
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("Failed to open JSONL for append: {}", e))?;
+
+    let record = serde_json::json!({
+        "type": "custom-title",
+        "customTitle": title_str,
+        "sessionId": session_id,
+    });
+    writeln!(file, "{}", record)
+        .map_err(|e| format!("Failed to write custom-title record: {}", e))?;
+    Ok(())
+}
+
 /// Extract the first user prompt from a JSONL file
 pub fn extract_first_prompt(path: &Path) -> Option<String> {
     let file = File::open(path).ok()?;

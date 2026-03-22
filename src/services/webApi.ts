@@ -161,9 +161,10 @@ export async function updateSessionMeta(
   projectId: string,
   sessionId: string,
   alias: string | null,
-  tags: string[]
+  tags: string[],
+  filePath: string | null
 ): Promise<void> {
-  await apiPut("/api/sessions/meta", { source, projectId, sessionId, alias, tags });
+  await apiPut("/api/sessions/meta", { source, projectId, sessionId, alias, tags, filePath });
 }
 
 export async function getAllTags(
