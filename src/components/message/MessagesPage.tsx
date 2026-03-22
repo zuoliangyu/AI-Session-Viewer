@@ -116,8 +116,8 @@ export function MessagesPage() {
     setInitialScrollDone(false);
 
     const load = async () => {
-      // 从搜索跳转时 sessions 可能为空，需先加载项目会话列表
-      if (sessions.length === 0 && projectId) {
+      // 从搜索跳转时 sessions 可能持有其他项目数据，需先加载正确的项目会话列表
+      if (projectId && !sessions.some(s => s.filePath === filePath)) {
         await selectProject(projectId);
       }
       if (!cancelled) {
