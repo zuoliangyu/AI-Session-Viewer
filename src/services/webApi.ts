@@ -365,6 +365,7 @@ export async function startChat(params: StartChatParams): Promise<string> {
           prompt: params.prompt,
           model: params.model,
           skipPermissions: params.skipPermissions,
+          cliPath: params.cliPath || "",
         })
       );
     };
@@ -415,6 +416,7 @@ export async function continueChat(params: ContinueChatParams): Promise<string> 
           prompt: params.prompt,
           model: params.model,
           skipPermissions: params.skipPermissions,
+          cliPath: params.cliPath || "",
         })
       );
     };

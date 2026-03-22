@@ -37,6 +37,7 @@ interface ChatState {
   // Settings (persisted to localStorage)
   skipPermissions: boolean;
   defaultModel: string;
+  cliPath: string;
 
   // Actions
   detectCli: () => Promise<void>;
@@ -57,6 +58,7 @@ interface ChatState {
   clearChat: () => void;
   setSkipPermissions: (v: boolean) => void;
   setDefaultModel: (m: string) => void;
+  setCliPath: (p: string) => void;
   addCustomModel: (modelId: string) => void;
   removeCustomModel: (modelId: string) => void;
   addStreamLine: (line: string) => void;
@@ -81,13 +83,19 @@ function generateUUID(): string {
   );
 }
 
+/** Result of parsing a single stream line */
+type ParseResult =
+  | { action: "add"; message: ChatMessage }
+  | { action: "delta"; delta: string; blockIndex: number }
+  | { action: "block_start"; blockType: string; blockIndex: number }
+  | null;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseClaudeStreamLine(line: string): ChatMessage | null {
+function parseClaudeStreamLine(line: string): ParseResult {
   let data: any;
   try {
     data = JSON.parse(line);
   } catch {
-    // Not JSON — ignore (e.g. stderr text, blank lines)
     return null;
   }
 
@@ -100,30 +108,73 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     return null;
   }
 
-  // Assistant message
+  // Stream events — incremental content updates
+  if (recordType === "stream_event" && data.event) {
+    const evt = data.event;
+    if (evt.type === "content_block_start" && typeof evt.index === "number") {
+      const blockType = evt.content_block?.type || "text";
+      return { action: "block_start", blockType, blockIndex: evt.index };
+    }
+    if (evt.type === "content_block_delta" && typeof evt.index === "number") {
+      const delta = evt.delta;
+      if (delta?.type === "text_delta" && delta.text) {
+        return { action: "delta", delta: delta.text, blockIndex: evt.index };
+      }
+      if (delta?.type === "thinking_delta" && delta.thinking) {
+        return { action: "delta", delta: delta.thinking, blockIndex: evt.index };
+      }
+    }
+    // message_start: create a placeholder assistant message
+    if (evt.type === "message_start" && evt.message) {
+      const msg = evt.message;
+      return {
+        action: "add",
+        message: {
+          id: generateUUID(),
+          role: "assistant",
+          content: [],
+          model: msg.model,
+          timestamp: new Date().toISOString(),
+          usage: msg.usage
+            ? {
+                inputTokens: msg.usage.input_tokens ?? 0,
+                outputTokens: msg.usage.output_tokens ?? 0,
+                cacheCreationInputTokens: msg.usage.cache_creation_input_tokens ?? 0,
+                cacheReadInputTokens: msg.usage.cache_read_input_tokens ?? 0,
+              }
+            : undefined,
+        },
+      };
+    }
+    return null;
+  }
+
+  // Complete assistant message (final, replaces streaming placeholder)
   if (recordType === "assistant" && data.message) {
     const msg = data.message;
     const content = parseContentValue(msg.content);
     if (content.length === 0) return null;
 
     const usage = msg.usage || data.usage;
-    // Skip empty error responses (API error → 0 output tokens, content is just error text)
     if (usage && (usage.output_tokens ?? 0) === 0) return null;
 
     return {
-      id: generateUUID(),
-      role: "assistant",
-      content,
-      model: msg.model || data.model,
-      timestamp: data.timestamp || new Date().toISOString(),
-      usage: usage
-        ? {
-            inputTokens: usage.input_tokens ?? 0,
-            outputTokens: usage.output_tokens ?? 0,
-            cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0,
-            cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
-          }
-        : undefined,
+      action: "add",
+      message: {
+        id: generateUUID(),
+        role: "assistant",
+        content,
+        model: msg.model || data.model,
+        timestamp: data.timestamp || new Date().toISOString(),
+        usage: usage
+          ? {
+              inputTokens: usage.input_tokens ?? 0,
+              outputTokens: usage.output_tokens ?? 0,
+              cacheCreationInputTokens: usage.cache_creation_input_tokens ?? 0,
+              cacheReadInputTokens: usage.cache_read_input_tokens ?? 0,
+            }
+          : undefined,
+      },
     };
   }
 
@@ -134,10 +185,13 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     if (content.length === 0) return null;
 
     return {
-      id: generateUUID(),
-      role: "user",
-      content,
-      timestamp: data.timestamp || new Date().toISOString(),
+      action: "add",
+      message: {
+        id: generateUUID(),
+        role: "user",
+        content,
+        timestamp: data.timestamp || new Date().toISOString(),
+      },
     };
   }
 
@@ -151,7 +205,6 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
       ? ` (${(data.duration_ms / 1000).toFixed(1)}s)`
       : "";
 
-    // Build token usage summary
     const usage = data.usage;
     let tokenInfo = "";
     if (usage) {
@@ -164,10 +217,13 @@ function parseClaudeStreamLine(line: string): ChatMessage | null {
     }
 
     return {
-      id: generateUUID(),
-      role: "system",
-      content: [{ type: "text", text: `${text}${durationInfo}${tokenInfo}` }],
-      timestamp: new Date().toISOString(),
+      action: "add",
+      message: {
+        id: generateUUID(),
+        role: "system",
+        content: [{ type: "text", text: `${text}${durationInfo}${tokenInfo}` }],
+        timestamp: new Date().toISOString(),
+      },
     };
   }
 
@@ -258,6 +314,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   skipPermissions: localStorage.getItem("chat_skipPermissions") === "true",
   defaultModel: localStorage.getItem("chat_defaultModel") || "",
+  cliPath: localStorage.getItem("chat_cliPath") || "",
 
   detectCli: async () => {
     try {
@@ -359,6 +416,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         prompt,
         model,
         skipPermissions: state.skipPermissions,
+        cliPath: state.cliPath || undefined,
       });
       set({ sessionId });
     } catch (e) {
@@ -399,6 +457,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         prompt,
         model,
         skipPermissions: state.skipPermissions,
+        cliPath: state.cliPath || undefined,
       });
     } catch (e) {
       set({
@@ -439,6 +498,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setDefaultModel: (m) => {
     localStorage.setItem("chat_defaultModel", m);
     set({ defaultModel: m });
+  },
+
+  setCliPath: (p) => {
+    localStorage.setItem("chat_cliPath", p);
+    set({ cliPath: p });
   },
 
   addCustomModel: (modelId) => {
@@ -497,10 +561,66 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // ignore non-JSON
     }
 
-    set((state) => ({
-      rawOutput: [...state.rawOutput, line],
-      messages: parsed ? [...state.messages, parsed] : state.messages,
-    }));
+    if (!parsed) {
+      set((state) => ({ rawOutput: [...state.rawOutput, line] }));
+      return;
+    }
+
+    set((state) => {
+      let newMessages = state.messages;
+
+      if (parsed.action === "add") {
+        // Complete message: if same role as last, replace (final replaces streaming placeholder)
+        const lastIdx = newMessages.length - 1;
+        if (
+          parsed.message.role === "assistant" &&
+          lastIdx >= 0 &&
+          newMessages[lastIdx].role === "assistant"
+        ) {
+          newMessages = [...newMessages.slice(0, lastIdx), parsed.message];
+        } else {
+          newMessages = [...newMessages, parsed.message];
+        }
+      } else if (parsed.action === "block_start") {
+        // Add a new content block to the last assistant message
+        const lastIdx = newMessages.length - 1;
+        if (lastIdx >= 0 && newMessages[lastIdx].role === "assistant") {
+          const lastMsg = newMessages[lastIdx];
+          const newBlock: ChatContentBlock =
+            parsed.blockType === "thinking"
+              ? { type: "thinking", text: "" }
+              : { type: "text", text: "" };
+          const updated = {
+            ...lastMsg,
+            content: [...lastMsg.content, newBlock],
+          };
+          newMessages = [...newMessages.slice(0, lastIdx), updated];
+        }
+      } else if (parsed.action === "delta") {
+        // Append text delta to the appropriate content block in the last assistant message
+        const lastIdx = newMessages.length - 1;
+        if (lastIdx >= 0 && newMessages[lastIdx].role === "assistant") {
+          const lastMsg = newMessages[lastIdx];
+          const blocks = [...lastMsg.content];
+          const bi = parsed.blockIndex;
+          if (bi < blocks.length) {
+            const block = blocks[bi];
+            if (block.type === "text" || block.type === "thinking") {
+              blocks[bi] = { ...block, text: block.text + parsed.delta };
+            }
+          }
+          newMessages = [
+            ...newMessages.slice(0, lastIdx),
+            { ...lastMsg, content: blocks },
+          ];
+        }
+      }
+
+      return {
+        rawOutput: [...state.rawOutput, line],
+        messages: newMessages,
+      };
+    });
   },
 
   setStreaming: (v) => set({ isStreaming: v }),

@@ -198,11 +198,26 @@ export async function listModels(
 }
 
 export async function startChat(params: StartChatParams): Promise<string> {
-  return invoke<string>("start_chat", { ...params });
+  return invoke<string>("start_chat", {
+    source: params.source,
+    projectPath: params.projectPath,
+    prompt: params.prompt,
+    model: params.model,
+    skipPermissions: params.skipPermissions,
+    cliPath: params.cliPath || "",
+  });
 }
 
 export async function continueChat(params: ContinueChatParams): Promise<string> {
-  return invoke<string>("continue_chat", { ...params });
+  return invoke<string>("continue_chat", {
+    source: params.source,
+    sessionId: params.sessionId,
+    projectPath: params.projectPath,
+    prompt: params.prompt,
+    model: params.model,
+    skipPermissions: params.skipPermissions,
+    cliPath: params.cliPath || "",
+  });
 }
 
 export async function cancelChat(sessionId: string): Promise<void> {

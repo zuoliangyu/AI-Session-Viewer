@@ -13,6 +13,7 @@ import {
   Check,
   AlertCircle,
   Code2,
+  HelpCircle,
 } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -93,6 +94,7 @@ function toolIcon(name: string) {
     case "Grep": return <Search className={cls} />;
     case "Glob": return <FolderSearch className={cls} />;
     case "WebFetch": case "WebSearch": return <Globe className={cls} />;
+    case "AskUserQuestion": case "mcp__tools__ask-user-question": return <HelpCircle className={cls} />;
     default: return null;
   }
 }
@@ -133,6 +135,14 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
     case "Glob": {
       const pat = String(parsed.pattern || "");
       return pat;
+    }
+    case "AskUserQuestion":
+    case "mcp__tools__ask-user-question": {
+      const questions = parsed.questions as Array<{ question?: string }> | undefined;
+      if (questions && questions.length > 0) {
+        return `${questions.length} 个问题`;
+      }
+      return "用户问答";
     }
     default:
       return "";
@@ -264,6 +274,9 @@ function ToolContent({
     case "Grep":
     case "Glob":
       return <SearchContent name={name} parsed={parsed} result={result} />;
+    case "AskUserQuestion":
+    case "mcp__tools__ask-user-question":
+      return <AskUserQuestionContent parsed={parsed} result={result} />;
     default:
       return <DefaultContent parsed={parsed} rawInput={rawInput} result={result} />;
   }
@@ -571,7 +584,7 @@ function FieldList({ parsed }: { parsed: ToolInput }) {
               {label}
             </span>
             {isBlock ? (
-              <pre className="flex-1 px-3 py-1.5 font-mono text-[11px] whitespace-pre-wrap break-all bg-[#1e1e1e] text-foreground overflow-x-auto max-h-48 overflow-y-auto">
+              <pre className="flex-1 px-3 py-1.5 font-mono text-[11px] whitespace-pre-wrap break-all bg-muted text-foreground overflow-x-auto max-h-48 overflow-y-auto">
                 {strVal.length > 5000 ? strVal.slice(0, 5000) + "…" : strVal}
               </pre>
             ) : (
@@ -617,6 +630,113 @@ function DefaultContent({
         >
           {output.length > 10000 ? output.slice(0, 10000) + "\n…" : output}
         </pre>
+      )}
+    </div>
+  );
+}
+
+/* ── AskUserQuestion ──────────────────────────────── */
+
+interface AskQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options?: Array<{ label: string; description?: string }>;
+}
+
+function AskUserQuestionContent({
+  parsed,
+  result,
+}: {
+  parsed: ToolInput | null;
+  result?: { content: string; isError: boolean } | null;
+}) {
+  if (result?.isError) {
+    return <ErrorBlock content={result.content} />;
+  }
+
+  const questions = (parsed?.questions as AskQuestion[] | undefined) ?? [];
+
+  // Try to parse user answers from result
+  let answers: Record<string, string> = {};
+  if (result?.content) {
+    try {
+      const parsed = JSON.parse(result.content);
+      if (parsed?.answers) answers = parsed.answers;
+    } catch {
+      // result is plain text, try to extract key=value pairs
+    }
+  }
+
+  if (questions.length === 0) {
+    return (
+      <div className="p-3 text-xs text-muted-foreground">
+        {result?.content || "无问题内容"}
+      </div>
+    );
+  }
+
+  return (
+    <div className="divide-y divide-border/50">
+      {questions.map((q, qi) => {
+        const answer = answers[q.question];
+        return (
+          <div key={qi} className="px-3 py-2.5">
+            {/* Header chip */}
+            {q.header && (
+              <span className="inline-block px-2 py-0.5 mb-1.5 text-[10px] font-medium rounded-full bg-primary/15 text-primary">
+                {q.header}
+                {q.multiSelect && " · 多选"}
+              </span>
+            )}
+            {/* Question text */}
+            <p className="text-xs font-medium text-foreground mb-2">{q.question}</p>
+            {/* Options */}
+            {q.options && q.options.length > 0 && (
+              <div className="space-y-1">
+                {q.options.map((opt, oi) => {
+                  const isSelected = answer === opt.label;
+                  return (
+                    <div
+                      key={oi}
+                      className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-xs ${
+                        isSelected
+                          ? "bg-primary/10 border border-primary/30"
+                          : "bg-muted/30"
+                      }`}
+                    >
+                      <span className={`shrink-0 mt-0.5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}>
+                        {q.multiSelect ? (isSelected ? "☑" : "☐") : (isSelected ? "●" : "○")}
+                      </span>
+                      <div className="min-w-0">
+                        <span className={`font-medium ${isSelected ? "text-primary" : "text-foreground"}`}>
+                          {opt.label}
+                        </span>
+                        {opt.description && (
+                          <p className="text-muted-foreground mt-0.5">{opt.description}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Show answer if present and not matching any option */}
+            {answer && !q.options?.some((o) => o.label === answer) && (
+              <div className="mt-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
+                <span className="text-primary font-medium">回答：</span>
+                <span className="text-foreground ml-1">{answer}</span>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {/* Show raw result if no structured answers */}
+      {result?.content && Object.keys(answers).length === 0 && (
+        <div className="px-3 py-2 text-xs text-muted-foreground">
+          <span className="font-medium">用户回答：</span>
+          <span className="ml-1">{result.content.length > 500 ? result.content.slice(0, 500) + "..." : result.content}</span>
+        </div>
       )}
     </div>
   );

@@ -91,13 +91,18 @@ pub async fn start_chat(
     prompt: String,
     model: String,
     skip_permissions: bool,
+    cli_path: String,
 ) -> Result<String, String> {
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    let cli_path = cli::find_cli(&source)?;
+    let resolved_cli = if cli_path.is_empty() {
+        cli::find_cli(&source)?
+    } else {
+        cli_path
+    };
 
     let cmd = build_chat_command(
-        &cli_path,
+        &resolved_cli,
         &source,
         &project_path,
         &prompt,
@@ -120,11 +125,16 @@ pub async fn continue_chat(
     prompt: String,
     model: String,
     skip_permissions: bool,
+    cli_path: String,
 ) -> Result<String, String> {
-    let cli_path = cli::find_cli(&source)?;
+    let resolved_cli = if cli_path.is_empty() {
+        cli::find_cli(&source)?
+    } else {
+        cli_path
+    };
 
     let cmd = build_chat_command(
-        &cli_path,
+        &resolved_cli,
         &source,
         &project_path,
         &prompt,
@@ -178,6 +188,7 @@ fn build_chat_command(
         cmd.arg("--model").arg(cli_model);
     }
     cmd.arg("--output-format").arg("stream-json");
+    cmd.arg("--include-partial-messages");
     cmd.arg("--verbose");
     if skip_permissions {
         cmd.arg("--dangerously-skip-permissions");

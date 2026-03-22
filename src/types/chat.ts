@@ -18,6 +18,7 @@ export interface StartChatParams {
   prompt: string;
   model: string;
   skipPermissions: boolean;
+  cliPath?: string;
 }
 
 export interface ContinueChatParams {
@@ -27,6 +28,7 @@ export interface ContinueChatParams {
   prompt: string;
   model: string;
   skipPermissions: boolean;
+  cliPath?: string;
 }
 
 // Unified chat message (parsed from stream)

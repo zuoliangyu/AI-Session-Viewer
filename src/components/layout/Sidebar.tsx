@@ -879,6 +879,8 @@ function ChatSettingsTab() {
     setSkipPermissions,
     defaultModel,
     setDefaultModel,
+    cliPath,
+    setCliPath,
     availableClis,
     detectCli,
   } = useChatStore();
@@ -914,6 +916,24 @@ function ChatSettingsTab() {
             重新检测
           </button>
         </div>
+      </section>
+
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">CLI 路径</h3>
+        <input
+          type="text"
+          value={cliPath}
+          onChange={(e) => setCliPath(e.target.value)}
+          placeholder={
+            navigator.platform.startsWith("Win")
+              ? "C:\\Users\\<user>\\.bun\\bin\\claude.exe"
+              : "/usr/local/bin/claude"
+          }
+          className="w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          留空则自动检测。如自动检测失败，请手动指定 Claude CLI 可执行文件路径
+        </p>
       </section>
 
       <section>

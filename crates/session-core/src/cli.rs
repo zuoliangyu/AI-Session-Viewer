@@ -12,14 +12,10 @@ pub struct CliInstallation {
 
 /// Find the Claude CLI binary path.
 pub fn find_cli(_cli_type: &str) -> Result<String, String> {
-    let binary_name = if cfg!(windows) {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-
     // Try system lookup first (which/where)
-    if let Some(path) = which_binary(binary_name) {
+    // On Windows, search without extension so `where` uses PATHEXT
+    // to find .exe, .cmd, .bat etc.
+    if let Some(path) = which_binary("claude") {
         return Ok(path);
     }
 
@@ -60,10 +56,24 @@ fn which_binary(name: &str) -> Option<String> {
     if let Ok(output) = result {
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
-            // `where` on Windows may return multiple lines; take the first
-            if let Some(first_line) = stdout.lines().next() {
-                let trimmed = first_line.trim();
-                if !trimmed.is_empty() {
+            // `where` on Windows may return multiple lines.
+            // Filter to only accept executable extensions (.exe/.cmd),
+            // since npm also creates an extensionless Unix shell script
+            // that is not a valid Win32 application.
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                #[cfg(windows)]
+                {
+                    let lower = trimmed.to_lowercase();
+                    if lower.ends_with(".exe") || lower.ends_with(".cmd") {
+                        return Some(trimmed.to_string());
+                    }
+                }
+                #[cfg(not(windows))]
+                {
                     return Some(trimmed.to_string());
                 }
             }
@@ -77,18 +87,13 @@ fn known_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let home = dirs::home_dir();
 
-    let binary_name = if cfg!(windows) {
-        "claude.exe"
-    } else {
-        "claude"
-    };
-
     if let Some(ref home) = home {
-        // npm global
+        // npm global (Windows: .cmd shim; Unix: plain binary)
         if cfg!(windows) {
-            paths.push(home.join("AppData/Roaming/npm").join(binary_name));
+            paths.push(home.join("AppData/Roaming/npm/claude.cmd"));
+            paths.push(home.join("AppData/Roaming/npm/claude.exe"));
         } else {
-            paths.push(home.join(".npm-global/bin").join(binary_name));
+            paths.push(home.join(".npm-global/bin/claude"));
         }
 
         // NVM paths
@@ -96,23 +101,35 @@ fn known_paths() -> Vec<PathBuf> {
         if nvm_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
                 for entry in entries.flatten() {
-                    paths.push(entry.path().join("bin").join(binary_name));
+                    let bin_dir = entry.path().join("bin");
+                    if cfg!(windows) {
+                        paths.push(bin_dir.join("claude.cmd"));
+                        paths.push(bin_dir.join("claude.exe"));
+                    } else {
+                        paths.push(bin_dir.join("claude"));
+                    }
                 }
             }
         }
 
-        // Local bin
-        paths.push(home.join(".local/bin").join(binary_name));
+        // Local bin (Unix)
+        if !cfg!(windows) {
+            paths.push(home.join(".local/bin/claude"));
+        }
 
         // Bun global
-        paths.push(home.join(".bun/bin").join(binary_name));
+        if cfg!(windows) {
+            paths.push(home.join(".bun/bin/claude.exe"));
+        } else {
+            paths.push(home.join(".bun/bin/claude"));
+        }
     }
 
     // System paths (Unix)
     #[cfg(not(windows))]
     {
-        paths.push(PathBuf::from("/usr/local/bin").join(binary_name));
-        paths.push(PathBuf::from("/opt/homebrew/bin").join(binary_name));
+        paths.push(PathBuf::from("/usr/local/bin/claude"));
+        paths.push(PathBuf::from("/opt/homebrew/bin/claude"));
     }
 
     paths

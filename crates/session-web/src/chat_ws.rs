@@ -18,6 +18,7 @@ struct ChatRequest {
     model: Option<String>,
     session_id: Option<String>,
     skip_permissions: Option<bool>,
+    cli_path: Option<String>,
 }
 
 pub async fn chat_ws_handler(ws: WebSocketUpgrade) -> Response {
@@ -64,6 +65,7 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                 let prompt = request.prompt.unwrap_or_default();
                                 let model = request.model.unwrap_or_default();
                                 let skip_permissions = request.skip_permissions.unwrap_or(false);
+                                let cli_path = request.cli_path.unwrap_or_default();
                                 let resume_id = if request.action == "continue" {
                                     request.session_id.clone()
                                 } else {
@@ -94,6 +96,7 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                         &model,
                                         skip_permissions,
                                         resume_id.as_deref(),
+                                        &cli_path,
                                         tx_clone,
                                         &mut cancel_rx,
                                     ).await {
@@ -139,10 +142,15 @@ async fn run_cli_process(
     model: &str,
     _skip_permissions: bool,
     resume_session_id: Option<&str>,
+    custom_cli_path: &str,
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let cli_path = cli::find_cli(source)?;
+    let cli_path = if custom_cli_path.is_empty() {
+        cli::find_cli(source)?
+    } else {
+        custom_cli_path.to_string()
+    };
 
     let mut cmd = Command::new(&cli_path);
 
@@ -156,6 +164,7 @@ async fn run_cli_process(
         cmd.arg("--model").arg(model);
     }
     cmd.arg("--output-format").arg("stream-json");
+    cmd.arg("--include-partial-messages");
     cmd.arg("--verbose");
     // Web mode has no interactive terminal for permission prompts,
     // so always skip permissions to prevent the CLI from hanging
