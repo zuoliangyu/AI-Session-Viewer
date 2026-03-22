@@ -17,4 +17,6 @@ pub struct ProjectEntry {
     pub last_modified: Option<String>,
     /// Codex: model provider (e.g. "openai")
     pub model_provider: Option<String>,
+    /// Custom alias for the project
+    pub alias: Option<String>,
 }
