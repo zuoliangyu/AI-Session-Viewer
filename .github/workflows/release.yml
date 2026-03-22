@@ -18,9 +18,7 @@ jobs:
           - platform: windows-latest
             args: ''
           - platform: macos-14
-            args: '--target aarch64-apple-darwin'
-          - platform: macos-13
-            args: '--target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: ubuntu-22.04
             args: ''
 
@@ -86,8 +84,7 @@ jobs:
             | Platform | Installer | Portable |
             |----------|-----------|----------|
             | Windows | `.msi` / `.exe` (NSIS) | `*-portable.zip` |
-            | macOS (Apple Silicon) | `.dmg` | — |
-            | macOS (Intel) | `.dmg` | — |
+            | macOS (Universal) | `.dmg` | — |
             | Linux | `.deb` / `.AppImage` | — |
 
             > Windows 便携版解压即用，无需安装。需要系统已安装 WebView2（Win10/11 默认内置）。

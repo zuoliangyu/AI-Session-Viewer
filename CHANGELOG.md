@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - **Windows CLI 发现**：过滤非可执行文件，仅保留 `.cmd`/`.exe`；`known_paths` 新增 `.cmd` 路径覆盖 npm 安装场景
 - **项目路径回退**：当 `sessions-index.json` 缺少 `originalPath` 时，从首条 entry 的 `projectPath` 回退，避免路径显示为编码字符串
-- **macOS x86_64 CI 构建**：将 x86_64 目标的 runner 从 `macos-14`（ARM）改为 `macos-13`（Intel），修复 DMG 打包时 `bundle_dmg.sh` AppleScript 超时/bless 不支持的问题
+- **macOS CI 构建**：合并 ARM 和 Intel 两个构建为 `universal-apple-darwin` 单一构建，一个 DMG 同时支持 Intel 和 Apple Silicon，修复 x86_64 跨编译 DMG 打包失败的问题
 - **Clippy too_many_arguments**：为 `continue_chat` 命令添加 `#[allow(clippy::too_many_arguments)]`
 
 ---

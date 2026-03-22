@@ -52,7 +52,7 @@
 | 平台 | 安装包 |
 |------|--------|
 | Windows | `.msi`（安装版）或 `.zip`（便携版） |
-| macOS | `.dmg` |
+| macOS (Universal) | `.dmg`（同时支持 Intel 和 Apple Silicon） |
 | Linux | `.deb` / `.AppImage` |
 
 安装后打开即可使用，应用会自动扫描本地的 Claude / Codex 会话数据。
