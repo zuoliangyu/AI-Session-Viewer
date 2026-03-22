@@ -316,6 +316,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("Background refresh failed:", e);
     }
+
+    // 静默刷新当前会话消息（仅当 page=0，不打断用户上翻历史）
+    const { selectedFilePath, messagesPage, source: currentSource } = get();
+    if (selectedFilePath && messagesPage === 0) {
+      try {
+        const result = await api.getMessages(currentSource, selectedFilePath, 0, 50, true);
+        set({
+          messages: result.messages,
+          messagesTotal: result.total,
+          messagesHasMore: result.hasMore,
+        });
+      } catch {
+        // 静默失败
+      }
+    }
   },
 
   updateSessionMeta: async (
