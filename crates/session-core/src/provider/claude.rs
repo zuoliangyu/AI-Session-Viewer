@@ -77,7 +77,12 @@ pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), 
 
     match alias {
         Some(a) => {
-            raw.insert("alias".to_string(), serde_json::Value::String(a));
+            let a = a.trim().to_string();
+            if a.is_empty() {
+                raw.remove("alias");
+            } else {
+                raw.insert("alias".to_string(), serde_json::Value::String(a));
+            }
         }
         None => {
             raw.remove("alias");
