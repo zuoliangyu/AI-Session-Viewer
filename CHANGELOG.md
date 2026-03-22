@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-03-22
+
+### Added
+
+#### CLI 对话增强
+- **自定义 CLI 路径**：聊天设置中新增 CLI 路径配置项，支持手动指定 Claude CLI 可执行文件路径，持久化到 localStorage
+- **流式增量输出**：启用 `--include-partial-messages` 标志，解析 `stream_event` 的 delta/block_start 实现实时文本显示
+- **工具查看器暗色适配**：FieldList 背景色改用 theme-aware 的 `bg-muted`，深色主题下不再刺眼
+
+#### ASCII 图表渲染优化
+- **自动检测 ASCII 图表**：新增 `wrapAsciiArt()` 预处理函数，在 Markdown 渲染前自动识别包含 box-drawing 字符、管道符/破折号布局的文本行，将连续的 ASCII 图表行包裹进代码块
+- **代码块样式修复**：`pre` 组件从 `<div>` 改回真正的 `<pre>` 标签，保留空白符格式 + `overflow-x-auto` 水平滚动；通过 Tailwind 任意变体清除内部 `code` 的内联样式冲突
+- 覆盖 AssistantMessage、StreamingMessage、MarkdownContent 三处 Markdown 渲染路径
+
+### Fixed
+
+- **Windows CLI 发现**：过滤非可执行文件，仅保留 `.cmd`/`.exe`；`known_paths` 新增 `.cmd` 路径覆盖 npm 安装场景
+- **项目路径回退**：当 `sessions-index.json` 缺少 `originalPath` 时，从首条 entry 的 `projectPath` 回退，避免路径显示为编码字符串
+- **macOS x86_64 CI 构建**：将 x86_64 目标的 runner 从 `macos-14`（ARM）改为 `macos-13`（Intel），修复 DMG 打包时 `bundle_dmg.sh` AppleScript 超时/bless 不支持的问题
+- **Clippy too_many_arguments**：为 `continue_chat` 命令添加 `#[allow(clippy::too_many_arguments)]`
+
+---
+
 ## [2.5.0] - 2026-03-22
 
 ### Added

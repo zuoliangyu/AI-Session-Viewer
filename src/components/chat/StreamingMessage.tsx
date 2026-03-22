@@ -12,6 +12,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { ToolViewer } from "./tool-viewers/ToolViewers";
+import { wrapAsciiArt } from "../message/utils";
 
 interface Props {
   message: ChatMessage;
@@ -96,7 +97,7 @@ function UserMsg({
             return (
               <div key={i} className="bg-primary/10 rounded-2xl px-4 py-2.5 text-sm leading-relaxed">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {block.text}
+                  {wrapAsciiArt(block.text)}
                 </ReactMarkdown>
               </div>
             );
@@ -248,7 +249,13 @@ function TextBlock({ text }: { text: string }) {
             );
           },
           pre({ children }) {
-            return <div className="not-prose my-2">{children}</div>;
+            return (
+              <div className="not-prose my-2">
+                <pre className="rounded-md bg-muted border border-border p-3 text-xs font-mono overflow-x-auto [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none">
+                  {children}
+                </pre>
+              </div>
+            );
           },
           a({ href, children }) {
             return (
@@ -290,7 +297,7 @@ function TextBlock({ text }: { text: string }) {
           },
         }}
       >
-        {text}
+        {wrapAsciiArt(text)}
       </ReactMarkdown>
     </div>
   );

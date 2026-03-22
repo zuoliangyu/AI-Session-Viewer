@@ -2,6 +2,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { wrapAsciiArt } from "./utils";
 
 export function MarkdownContent({ content }: { content: string }) {
   return (
@@ -31,7 +32,13 @@ export function MarkdownContent({ content }: { content: string }) {
             );
           },
           pre({ children }) {
-            return <div className="not-prose my-1.5">{children}</div>;
+            return (
+              <div className="not-prose my-1.5">
+                <pre className="rounded-md bg-muted border border-border p-3 text-xs font-mono overflow-x-auto [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none">
+                  {children}
+                </pre>
+              </div>
+            );
           },
           table({ children }) {
             return (
@@ -58,7 +65,7 @@ export function MarkdownContent({ content }: { content: string }) {
           },
         }}
       >
-        {content}
+        {wrapAsciiArt(content)}
       </ReactMarkdown>
     </div>
   );

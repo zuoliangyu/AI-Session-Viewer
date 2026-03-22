@@ -19,7 +19,7 @@ jobs:
             args: ''
           - platform: macos-14
             args: '--target aarch64-apple-darwin'
-          - platform: macos-14
+          - platform: macos-13
             args: '--target x86_64-apple-darwin'
           - platform: ubuntu-22.04
             args: ''

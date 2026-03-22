@@ -1,11 +1,11 @@
 import { useState } from "react";
 import type { DisplayMessage } from "../../types";
-import { Bot, ChevronDown, ChevronRight, Wrench, Brain } from "lucide-react";
+import { Bot, ChevronDown, ChevronRight, Wrench, Brain, Copy, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { formatTime, stripAnsi } from "./utils";
+import { formatTime, stripAnsi, stripXmlTags, wrapAsciiArt } from "./utils";
 import { ToolViewer } from "../chat/tool-viewers/ToolViewers";
 
 interface Props {
@@ -19,9 +19,22 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
   const assistantName = source === "codex" ? "Codex" : "Claude";
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    const text = message.content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => stripXmlTags(stripAnsi(b.text)))
+      .join("\n\n")
+      .trim();
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3 group/assistant">
       <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center mt-0.5`}>
         <Bot className={`w-3.5 h-3.5 ${iconColor}`} />
       </div>
@@ -38,9 +51,18 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
               {formatTime(message.timestamp)}
             </span>
           )}
+          <button
+            onClick={handleCopy}
+            className="ml-auto p-1 rounded text-muted-foreground hover:text-foreground transition-all opacity-0 group-hover/assistant:opacity-100"
+            title="复制消息"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
         </div>
         {message.content.map((block, i) => {
           if (block.type === "text") {
+            const cleaned = wrapAsciiArt(stripXmlTags(stripAnsi(block.text)));
+            if (!cleaned) return null;
             return (
               <div key={i} className="prose prose-sm max-w-none text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                 <ReactMarkdown
@@ -71,7 +93,13 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
                       );
                     },
                     pre({ children }) {
-                      return <div className="not-prose my-2">{children}</div>;
+                      return (
+                        <div className="not-prose my-2">
+                          <pre className="rounded-md bg-muted border border-border p-3 text-xs font-mono overflow-x-auto [&>code]:bg-transparent [&>code]:p-0 [&>code]:rounded-none">
+                            {children}
+                          </pre>
+                        </div>
+                      );
                     },
                     table({ children }) {
                       return (
@@ -141,7 +169,7 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
                     },
                   }}
                 >
-                  {stripAnsi(block.text)}
+                  {cleaned}
                 </ReactMarkdown>
               </div>
             );

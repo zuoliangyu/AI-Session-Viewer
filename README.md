@@ -474,6 +474,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] Web 服务器 musl 静态编译 — 零依赖跨发行版运行
 - [x] Web 模式 CLI 对话稳定性修复（错误反馈 + 权限确认卡死）
 - [x] Web 服务器默认监听 0.0.0.0，局域网/远程直接可达 + crypto.randomUUID HTTP 兼容修复
+- [x] CLI 对话自定义路径 + 流式增量输出 + ASCII 图表渲染优化
 
 ## Star History
 

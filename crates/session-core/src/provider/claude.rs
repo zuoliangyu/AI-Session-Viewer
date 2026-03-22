@@ -138,7 +138,13 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
 
         let display_path = parsed_index
             .as_ref()
-            .and_then(|idx| idx.original_path.clone())
+            .and_then(|idx| {
+                // Primary: use originalPath from the index
+                idx.original_path.clone().or_else(|| {
+                    // Secondary: use projectPath from the first available entry
+                    idx.entries.iter().find_map(|e| e.project_path.clone())
+                })
+            })
             .unwrap_or_else(|| decode_project_path(&encoded_name));
         let short_name = short_name_from_path(&display_path);
 
@@ -336,7 +342,10 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
         let display_path = fs::read_to_string(&index_path)
             .ok()
             .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
-            .and_then(|idx| idx.original_path)
+            .and_then(|idx| {
+                idx.original_path
+                    .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
+            })
             .unwrap_or_else(|| decode_project_path(&encoded_name));
         let project_name = short_name_from_path(&display_path);
 

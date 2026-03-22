@@ -116,6 +116,7 @@ pub async fn start_chat(
     Ok(session_id)
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn continue_chat(
     app: AppHandle,
