@@ -127,6 +127,7 @@ export function useChatStream() {
     }
 
     return () => {
+      cancelled = true;
       if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = null;
