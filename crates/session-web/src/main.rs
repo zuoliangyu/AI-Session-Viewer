@@ -151,6 +151,7 @@ async fn main() {
     let api_routes = Router::new()
         .route("/api/projects", get(routes::projects::get_projects))
         .route("/api/projects", delete(routes::projects::delete_project))
+        .route("/api/projects/alias", put(routes::projects::set_project_alias))
         .route("/api/sessions", get(routes::sessions::get_sessions))
         .route("/api/sessions", delete(routes::sessions::delete_session))
         .route(

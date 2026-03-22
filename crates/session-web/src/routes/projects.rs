@@ -51,3 +51,30 @@ pub async fn delete_project(
         Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
     }
 }
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetAliasBody {
+    pub source: String,
+    pub project_id: String,
+    pub alias: Option<String>,
+}
+
+pub async fn set_project_alias(
+    axum::Json(body): axum::Json<SetAliasBody>,
+) -> Result<axum::Json<()>, (StatusCode, String)> {
+    let res = tokio::task::spawn_blocking(move || {
+        match body.source.as_str() {
+            "claude" => claude::set_project_alias(&body.project_id, body.alias),
+            _ => Err(format!("set_project_alias not supported for source: {}", body.source)),
+        }
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    match res {
+        Ok(()) => Ok(axum::Json(())),
+        Err(e) if e.contains("not found") => Err((StatusCode::NOT_FOUND, e)),
+        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, e)),
+    }
+}
