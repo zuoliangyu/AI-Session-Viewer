@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.2] - 2026-03-23
+
+### Added
+
+- **删除工程同时删除源代码**：工程操作菜单新增"删除会话数据和源代码"选项，支持同时删除 Claude 会话数据和本地源代码目录；删除前检查 Git 状态（未提交更改、未推送提交），要求输入项目名确认，防止误操作
+- **源代码状态检查 API**：新增 `check_project_source_status` 命令，检测项目源代码目录是否存在、是否为 Git 仓库、是否有未提交更改或未推送提交
+- **共享删除确认对话框**：抽取 `DeleteProjectDialog` 组件，统一项目列表页和侧边栏的删除确认交互，支持简单确认和强确认（输入项目名）两种模式
+- **危险路径保护**：删除源代码时自动拒绝根目录、Home 目录、系统目录等危险路径
+
+### Fixed
+
+- **Session 计数虚高**：`get_projects()` 和 `get_sessions()` 现在验证 `sessions-index.json` 中条目对应的 .jsonl 文件是否真实存在，过滤已被 Claude Code 清理的"幽灵条目"，侧边栏会话计数不再虚高
+
+---
+
 ## [2.6.1] - 2026-03-23
 
 ### Fixed
