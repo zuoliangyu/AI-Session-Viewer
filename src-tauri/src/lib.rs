@@ -17,6 +17,7 @@ pub fn run() {
             commands::projects::get_projects,
             commands::projects::delete_project,
             commands::projects::set_project_alias,
+            commands::projects::check_project_source_status,
             commands::sessions::get_sessions,
             commands::sessions::delete_session,
             commands::sessions::update_session_meta,

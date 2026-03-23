@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::models::message::{DisplayMessage, PaginatedMessages};
 use crate::models::project::ProjectEntry;
@@ -8,6 +8,16 @@ use crate::parser::jsonl as claude_parser;
 use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectSourceStatus {
+    pub source_path: String,
+    pub exists: bool,
+    pub is_git_repo: bool,
+    pub has_uncommitted_changes: bool,
+    pub has_unpushed_commits: bool,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -514,14 +524,142 @@ fn count_jsonl_files(dir: &std::path::Path) -> usize {
         .unwrap_or(0)
 }
 
+/// Resolve the source code path for a project using three-layer fallback:
+/// 1. `sessions-index.json` `originalPath`
+/// 2. First entry with `projectPath` in the index
+/// 3. `decode_project_path_validated` display_path
+fn resolve_source_path(project_id: &str) -> Result<String, String> {
+    let projects_dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let project_dir = projects_dir.join(project_id);
+
+    let index_path = project_dir.join("sessions-index.json");
+    let parsed_index = fs::read_to_string(&index_path)
+        .ok()
+        .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
+
+    let source_path = parsed_index
+        .and_then(|idx| {
+            idx.original_path
+                .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
+        })
+        .unwrap_or_else(|| decode_project_path_validated(project_id).display_path);
+
+    Ok(source_path)
+}
+
+/// Check the status of a project's source code directory
+pub fn check_project_source_status(project_id: &str) -> Result<ProjectSourceStatus, String> {
+    let source_path = resolve_source_path(project_id)?;
+    let path = Path::new(&source_path);
+
+    let exists = path.exists();
+    if !exists {
+        return Ok(ProjectSourceStatus {
+            source_path,
+            exists: false,
+            is_git_repo: false,
+            has_uncommitted_changes: false,
+            has_unpushed_commits: false,
+        });
+    }
+
+    let is_git_repo = path.join(".git").exists();
+    if !is_git_repo {
+        return Ok(ProjectSourceStatus {
+            source_path,
+            exists: true,
+            is_git_repo: false,
+            has_uncommitted_changes: false,
+            has_unpushed_commits: false,
+        });
+    }
+
+    // Check uncommitted changes via `git status --porcelain`
+    let has_uncommitted_changes = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(path)
+        .output()
+        .map(|output| {
+            output.status.success()
+                && !output.stdout.is_empty()
+        })
+        .unwrap_or(false);
+
+    // Check unpushed commits via `git log @{upstream}..HEAD --oneline`
+    let has_unpushed_commits = std::process::Command::new("git")
+        .args(["log", "@{upstream}..HEAD", "--oneline"])
+        .current_dir(path)
+        .output()
+        .map(|output| {
+            output.status.success()
+                && !output.stdout.is_empty()
+        })
+        .unwrap_or(false);
+
+    Ok(ProjectSourceStatus {
+        source_path,
+        exists: true,
+        is_git_repo: true,
+        has_uncommitted_changes,
+        has_unpushed_commits,
+    })
+}
+
+/// Check if a path is a dangerous system/root/home directory that should never be deleted
+fn is_dangerous_path(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+
+    // Root directories
+    if path_str == "/" || path_str == "\\" {
+        return true;
+    }
+
+    // Windows drive roots like C:\, D:\
+    if path_str.len() <= 3 && path_str.contains(':') {
+        return true;
+    }
+
+    // Home directory
+    if let Some(home) = dirs::home_dir() {
+        if path == home {
+            return true;
+        }
+    }
+
+    // Common system directories
+    let dangerous_dirs = [
+        "/usr", "/bin", "/sbin", "/etc", "/var", "/tmp", "/opt",
+        "/System", "/Library", "/Applications",
+        "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
+        "C:\\Users", "C:\\ProgramData",
+    ];
+
+    for d in &dangerous_dirs {
+        if path_str.eq_ignore_ascii_case(d) {
+            return true;
+        }
+    }
+
+    false
+}
+
 /// Delete an entire project directory (and all sessions/metadata within it)
-pub fn delete_project(project_id: &str) -> Result<(), String> {
+pub fn delete_project(project_id: &str, delete_source: bool) -> Result<(), String> {
     let projects_dir = get_projects_dir()
         .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     let dir = projects_dir.join(project_id);
     if !dir.exists() {
         return Err(format!("Project not found: {}", project_id));
     }
+
+    // Get source path BEFORE deleting session directory (sessions-index.json needed)
+    let source_path = if delete_source {
+        Some(resolve_source_path(project_id)?)
+    } else {
+        None
+    };
+
     // 防止路径遍历：规范化后验证仍在 projects_dir 内
     let canonical_dir = dir
         .canonicalize()
@@ -533,7 +671,24 @@ pub fn delete_project(project_id: &str) -> Result<(), String> {
         return Err(format!("Invalid project id: {}", project_id));
     }
     std::fs::remove_dir_all(&canonical_dir)
-        .map_err(|e| format!("Failed to delete project: {}", e))
+        .map_err(|e| format!("Failed to delete project: {}", e))?;
+
+    // Delete source code directory if requested
+    if let Some(src_path) = source_path {
+        let src = Path::new(&src_path);
+        if src.exists() {
+            if is_dangerous_path(src) {
+                return Err(format!(
+                    "Refusing to delete dangerous path: {}",
+                    src_path
+                ));
+            }
+            std::fs::remove_dir_all(src)
+                .map_err(|e| format!("Failed to delete source directory: {}", e))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn count_messages(path: &std::path::Path) -> u32 {
