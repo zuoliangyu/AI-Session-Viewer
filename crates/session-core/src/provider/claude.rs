@@ -166,7 +166,15 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 let indexed_count = index
                     .entries
                     .iter()
-                    .filter(|e| e.message_count.map(|c| c > 0).unwrap_or(true))
+                    .filter(|e| {
+                        e.message_count.map(|c| c > 0).unwrap_or(true)
+                            && e.full_path
+                                .as_ref()
+                                .map(|p| std::path::Path::new(p).exists())
+                                .unwrap_or_else(|| {
+                                    path.join(format!("{}.jsonl", e.session_id)).exists()
+                                })
+                    })
                     .count();
                 // Also count disk-only files not in index (non-empty)
                 let extra = fs::read_dir(&path)
@@ -278,12 +286,16 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
                     if entry.project_path.is_none() {
                         entry.project_path = original_path.clone();
                     }
-                    // Read customTitle from JSONL; use entry.file_path (may be non-standard)
-                    if entry.alias.is_none() {
-                        let jsonl_path = std::path::Path::new(&entry.file_path);
-                        entry.alias = claude_parser::extract_custom_title(jsonl_path);
-                    }
                     entry
+                })
+                .filter(|e| std::path::Path::new(&e.file_path).exists())
+                .map(|mut e| {
+                    // Read customTitle from JSONL; use entry.file_path (may be non-standard)
+                    if e.alias.is_none() {
+                        let jsonl_path = std::path::Path::new(&e.file_path);
+                        e.alias = claude_parser::extract_custom_title(jsonl_path);
+                    }
+                    e
                 })
                 .collect();
 
