@@ -7,6 +7,7 @@ import { useUpdateChecker } from "../../hooks/useUpdateChecker";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { UpdateIndicator } from "./UpdateIndicator";
 import { ProjectActionsMenu } from "../project/ProjectActionsMenu";
+import { DeleteProjectDialog } from "../project/DeleteProjectDialog";
 import type { ProjectEntry } from "../../types";
 import {
   FolderOpen,
@@ -55,7 +56,7 @@ export function Sidebar() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renameLoading, setRenameLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectEntry | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  const [deleteWithSource, setDeleteWithSource] = useState(false);
   useUpdateChecker();
   useFileWatcher();
 
@@ -461,7 +462,8 @@ export function Sidebar() {
             setRenameValue(p.alias ?? "");
             setRenameError(null);
           }}
-          onDelete={(p) => setDeleteTarget(p)}
+          onDelete={(p) => { setDeleteTarget(p); setDeleteWithSource(false); }}
+          onDeleteWithSource={(p) => { setDeleteTarget(p); setDeleteWithSource(true); }}
         />
       )}
 
@@ -544,47 +546,17 @@ export function Sidebar() {
 
       {/* 删除确认 Modal */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
-            <h3 className="text-lg font-semibold mb-2">确认删除工程</h3>
-            <p className="text-sm text-muted-foreground mb-1">
-              工程：<span className="font-medium text-foreground">{deleteTarget.alias ?? deleteTarget.shortName}</span>
-            </p>
-            <p className="text-xs text-muted-foreground mb-1 break-all">
-              路径：{deleteTarget.displayPath}
-            </p>
-            <p className="text-xs text-muted-foreground mb-4">
-              将永久删除 {deleteTarget.sessionCount} 个会话及所有相关数据，且无法恢复。
-            </p>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-                className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={async () => {
-                  setDeleting(true);
-                  try {
-                    await deleteProject(deleteTarget.id);
-                    navigate("/projects");
-                  } catch (err) {
-                    console.error("Failed to delete project:", err);
-                  } finally {
-                    setDeleting(false);
-                    setDeleteTarget(null);
-                  }
-                }}
-                disabled={deleting}
-                className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
-              >
-                {deleting ? "删除中..." : "删除"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteProjectDialog
+          project={deleteTarget}
+          deleteSource={deleteWithSource}
+          onConfirm={async () => {
+            await deleteProject(deleteTarget.id, deleteWithSource);
+            setDeleteTarget(null);
+            setDeleteWithSource(false);
+            navigate("/projects");
+          }}
+          onCancel={() => { setDeleteTarget(null); setDeleteWithSource(false); }}
+        />
       )}
     </aside>
   );

@@ -101,3 +101,11 @@ export interface Bookmark {
   projectName: string;
   createdAt: string;
 }
+
+export interface ProjectSourceStatus {
+  sourcePath: string;
+  exists: boolean;
+  isGitRepo: boolean;
+  hasUncommittedChanges: boolean;
+  hasUnpushedCommits: boolean;
+}
