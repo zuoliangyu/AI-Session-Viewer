@@ -36,7 +36,6 @@ struct StatsMessage {
 }
 
 #[derive(Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
 struct UsageData {
     #[serde(default)]
     input_tokens: u64,
