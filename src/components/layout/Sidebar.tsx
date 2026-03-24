@@ -847,6 +847,40 @@ function CliConfigDisplay() {
   );
 }
 
+type InstallMethod = "npm" | "nvm" | "bun" | "other";
+
+const INSTALL_HINTS: Record<InstallMethod, { label: string; paths: string[]; tip: string }> = {
+  npm: {
+    label: "npm 全局安装",
+    paths: [
+      "Windows: %APPDATA%\\npm\\claude.cmd",
+      "Mac/Linux: ~/.npm-global/bin/claude 或 /usr/local/bin/claude",
+    ],
+    tip: "在终端运行 `npm list -g @anthropic-ai/claude-code` 确认安装，再用 `which claude`（Mac/Linux）或 `where claude`（Windows）获取实际路径，填入下方「CLI 路径」",
+  },
+  nvm: {
+    label: "nvm / nvm-windows",
+    paths: [
+      "Mac/Linux: ~/.nvm/versions/node/{version}/bin/claude",
+      "nvm-windows: %APPDATA%\\nvm\\{version}\\claude.cmd",
+    ],
+    tip: "由于桌面应用不继承 shell 的 nvm PATH，自动检测可能失败。请在终端执行 `nvm use` 激活版本后运行 `which claude`（Mac/Linux）或 `where claude`（Windows），将完整路径填入下方「CLI 路径」",
+  },
+  bun: {
+    label: "bun 全局安装",
+    paths: [
+      "Mac/Linux: ~/.bun/bin/claude",
+      "Windows: %USERPROFILE%\\.bun\\bin\\claude.exe",
+    ],
+    tip: "在终端运行 `bun pm ls -g` 确认安装，再将 `~/.bun/bin/claude` 填入下方「CLI 路径」",
+  },
+  other: {
+    label: "手动 / 其他",
+    paths: ["自定义路径"],
+    tip: "在终端运行 `which claude`（Mac/Linux）或 `where claude`（Windows）获取路径，填入下方「CLI 路径」",
+  },
+};
+
 function ChatSettingsTab() {
   const { terminalShell, setTerminalShell } = useAppStore();
   const {
@@ -861,21 +895,42 @@ function ChatSettingsTab() {
   } = useChatStore();
 
   const isWindows = __IS_TAURI__ && navigator.platform.startsWith("Win");
+  const [installMethod, setInstallMethod] = useState<InstallMethod>(
+    () => (localStorage.getItem("chat_installMethod") as InstallMethod) || "npm"
+  );
+  const [detecting, setDetecting] = useState(false);
+  const [detected, setDetected] = useState(false);
+
+  const handleDetect = async () => {
+    setDetecting(true);
+    await detectCli();
+    setDetecting(false);
+    setDetected(true);
+  };
+
+  const handleMethodChange = (m: InstallMethod) => {
+    setInstallMethod(m);
+    localStorage.setItem("chat_installMethod", m);
+    setDetected(false);
+  };
+
+  const hint = INSTALL_HINTS[installMethod];
+  const notFound = detected && availableClis.length === 0;
 
   return (
     <div className="p-4 space-y-4 text-sm">
       <section>
         <h3 className="font-medium mb-2 text-foreground">CLI 状态</h3>
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           {availableClis.length > 0 ? (
             availableClis.map((cli, i) => (
               <div
                 key={i}
                 className="flex items-center gap-2 text-xs text-muted-foreground"
               >
-                <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full shrink-0" />
                 <span className="capitalize font-medium">{cli.cliType}</span>
-                {cli.version && <span>v{cli.version}</span>}
+                {cli.version && <span>{cli.version}</span>}
                 <span className="truncate text-muted-foreground/60">
                   {cli.path}
                 </span>
@@ -884,12 +939,50 @@ function ChatSettingsTab() {
           ) : (
             <p className="text-xs text-muted-foreground">未检测到已安装的 CLI</p>
           )}
+
+          {/* 安装方式选择 */}
+          <div>
+            <p className="text-xs text-muted-foreground mb-1.5">安装方式</p>
+            <div className="flex flex-wrap gap-1">
+              {(["npm", "nvm", "bun", "other"] as InstallMethod[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleMethodChange(m)}
+                  className={`px-2 py-0.5 rounded text-xs border transition-colors ${
+                    installMethod === m
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-foreground/40 hover:text-foreground"
+                  }`}
+                >
+                  {INSTALL_HINTS[m].label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <button
-            onClick={() => detectCli()}
-            className="mt-1 text-xs text-primary hover:text-primary/80 transition-colors"
+            onClick={handleDetect}
+            disabled={detecting}
+            className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
           >
-            重新检测
+            <RefreshCw className={`w-3 h-3 ${detecting ? "animate-spin" : ""}`} />
+            {detecting ? "检测中..." : "重新检测"}
           </button>
+
+          {/* 检测失败提示 */}
+          {notFound && (
+            <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-2.5 space-y-1.5">
+              <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
+                未找到 Claude CLI，请按以下提示手动填写路径：
+              </p>
+              <ul className="space-y-0.5">
+                {hint.paths.map((p, i) => (
+                  <li key={i} className="text-[11px] text-muted-foreground font-mono">{p}</li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{hint.tip}</p>
+            </div>
+          )}
         </div>
       </section>
 
