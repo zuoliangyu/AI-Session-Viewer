@@ -9,14 +9,21 @@ use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct ProjectSourceStatus {
-    pub source_path: String,
-    pub exists: bool,
-    pub is_git_repo: bool,
-    pub has_uncommitted_changes: bool,
-    pub has_unpushed_commits: bool,
+pub enum DeleteLevel {
+    SessionOnly,
+    WithCcConfig,
+    /// Level 3：清理 history.jsonl。保留后端实现，前端 UI 不暴露。
+    WithHistory,
+}
+
+#[derive(serde::Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResult {
+    pub sessions_deleted: usize,
+    pub config_cleaned: bool,
+    pub bookmarks_removed: usize,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
@@ -167,50 +174,8 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
             });
         let short_name = short_name_from_path(&display_path);
 
-        // Count sessions consistently with get_sessions(): only those with messages
-        let session_count = if let Some(ref index) = parsed_index {
-            if !index.entries.is_empty() {
-                // From index: count entries where message_count > 0 (or unknown)
-                let indexed_ids: std::collections::HashSet<&str> =
-                    index.entries.iter().map(|e| e.session_id.as_str()).collect();
-                let indexed_count = index
-                    .entries
-                    .iter()
-                    .filter(|e| {
-                        e.message_count.map(|c| c > 0).unwrap_or(true)
-                            && e.full_path
-                                .as_ref()
-                                .map(|p| std::path::Path::new(p).exists())
-                                .unwrap_or_else(|| {
-                                    path.join(format!("{}.jsonl", e.session_id)).exists()
-                                })
-                    })
-                    .count();
-                // Also count disk-only files not in index (non-empty)
-                let extra = fs::read_dir(&path)
-                    .map(|rd| {
-                        rd.flatten()
-                            .filter(|e| {
-                                let p = e.path();
-                                p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
-                                    && p.file_stem()
-                                        .and_then(|s| s.to_str())
-                                        .map(|id| !indexed_ids.contains(id))
-                                        .unwrap_or(false)
-                                    && e.metadata().map(|m| m.len() > 0).unwrap_or(false)
-                            })
-                            .count()
-                    })
-                    .unwrap_or(0);
-                indexed_count + extra
-            } else {
-                // Empty index, fall back to counting all .jsonl files
-                count_jsonl_files(&path)
-            }
-        } else {
-            // No index file, fall back to counting all .jsonl files
-            count_jsonl_files(&path)
-        };
+        // 用轻量计数：只检查文件大小，避免读取文件内容
+        let session_count = count_jsonl_files(&path);
 
         let last_modified = fs::metadata(&path)
             .and_then(|m| m.modified())
@@ -253,82 +218,17 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
         return Err(format!("Project directory not found: {}", encoded_name));
     }
 
-    // Collect all .jsonl files on disk: session_id -> path
-    let mut disk_sessions: std::collections::HashMap<String, PathBuf> =
-        std::collections::HashMap::new();
-    if let Ok(dir_entries) = fs::read_dir(&project_dir) {
-        for entry in dir_entries.flatten() {
-            let path = entry.path();
-            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                if let Some(session_id) = path.file_stem().and_then(|s| s.to_str()) {
-                    if !session_id.is_empty() {
-                        disk_sessions.insert(session_id.to_string(), path);
-                    }
-                }
-            }
-        }
-    }
+    // Step 1：磁盘扫描，分类 valid / invalid
+    let (mut valid_sessions, invalid_items) = scan_project_dir(&project_dir);
 
-    // Try reading sessions-index.json (fallback to dir scan on parse failure)
-    let index_path = project_dir.join("sessions-index.json");
-    let parsed_index = if index_path.exists() {
-        fs::read_to_string(&index_path)
-            .ok()
-            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
-    } else {
-        None
-    };
-    if let Some(index) = parsed_index {
+    // Step 2：index 元数据补充（可选，失败时静默跳过）
+    enrich_with_index(&project_dir, &mut valid_sessions);
 
-        if !index.entries.is_empty() {
-            let original_path = index.original_path.clone();
+    // Step 3：移动无效 item（静默，不影响返回值）
+    cleanup_invalid_sessions(&project_dir, invalid_items);
 
-            // Collect indexed session IDs
-            let indexed_ids: std::collections::HashSet<String> =
-                index.entries.iter().map(|e| e.session_id.clone()).collect();
-
-            // Start with index entries, fill missing project_path from original_path
-            let mut entries: Vec<SessionIndexEntry> = index
-                .entries
-                .into_iter()
-                .map(|e| {
-                    let mut entry = convert_index_entry(e, &project_dir);
-                    if entry.project_path.is_none() {
-                        entry.project_path = original_path.clone();
-                    }
-                    entry
-                })
-                .filter(|e| std::path::Path::new(&e.file_path).exists())
-                .map(|mut e| {
-                    // Read customTitle from JSONL; use entry.file_path (may be non-standard)
-                    if e.alias.is_none() {
-                        let jsonl_path = std::path::Path::new(&e.file_path);
-                        e.alias = claude_parser::extract_custom_title(jsonl_path);
-                    }
-                    e
-                })
-                .collect();
-
-            // Find sessions on disk but missing from index, scan them individually
-            for (session_id, path) in &disk_sessions {
-                if !indexed_ids.contains(session_id) {
-                    if let Some(mut entry) = scan_single_session(path, session_id) {
-                        if entry.project_path.is_none() {
-                            entry.project_path = original_path.clone();
-                        }
-                        entries.push(entry);
-                    }
-                }
-            }
-
-            entries.sort_by(|a, b| b.modified.cmp(&a.modified));
-            entries.retain(|e| e.message_count > 0);
-            return Ok(entries);
-        }
-    }
-
-    // Fallback: scan JSONL files directly
-    scan_sessions_from_dir(&project_dir)
+    valid_sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(valid_sessions)
 }
 
 
@@ -397,66 +297,230 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
     files
 }
 
-// ── internal helpers ──
-
-fn convert_index_entry(e: SessionsIndexFileEntry, project_dir: &std::path::Path) -> SessionIndexEntry {
-    let file_path = e
-        .full_path
-        .clone()
-        .unwrap_or_else(|| {
-            project_dir
-                .join(format!("{}.jsonl", e.session_id))
-                .to_string_lossy()
-                .to_string()
-        });
-
-    SessionIndexEntry {
-        source: "claude".to_string(),
-        session_id: e.session_id,
-        file_path,
-        first_prompt: e.first_prompt,
-        message_count: e.message_count.unwrap_or(0),
-        created: e.created,
-        modified: e.modified,
-        git_branch: e.git_branch,
-        project_path: e.project_path,
-        is_sidechain: e.is_sidechain,
-        cwd: None,
-        model_provider: None,
-        cli_version: None,
-        alias: None,
-        tags: None,
-    }
+#[derive(Debug)]
+enum InvalidReason {
+    Empty,
+    NoMessages,
+    Corrupt,
+    OrphanDir,
 }
 
-fn scan_sessions_from_dir(project_dir: &std::path::Path) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut entries: Vec<SessionIndexEntry> = Vec::new();
+#[derive(Debug)]
+struct InvalidItem {
+    path: PathBuf,
+    reason: InvalidReason,
+}
 
-    let dir_entries =
-        fs::read_dir(project_dir).map_err(|e| format!("Failed to read project dir: {}", e))?;
+// ── internal helpers ──
 
-    for entry in dir_entries.flatten() {
+/// Step 1：磁盘扫描 — 将顶层 .jsonl 文件分类为 valid / invalid，
+/// 同时检测孤儿 UUID 子目录（有目录但无对应 .jsonl）。
+fn scan_project_dir(
+    project_dir: &Path,
+) -> (Vec<SessionIndexEntry>, Vec<InvalidItem>) {
+    let mut valid_sessions: Vec<SessionIndexEntry> = Vec::new();
+    let mut invalid_items: Vec<InvalidItem> = Vec::new();
+    let mut valid_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let entries = match fs::read_dir(project_dir) {
+        Ok(e) => e,
+        Err(_) => return (valid_sessions, invalid_items),
+    };
+
+    // 第一遍：处理顶层 .jsonl 文件
+    for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-            let session_id = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(ext) = path.extension() else { continue };
+        if ext != "jsonl" {
+            continue;
+        }
+        let session_id = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if session_id.is_empty() {
+            continue;
+        }
 
-            if session_id.is_empty() {
-                continue;
+        // 检查文件大小
+        let file_size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if file_size == 0 {
+            invalid_items.push(InvalidItem { path, reason: InvalidReason::Empty });
+            continue;
+        }
+
+        // 尝试计数消息（返回 0 或解析失败）
+        let msg_count_result = count_messages_result(&path);
+        match msg_count_result {
+            Err(_) => {
+                invalid_items.push(InvalidItem { path, reason: InvalidReason::Corrupt });
             }
-
-            if let Some(entry) = scan_single_session(&path, &session_id) {
-                entries.push(entry);
+            Ok(0) => {
+                invalid_items.push(InvalidItem { path, reason: InvalidReason::NoMessages });
+            }
+            Ok(_count) => {
+                if let Some(entry) = scan_single_session(&path, &session_id) {
+                    valid_ids.insert(session_id);
+                    valid_sessions.push(entry);
+                }
             }
         }
     }
 
-    entries.sort_by(|a, b| b.modified.cmp(&a.modified));
-    entries.retain(|e| e.message_count > 0);
-    Ok(entries)
+    // 第二遍：检测孤儿 UUID 子目录（跳过 "invalid" 目录本身）
+    if let Ok(entries2) = fs::read_dir(project_dir) {
+        for entry in entries2.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let dir_name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            if dir_name == "invalid" || dir_name.is_empty() {
+                continue;
+            }
+            // 只处理 UUID 格式目录（36 字符含连字符）
+            if dir_name.len() == 36
+                && dir_name.chars().filter(|&c| c == '-').count() == 4
+                && !valid_ids.contains(&dir_name)
+            {
+                invalid_items.push(InvalidItem {
+                    path,
+                    reason: InvalidReason::OrphanDir,
+                });
+            }
+        }
+    }
+
+    (valid_sessions, invalid_items)
+}
+
+/// Step 3：将无效 session 移入 project_dir/invalid/。
+/// 内部错误不向上传播，eprintln! 静默记录。
+fn cleanup_invalid_sessions(project_dir: &Path, invalid_items: Vec<InvalidItem>) {
+    if invalid_items.is_empty() {
+        return;
+    }
+
+    let invalid_dir = project_dir.join("invalid");
+    if let Err(e) = fs::create_dir_all(&invalid_dir) {
+        eprintln!("[cleanup] Failed to create invalid dir: {}", e);
+        return;
+    }
+
+    // 读取已有 manifest（追加模式）
+    let manifest_path = invalid_dir.join("manifest.json");
+    let mut manifest: Vec<serde_json::Value> = if manifest_path.exists() {
+        fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
+    let moved_at = chrono::Utc::now().to_rfc3339();
+
+    for item in invalid_items {
+        let file_name = match item.path.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        let target = invalid_dir.join(&file_name);
+
+        // 目标已存在 → 跳过，避免覆盖
+        if target.exists() {
+            continue;
+        }
+
+        let reason = match item.reason {
+            InvalidReason::Empty => "Empty",
+            InvalidReason::NoMessages => "NoMessages",
+            InvalidReason::Corrupt => "Corrupt",
+            InvalidReason::OrphanDir => "OrphanDir",
+        };
+
+        match fs::rename(&item.path, &target) {
+            Ok(()) => {
+                manifest.push(serde_json::json!({
+                    "file": file_name,
+                    "reason": reason,
+                    "movedAt": moved_at,
+                }));
+            }
+            Err(e) => {
+                eprintln!("[cleanup] Failed to move {:?}: {}", item.path, e);
+            }
+        }
+    }
+
+    // 原子写回 manifest.json
+    if let Ok(json) = serde_json::to_string_pretty(&manifest) {
+        let tmp_path = manifest_path.with_extension("json.tmp");
+        if fs::write(&tmp_path, &json).is_ok() {
+            if let Err(e) = fs::rename(&tmp_path, &manifest_path) {
+                eprintln!("[cleanup] Failed to write manifest: {}", e);
+            }
+        }
+    }
+}
+
+/// Step 2：用 sessions-index.json 的元数据补充 valid_sessions。
+/// 若 index 不存在或解析失败，直接返回，不影响 valid_sessions。
+fn enrich_with_index(project_dir: &Path, sessions: &mut [SessionIndexEntry]) {
+    let index_path = project_dir.join("sessions-index.json");
+    let content = match fs::read_to_string(&index_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let index: SessionsIndex = match serde_json::from_str(&content) {
+        Ok(i) => i,
+        Err(_) => return,
+    };
+
+    let original_path = index.original_path.clone();
+
+    // 构建 index_map: session_id -> IndexEntry
+    let index_map: std::collections::HashMap<&str, &SessionsIndexFileEntry> = index
+        .entries
+        .iter()
+        .map(|e| (e.session_id.as_str(), e))
+        .collect();
+
+    for session in sessions.iter_mut() {
+        if let Some(idx_entry) = index_map.get(session.session_id.as_str()) {
+            // 用 index 的时间戳覆盖（更准确）
+            if let Some(ref created) = idx_entry.created {
+                session.created = Some(created.clone());
+            }
+            if let Some(ref modified) = idx_entry.modified {
+                session.modified = Some(modified.clone());
+            }
+            // 补充 git_branch（Step 1 未提取到时）
+            if session.git_branch.is_none() {
+                session.git_branch = idx_entry.git_branch.clone();
+            }
+            // 补充 is_sidechain
+            if session.is_sidechain.is_none() {
+                session.is_sidechain = idx_entry.is_sidechain;
+            }
+            // idx_entry.project_path 优先
+            if session.project_path.is_none() {
+                session.project_path = idx_entry.project_path.clone();
+            }
+        }
+        // original_path 作为最终兜底（index 中没有该 session 或 idx_entry.project_path 为空时）
+        if session.project_path.is_none() {
+            session.project_path = original_path.clone();
+        }
+    }
 }
 
 fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<SessionIndexEntry> {
@@ -508,144 +572,13 @@ fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<Sessi
     })
 }
 
-/// Count all .jsonl files in a directory (fallback when no sessions-index.json)
-fn count_jsonl_files(dir: &std::path::Path) -> usize {
-    fs::read_dir(dir)
-        .map(|rd| {
-            rd.flatten()
-                .filter(|e| {
-                    e.path()
-                        .extension()
-                        .map(|ext| ext == "jsonl")
-                        .unwrap_or(false)
-                })
-                .count()
-        })
-        .unwrap_or(0)
-}
-
-/// Resolve the source code path for a project using three-layer fallback:
-/// 1. `sessions-index.json` `originalPath`
-/// 2. First entry with `projectPath` in the index
-/// 3. `decode_project_path_validated` display_path
-fn resolve_source_path(project_id: &str) -> Result<String, String> {
-    let projects_dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
-    let project_dir = projects_dir.join(project_id);
-
-    let index_path = project_dir.join("sessions-index.json");
-    let parsed_index = fs::read_to_string(&index_path)
-        .ok()
-        .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
-
-    let source_path = parsed_index
-        .and_then(|idx| {
-            idx.original_path
-                .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
-        })
-        .unwrap_or_else(|| decode_project_path_validated(project_id).display_path);
-
-    Ok(source_path)
-}
-
-/// Check the status of a project's source code directory
-pub fn check_project_source_status(project_id: &str) -> Result<ProjectSourceStatus, String> {
-    let source_path = resolve_source_path(project_id)?;
-    let path = Path::new(&source_path);
-
-    let exists = path.exists();
-    if !exists {
-        return Ok(ProjectSourceStatus {
-            source_path,
-            exists: false,
-            is_git_repo: false,
-            has_uncommitted_changes: false,
-            has_unpushed_commits: false,
-        });
+/// 删除项目目录，并根据 level 执行额外清理。
+pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResult, String> {
+    // 安全检查：project_id 不能为空、"."、".."
+    if project_id.is_empty() || project_id == "." || project_id == ".." {
+        return Err(format!("Invalid project id: {}", project_id));
     }
 
-    let is_git_repo = path.join(".git").exists();
-    if !is_git_repo {
-        return Ok(ProjectSourceStatus {
-            source_path,
-            exists: true,
-            is_git_repo: false,
-            has_uncommitted_changes: false,
-            has_unpushed_commits: false,
-        });
-    }
-
-    // Check uncommitted changes via `git status --porcelain`
-    let has_uncommitted_changes = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
-        .current_dir(path)
-        .output()
-        .map(|output| {
-            output.status.success()
-                && !output.stdout.is_empty()
-        })
-        .unwrap_or(false);
-
-    // Check unpushed commits via `git log @{upstream}..HEAD --oneline`
-    let has_unpushed_commits = std::process::Command::new("git")
-        .args(["log", "@{upstream}..HEAD", "--oneline"])
-        .current_dir(path)
-        .output()
-        .map(|output| {
-            output.status.success()
-                && !output.stdout.is_empty()
-        })
-        .unwrap_or(false);
-
-    Ok(ProjectSourceStatus {
-        source_path,
-        exists: true,
-        is_git_repo: true,
-        has_uncommitted_changes,
-        has_unpushed_commits,
-    })
-}
-
-/// Check if a path is a dangerous system/root/home directory that should never be deleted
-fn is_dangerous_path(path: &Path) -> bool {
-    let path_str = path.to_string_lossy();
-
-    // Root directories
-    if path_str == "/" || path_str == "\\" {
-        return true;
-    }
-
-    // Windows drive roots like C:\, D:\
-    if path_str.len() <= 3 && path_str.contains(':') {
-        return true;
-    }
-
-    // Home directory
-    if let Some(home) = dirs::home_dir() {
-        if path == home {
-            return true;
-        }
-    }
-
-    // Common system directories
-    let dangerous_dirs = [
-        "/usr", "/bin", "/sbin", "/etc", "/var", "/tmp", "/opt",
-        "/System", "/Library", "/Applications",
-        "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
-        "C:\\Users", "C:\\ProgramData",
-    ];
-
-    for d in &dangerous_dirs {
-        if path_str.eq_ignore_ascii_case(d) {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Delete an entire project directory (and all sessions/metadata within it)
-pub fn delete_project(project_id: &str, delete_source: bool) -> Result<(), String> {
     let projects_dir = get_projects_dir()
         .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     let dir = projects_dir.join(project_id);
@@ -653,14 +586,7 @@ pub fn delete_project(project_id: &str, delete_source: bool) -> Result<(), Strin
         return Err(format!("Project not found: {}", project_id));
     }
 
-    // Get source path BEFORE deleting session directory (sessions-index.json needed)
-    let source_path = if delete_source {
-        Some(resolve_source_path(project_id)?)
-    } else {
-        None
-    };
-
-    // 防止路径遍历：规范化后验证仍在 projects_dir 内
+    // 防路径遍历
     let canonical_dir = dir
         .canonicalize()
         .map_err(|e| format!("Failed to resolve project path: {}", e))?;
@@ -670,25 +596,134 @@ pub fn delete_project(project_id: &str, delete_source: bool) -> Result<(), Strin
     if !canonical_dir.starts_with(&canonical_base) {
         return Err(format!("Invalid project id: {}", project_id));
     }
-    std::fs::remove_dir_all(&canonical_dir)
+
+    // Level 2+：删除目录前先内联读取 real_path（sessions-index.json 在目录内，必须先读）
+    let real_path: Option<String> = if level == DeleteLevel::WithCcConfig
+        || level == DeleteLevel::WithHistory
+    {
+        let index_path = canonical_dir.join("sessions-index.json");
+        let path_from_index = fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
+            .and_then(|idx| {
+                idx.original_path
+                    .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
+            });
+        let resolved = path_from_index
+            .unwrap_or_else(|| decode_project_path_validated(project_id).display_path);
+        Some(resolved)
+    } else {
+        None
+    };
+
+    // 统计 session 文件数
+    let sessions_deleted = count_jsonl_files(&canonical_dir);
+
+    // 删除会话数据目录
+    fs::remove_dir_all(&canonical_dir)
         .map_err(|e| format!("Failed to delete project: {}", e))?;
 
-    // Delete source code directory if requested
-    if let Some(src_path) = source_path {
-        let src = Path::new(&src_path);
-        if src.exists() {
-            if is_dangerous_path(src) {
-                return Err(format!(
-                    "Refusing to delete dangerous path: {}",
-                    src_path
-                ));
-            }
-            std::fs::remove_dir_all(src)
-                .map_err(|e| format!("Failed to delete source directory: {}", e))?;
-        }
+    let mut config_cleaned = false;
+    let mut bookmarks_removed = 0;
+
+    if level == DeleteLevel::WithCcConfig || level == DeleteLevel::WithHistory {
+        // Level 2a：清理 ~/.claude.json
+        config_cleaned = clean_claude_config(real_path.as_deref().unwrap_or(""));
+
+        // Level 2b：清理书签
+        bookmarks_removed = clean_bookmarks_for_project(project_id);
+    }
+    // Level 3 (WithHistory) 的 history.jsonl 清理逻辑预留此处，本次不实现具体功能。
+
+    Ok(DeleteResult {
+        sessions_deleted,
+        config_cleaned,
+        bookmarks_removed,
+    })
+}
+
+/// 从 ~/.claude.json 中删除 projects[real_path] key。
+/// real_path 反查失败时静默返回 false（不报错）。
+fn clean_claude_config(real_path: &str) -> bool {
+    if real_path.is_empty() {
+        return false;
     }
 
-    Ok(())
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return false,
+    };
+    let config_path = home.join(".claude.json");
+    if !config_path.exists() {
+        return false;
+    }
+
+    let content = match fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let mut json: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    // 找到 projects 对象并删除对应 key
+    let removed = if let Some(projects) = json.get_mut("projects").and_then(|p| p.as_object_mut()) {
+        projects.remove(real_path).is_some()
+    } else {
+        false
+    };
+
+    if !removed {
+        return false;
+    }
+
+    // 原子写回
+    let new_content = match serde_json::to_string_pretty(&json) {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    let tmp_path = config_path.with_extension("json.tmp");
+    if fs::write(&tmp_path, &new_content).is_err() {
+        return false;
+    }
+    fs::rename(&tmp_path, &config_path).is_ok()
+}
+
+/// 从 ~/.session-viewer-bookmarks.json 删除 project_id 匹配的书签。
+/// 返回删除数量，失败时返回 0（静默）。
+fn clean_bookmarks_for_project(project_id: &str) -> usize {
+    use crate::bookmarks::load_bookmarks;
+
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return 0,
+    };
+    let path = home.join(".session-viewer-bookmarks.json");
+
+    let mut file = load_bookmarks();
+    let before = file.bookmarks.len();
+    file.bookmarks.retain(|b| b.project_id != project_id);
+    let removed = before - file.bookmarks.len();
+
+    if removed == 0 {
+        return 0;
+    }
+
+    // 原子写回
+    let json = match serde_json::to_string_pretty(&file) {
+        Ok(j) => j,
+        Err(_) => return 0,
+    };
+    let tmp_path = path.with_extension("json.tmp");
+    if fs::write(&tmp_path, &json).is_err() {
+        return 0;
+    }
+    if fs::rename(&tmp_path, &path).is_err() {
+        return 0;
+    }
+    removed
 }
 
 fn count_messages(path: &std::path::Path) -> u32 {
@@ -706,4 +741,48 @@ fn count_messages(path: &std::path::Path) -> u32 {
         }
     }
     count
+}
+
+fn count_messages_result(path: &Path) -> Result<u32, String> {
+    use std::io::{BufRead, BufReader};
+    let file = fs::File::open(path).map_err(|e| e.to_string())?;
+    let reader = BufReader::new(file);
+    let mut count: u32 = 0;
+    for line_result in reader.lines() {
+        let line = line_result.map_err(|e| e.to_string())?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<serde_json::Value>(trimmed) {
+            Ok(v) => {
+                if let Some(t) = v.get("type").and_then(|t| t.as_str()) {
+                    if t == "user" || t == "assistant" {
+                        count += 1;
+                    }
+                }
+            }
+            Err(_) => {
+                return Err("JSON parse error".to_string());
+            }
+        }
+    }
+    Ok(count)
+}
+
+/// Count valid (non-empty) .jsonl files at the TOP LEVEL of dir only.
+/// Does NOT descend into subdirectories (e.g. invalid/).
+fn count_jsonl_files(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    let p = e.path();
+                    p.is_file()
+                        && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
+                        && e.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
 }

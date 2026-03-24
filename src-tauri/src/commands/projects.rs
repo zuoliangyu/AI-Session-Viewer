@@ -1,5 +1,6 @@
 use session_core::models::project::ProjectEntry;
 use session_core::provider::{claude, codex};
+use session_core::provider::claude::{DeleteLevel, DeleteResult};
 
 #[tauri::command]
 pub fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {
@@ -14,25 +15,11 @@ pub fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {
 pub fn delete_project(
     source: String,
     project_id: String,
-    delete_source: bool,
-) -> Result<(), String> {
+    level: DeleteLevel,
+) -> Result<DeleteResult, String> {
     match source.as_str() {
-        "claude" => claude::delete_project(&project_id, delete_source),
+        "claude" => claude::delete_project(&project_id, level),
         _ => Err(format!("Delete project not supported for source: {}", source)),
-    }
-}
-
-#[tauri::command]
-pub fn check_project_source_status(
-    source: String,
-    project_id: String,
-) -> Result<claude::ProjectSourceStatus, String> {
-    match source.as_str() {
-        "claude" => claude::check_project_source_status(&project_id),
-        _ => Err(format!(
-            "check_project_source_status not supported for source: {}",
-            source
-        )),
     }
 }
 
