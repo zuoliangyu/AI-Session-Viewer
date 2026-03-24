@@ -31,7 +31,6 @@ export function ProjectsPage() {
 
   // 删除确认对话框状态
   const [deleteTarget, setDeleteTarget] = useState<ProjectEntry | null>(null);
-  const [deleteWithSource, setDeleteWithSource] = useState(false);
 
   // 重命名（别名）对话框状态
   const [renameTarget, setRenameTarget] = useState<ProjectEntry | null>(null);
@@ -221,8 +220,7 @@ export function ProjectsPage() {
           setRenameValue(p.alias ?? "");
           setRenameError(null);
         }}
-        onDelete={(p) => { setDeleteTarget(p); setDeleteWithSource(false); }}
-        onDeleteWithSource={(p) => { setDeleteTarget(p); setDeleteWithSource(true); }}
+        onDelete={(p) => { setDeleteTarget(p); }}
       />
     )}
 
@@ -230,14 +228,12 @@ export function ProjectsPage() {
     {deleteTarget && (
       <DeleteProjectDialog
         project={deleteTarget}
-        deleteSource={deleteWithSource}
-        onConfirm={async () => {
-          await deleteProject(deleteTarget.id, deleteWithSource);
+        onConfirm={async (level) => {
+          await deleteProject(deleteTarget.id, level);
           setDeleteTarget(null);
-          setDeleteWithSource(false);
           navigate("/projects");
         }}
-        onCancel={() => { setDeleteTarget(null); setDeleteWithSource(false); }}
+        onCancel={() => { setDeleteTarget(null); }}
       />
     )}
 

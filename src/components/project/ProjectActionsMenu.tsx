@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import { Copy, Check, Pencil, Trash2, FolderX } from "lucide-react";
+import { Copy, Check, Pencil, Trash2 } from "lucide-react";
 import type { ProjectEntry } from "../../types";
 
 interface ProjectActionsMenuProps {
@@ -10,7 +10,6 @@ interface ProjectActionsMenuProps {
   onClose: () => void;
   onRename: (project: ProjectEntry) => void;
   onDelete: (project: ProjectEntry) => void;
-  onDeleteWithSource?: (project: ProjectEntry) => void;
 }
 
 export function ProjectActionsMenu({
@@ -20,7 +19,6 @@ export function ProjectActionsMenu({
   onClose,
   onRename,
   onDelete,
-  onDeleteWithSource,
 }: ProjectActionsMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -105,16 +103,6 @@ export function ProjectActionsMenu({
         </button>
       )}
 
-      {/* 删除会话数据和源代码（仅 claude） */}
-      {source === "claude" && onDeleteWithSource && (
-        <button
-          onClick={() => { onDeleteWithSource(project); onClose(); }}
-          className="w-full text-left px-3 py-2 text-sm text-destructive font-medium hover:bg-destructive/10 transition-colors flex items-center gap-2"
-        >
-          <FolderX className="w-3.5 h-3.5" />
-          删除会话数据和源代码
-        </button>
-      )}
     </div>,
     document.body
   );

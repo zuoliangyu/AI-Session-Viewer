@@ -5,7 +5,8 @@ import type {
   SearchResult,
   TokenUsageSummary,
   Bookmark,
-  ProjectSourceStatus,
+  DeleteLevel,
+  DeleteResult,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig, QuickChatMessage } from "../types/chat";
 
@@ -127,16 +128,9 @@ export async function deleteSession(
 export async function deleteProject(
   source: string,
   projectId: string,
-  deleteSource: boolean = false
-): Promise<void> {
-  await apiDelete("/api/projects", { source, projectId, deleteSource: String(deleteSource) });
-}
-
-export async function checkProjectSourceStatus(
-  source: string,
-  projectId: string
-): Promise<ProjectSourceStatus> {
-  return apiFetch("/api/projects/source-status", { source, projectId });
+  level: DeleteLevel = "sessionOnly"
+): Promise<DeleteResult> {
+  return await apiDelete<DeleteResult>("/api/projects", { source, projectId, level });
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {

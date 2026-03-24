@@ -6,6 +6,7 @@ import type {
   TokenUsageSummary,
   SearchResult,
   Bookmark,
+  DeleteLevel,
 } from "../types";
 import { api } from "../services/api";
 
@@ -67,7 +68,7 @@ interface AppState {
   selectProject: (projectId: string) => Promise<void>;
   selectSession: (filePath: string) => Promise<void>;
   deleteSession: (filePath: string, sessionId?: string) => Promise<void>;
-  deleteProject: (projectId: string, deleteSource?: boolean) => Promise<void>;
+  deleteProject: (projectId: string, level?: DeleteLevel) => Promise<void>;
   setProjectAlias: (projectId: string, alias: string | null) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
@@ -238,9 +239,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  deleteProject: async (projectId: string, deleteSource?: boolean) => {
+  deleteProject: async (projectId: string, level?: DeleteLevel) => {
     const { source } = get();
-    await api.deleteProject(source, projectId, deleteSource || false);
+    await api.deleteProject(source, projectId, level || "sessionOnly");
     // 在 await 完成后重新读取 selectedProject，避免竞态
     set((state) => {
       const filtered = state.projects.filter((p) => p.id !== projectId);

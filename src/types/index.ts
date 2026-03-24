@@ -102,10 +102,10 @@ export interface Bookmark {
   createdAt: string;
 }
 
-export interface ProjectSourceStatus {
-  sourcePath: string;
-  exists: boolean;
-  isGitRepo: boolean;
-  hasUncommittedChanges: boolean;
-  hasUnpushedCommits: boolean;
+export type DeleteLevel = "sessionOnly" | "withCcConfig";
+
+export interface DeleteResult {
+  sessionsDeleted: number;
+  configCleaned: boolean;
+  bookmarksRemoved: number;
 }

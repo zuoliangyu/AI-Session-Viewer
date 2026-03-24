@@ -56,7 +56,6 @@ export function Sidebar() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renameLoading, setRenameLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectEntry | null>(null);
-  const [deleteWithSource, setDeleteWithSource] = useState(false);
   useUpdateChecker();
   useFileWatcher();
 
@@ -462,8 +461,7 @@ export function Sidebar() {
             setRenameValue(p.alias ?? "");
             setRenameError(null);
           }}
-          onDelete={(p) => { setDeleteTarget(p); setDeleteWithSource(false); }}
-          onDeleteWithSource={(p) => { setDeleteTarget(p); setDeleteWithSource(true); }}
+          onDelete={(p) => { setDeleteTarget(p); }}
         />
       )}
 
@@ -548,14 +546,12 @@ export function Sidebar() {
       {deleteTarget && (
         <DeleteProjectDialog
           project={deleteTarget}
-          deleteSource={deleteWithSource}
-          onConfirm={async () => {
-            await deleteProject(deleteTarget.id, deleteWithSource);
+          onConfirm={async (level) => {
+            await deleteProject(deleteTarget.id, level);
             setDeleteTarget(null);
-            setDeleteWithSource(false);
             navigate("/projects");
           }}
-          onCancel={() => { setDeleteTarget(null); setDeleteWithSource(false); }}
+          onCancel={() => { setDeleteTarget(null); }}
         />
       )}
     </aside>
