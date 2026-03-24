@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.3] - 2026-03-24
+
+### Added
+
+- **自动更新通知 Toast**：检测到新版本时右下角自动弹出浮层提醒，显示版本号变化（`v旧 → v新`）；安装版一键"更新并重启"，便携版直接跳转 GitHub Release 下载页；可忽略当前版本，状态持久化到 localStorage
+
+### Changed
+
+- **删除工程对话框简化**：`DeleteProjectDialog` 重写为 checkbox 式单一 UI，移除输入项目名强确认和 Git 状态检查；新增"同时清理 `~/.claude.json` 项目配置"可选项；移除源代码目录删除功能（降低误操作风险）
+- **会话管道改为磁盘优先扫描**：`get_sessions()` 改为三步流水线（扫描磁盘有效/无效 jsonl → 从 index 补全元数据 → 将无效文件移入 `invalid/`），会话列表更准确；`get_projects()` 恢复轻量 `count_jsonl_files()`，避免列表页全量扫描文件内容
+- **删除级别枚举化**：新增 `DeleteLevel`（`SessionOnly` / `WithCcConfig`）和 `DeleteResult`，`delete_project()` 支持按级别清理 `~/.claude.json` 项目条目及书签；后端增加路径穿越防护
+
+### Fixed
+
+- **Markdown 表格渲染**：修复 `isAsciiArtLine()` 将表格分隔行（`|---|---|`、`| --- | :---: |`）误判为 ASCII 图表并包入代码块的问题，表格现可正确渲染
+
+---
+
 ## [2.6.2] - 2026-03-23
 
 ### Added

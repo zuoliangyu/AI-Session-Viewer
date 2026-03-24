@@ -76,6 +76,8 @@ export function wrapAsciiArt(text: string): string {
 function isAsciiArtLine(line: string): boolean {
   const trimmed = line.trim();
   if (!trimmed) return false;
+  // Exclude markdown table separator rows: |---|---|, | --- | :---: | ---: |
+  if (/^\|(\s*:?-+:?\s*\|)+$/.test(trimmed)) return false;
   // Box-drawing characters (Unicode)
   if (/[│┌┐└┘├┤┬┴┼─═║╔╗╚╝╠╣╦╩╬┊┈╌╎]/.test(trimmed)) return true;
   // Lines forming ASCII box/table patterns: |---+---|, +---+---+

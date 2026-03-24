@@ -9,7 +9,64 @@ import {
   CheckCircle2,
   ChevronUp,
   ChevronDown,
+  Bell,
 } from "lucide-react";
+
+declare const __IS_TAURI__: boolean;
+
+export function UpdateToast() {
+  if (!__IS_TAURI__) return null;
+  const {
+    status,
+    installType,
+    currentVersion,
+    newVersion,
+    dismissed,
+    downloadAndInstall,
+    openDownloadPage,
+    dismiss,
+  } = useUpdateStore();
+
+  if (status !== "available" || dismissed) return null;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-72 bg-card border border-blue-500/40 rounded-lg shadow-lg p-3.5 space-y-2.5 animate-in slide-in-from-bottom-2 fade-in">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Bell className="w-4 h-4 text-blue-400 shrink-0" />
+          <span className="text-sm font-medium text-foreground">发现新版本</span>
+        </div>
+        <button
+          onClick={dismiss}
+          className="p-0.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+          title="忽略此版本"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+      <div className="text-xs text-muted-foreground">
+        v{currentVersion} → <span className="text-blue-400 font-medium">v{newVersion}</span>
+      </div>
+      {installType === "installed" ? (
+        <button
+          onClick={() => { dismiss(); downloadAndInstall(); }}
+          className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+        >
+          <ArrowDownToLine className="w-3.5 h-3.5" />
+          更新并重启
+        </button>
+      ) : (
+        <button
+          onClick={() => { dismiss(); openDownloadPage(); }}
+          className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+        >
+          <ExternalLink className="w-3.5 h-3.5" />
+          前往下载新版本
+        </button>
+      )}
+    </div>
+  );
+}
 
 export function UpdateIndicator() {
   const [expanded, setExpanded] = useState(false);
