@@ -1,12 +1,17 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
+use std::path::{Path, PathBuf};
 use std::fs;
+use std::time::UNIX_EPOCH;
 
-use serde::Deserialize;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
-use crate::parser::path_encoder::get_projects_dir;
+use crate::parser::path_encoder::{get_claude_home, get_projects_dir};
 use crate::provider::codex;
+
+// ── Public entry point ──────────────────────────────────────────────────────
 
 pub fn get_stats(source: &str) -> Result<TokenUsageSummary, String> {
     match source {
@@ -16,7 +21,7 @@ pub fn get_stats(source: &str) -> Result<TokenUsageSummary, String> {
     }
 }
 
-// ── Minimal structs for stats scanning (only fields we need) ──
+// ── Minimal parse structs (only fields needed for stats) ────────────────────
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,63 +52,273 @@ struct UsageData {
     cache_creation_input_tokens: u64,
 }
 
+// ── Per-file cache ───────────────────────────────────────────────────────────
+
+const CACHE_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize, Default)]
+struct AsvStatsCache {
+    version: u32,
+    #[serde(default)]
+    files: HashMap<String, FileStat>,
+}
+
+/// Stats aggregated for a single JSONL file.
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct FileStat {
+    /// File mtime (seconds since UNIX epoch) at scan time.
+    mtime: u64,
+    input_tokens: u64,
+    output_tokens: u64,
+    /// model → total tokens
+    tokens_by_model: HashMap<String, u64>,
+    /// date (YYYY-MM-DD) → input tokens
+    daily_input: HashMap<String, u64>,
+    /// date (YYYY-MM-DD) → output tokens
+    daily_output: HashMap<String, u64>,
+    session_ids: Vec<String>,
+    message_count: u64,
+}
+
+fn cache_path() -> Option<PathBuf> {
+    get_claude_home().map(|h| h.join(".asv-stats-cache.json"))
+}
+
+fn load_cache() -> AsvStatsCache {
+    let path = match cache_path() {
+        Some(p) => p,
+        None => return AsvStatsCache::default(),
+    };
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return AsvStatsCache::default(),
+    };
+    let cache: AsvStatsCache = match serde_json::from_str(&content) {
+        Ok(c) => c,
+        Err(_) => return AsvStatsCache::default(),
+    };
+    if cache.version != CACHE_VERSION {
+        return AsvStatsCache::default();
+    }
+    cache
+}
+
+fn save_cache(cache: &AsvStatsCache) {
+    if let Some(path) = cache_path() {
+        if let Ok(json) = serde_json::to_string(cache) {
+            let _ = fs::write(path, json);
+        }
+    }
+}
+
+fn file_mtime(path: &Path) -> u64 {
+    fs::metadata(path)
+        .and_then(|m| m.modified())
+        .and_then(|t| Ok(t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()))
+        .unwrap_or(0)
+}
+
+// ── Core stats computation ───────────────────────────────────────────────────
+
 fn get_claude_stats() -> Result<TokenUsageSummary, String> {
     let projects_dir = get_projects_dir().ok_or("Could not find projects dir")?;
-
     if !projects_dir.exists() {
         return Ok(empty_summary());
     }
 
-    // daily: date -> (input, output)
-    let mut daily_input: HashMap<String, u64> = HashMap::new();
-    let mut daily_output: HashMap<String, u64> = HashMap::new();
-    let mut daily_model: HashMap<String, HashMap<String, u64>> = HashMap::new();
-    let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
-    let mut total_input: u64 = 0;
-    let mut total_output: u64 = 0;
-    let mut session_ids: HashSet<String> = HashSet::new();
-    let mut message_count: u64 = 0;
+    // 1. Collect all JSONL file paths
+    let all_paths = collect_jsonl_paths(&projects_dir);
+    if all_paths.is_empty() {
+        return Ok(empty_summary());
+    }
 
-    let project_dirs = fs::read_dir(&projects_dir)
-        .map_err(|e| format!("Failed to read projects dir: {}", e))?;
+    // 2. Load existing per-file cache
+    let mut cache = load_cache();
 
-    for project_entry in project_dirs.flatten() {
-        let project_path = project_entry.path();
+    // 3. Determine which files need re-scanning
+    let stale: Vec<&PathBuf> = all_paths
+        .iter()
+        .filter(|p| {
+            let key = p.to_string_lossy();
+            let mtime = file_mtime(p);
+            match cache.files.get(key.as_ref()) {
+                Some(entry) => entry.mtime != mtime,
+                None => true,
+            }
+        })
+        .collect();
+
+    // 4. Scan stale files in parallel
+    let new_stats: Vec<(String, FileStat)> = stale
+        .par_iter()
+        .filter_map(|path| {
+            let stat = scan_file(path)?;
+            Some((path.to_string_lossy().into_owned(), stat))
+        })
+        .collect();
+
+    // 5. Update cache
+    for (key, stat) in new_stats {
+        cache.files.insert(key, stat);
+    }
+
+    // 6. Remove entries for files that no longer exist
+    let existing_keys: HashSet<String> = all_paths
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+    cache.files.retain(|k, _| existing_keys.contains(k));
+
+    // 7. Persist updated cache (best-effort)
+    cache.version = CACHE_VERSION;
+    save_cache(&cache);
+
+    // 8. Merge all cached file stats into summary
+    Ok(merge_into_summary(&cache))
+}
+
+/// Collect all *.jsonl paths under the projects directory.
+fn collect_jsonl_paths(projects_dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let Ok(project_entries) = fs::read_dir(projects_dir) else {
+        return paths;
+    };
+    for project in project_entries.flatten() {
+        let project_path = project.path();
         if !project_path.is_dir() {
             continue;
         }
-
-        let jsonl_files = match fs::read_dir(&project_path) {
-            Ok(d) => d,
-            Err(_) => continue,
+        let Ok(files) = fs::read_dir(&project_path) else {
+            continue;
         };
-
-        for file_entry in jsonl_files.flatten() {
-            let path = file_entry.path();
-            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                scan_jsonl(
-                    &path,
-                    &mut daily_input,
-                    &mut daily_output,
-                    &mut daily_model,
-                    &mut tokens_by_model,
-                    &mut total_input,
-                    &mut total_output,
-                    &mut session_ids,
-                    &mut message_count,
-                );
+        for file in files.flatten() {
+            let p = file.path();
+            if p.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                paths.push(p);
             }
         }
     }
+    paths
+}
 
-    // Build sorted daily token list
-    let mut all_dates: HashSet<String> = HashSet::new();
-    all_dates.extend(daily_input.keys().cloned());
-    all_dates.extend(daily_output.keys().cloned());
-    let mut dates: Vec<String> = all_dates.into_iter().collect();
+/// Scan a single JSONL file and return its aggregated stats.
+/// Returns None only if the file cannot be opened at all.
+fn scan_file(path: &Path) -> Option<FileStat> {
+    let mtime = file_mtime(path);
+    let file = fs::File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    let mut stat = FileStat {
+        mtime,
+        ..Default::default()
+    };
+    let mut session_set: HashSet<String> = HashSet::new();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => break,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        // Quick pre-filter: skip lines that can't possibly have token usage
+        if !trimmed.contains("\"usage\"") {
+            continue;
+        }
+
+        let record: StatsRecord = match serde_json::from_str(trimmed) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        if record.record_type != "assistant" {
+            continue;
+        }
+        let msg = match &record.message {
+            Some(m) => m,
+            None => continue,
+        };
+        if msg.role.as_deref() != Some("assistant") {
+            continue;
+        }
+        let usage = match &msg.usage {
+            Some(u) => u,
+            None => continue,
+        };
+
+        stat.message_count += 1;
+
+        if let Some(sid) = &record.session_id {
+            session_set.insert(sid.clone());
+        }
+
+        let input = usage.input_tokens
+            + usage.cache_read_input_tokens
+            + usage.cache_creation_input_tokens;
+        let output = usage.output_tokens;
+
+        stat.input_tokens += input;
+        stat.output_tokens += output;
+
+        if let Some(date) = record.timestamp.as_deref().and_then(|ts| ts.get(..10)) {
+            *stat.daily_input.entry(date.to_string()).or_insert(0) += input;
+            *stat.daily_output.entry(date.to_string()).or_insert(0) += output;
+
+            if let Some(model) = &msg.model {
+                *stat
+                    .tokens_by_model
+                    .entry(model.clone())
+                    .or_insert(0) += input + output;
+            }
+        } else if let Some(model) = &msg.model {
+            *stat.tokens_by_model.entry(model.clone()).or_insert(0) += input + output;
+        }
+    }
+
+    stat.session_ids = session_set.into_iter().collect();
+    Some(stat)
+}
+
+/// Merge all per-file stats in the cache into a single TokenUsageSummary.
+fn merge_into_summary(cache: &AsvStatsCache) -> TokenUsageSummary {
+    let mut total_input: u64 = 0;
+    let mut total_output: u64 = 0;
+    let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
+    let mut daily_input: HashMap<String, u64> = HashMap::new();
+    let mut daily_output: HashMap<String, u64> = HashMap::new();
+    let mut all_session_ids: HashSet<String> = HashSet::new();
+    let mut message_count: u64 = 0;
+
+    for stat in cache.files.values() {
+        total_input += stat.input_tokens;
+        total_output += stat.output_tokens;
+        message_count += stat.message_count;
+
+        for sid in &stat.session_ids {
+            all_session_ids.insert(sid.clone());
+        }
+        for (model, tokens) in &stat.tokens_by_model {
+            *tokens_by_model.entry(model.clone()).or_insert(0) += tokens;
+        }
+        for (date, tokens) in &stat.daily_input {
+            *daily_input.entry(date.clone()).or_insert(0) += tokens;
+        }
+        for (date, tokens) in &stat.daily_output {
+            *daily_output.entry(date.clone()).or_insert(0) += tokens;
+        }
+    }
+
+    let mut dates: Vec<String> = {
+        let mut set = HashSet::new();
+        set.extend(daily_input.keys().cloned());
+        set.extend(daily_output.keys().cloned());
+        set.into_iter().collect()
+    };
     dates.sort();
 
-    let daily_tokens: Vec<DailyTokenEntry> = dates
+    let daily_tokens = dates
         .iter()
         .map(|date| {
             let input = *daily_input.get(date).unwrap_or(&0);
@@ -117,105 +332,14 @@ fn get_claude_stats() -> Result<TokenUsageSummary, String> {
         })
         .collect();
 
-    Ok(TokenUsageSummary {
+    TokenUsageSummary {
         total_input_tokens: total_input,
         total_output_tokens: total_output,
         total_tokens: total_input + total_output,
         tokens_by_model,
         daily_tokens,
-        session_count: session_ids.len() as u64,
+        session_count: all_session_ids.len() as u64,
         message_count,
-    })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn scan_jsonl(
-    path: &std::path::Path,
-    daily_input: &mut HashMap<String, u64>,
-    daily_output: &mut HashMap<String, u64>,
-    daily_model: &mut HashMap<String, HashMap<String, u64>>,
-    tokens_by_model: &mut HashMap<String, u64>,
-    total_input: &mut u64,
-    total_output: &mut u64,
-    session_ids: &mut HashSet<String>,
-    message_count: &mut u64,
-) {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return,
-    };
-    let reader = BufReader::new(file);
-
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let record: StatsRecord = match serde_json::from_str(trimmed) {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-
-        if record.record_type != "assistant" {
-            continue;
-        }
-
-        let msg = match &record.message {
-            Some(m) => m,
-            None => continue,
-        };
-
-        if msg.role.as_deref() != Some("assistant") {
-            continue;
-        }
-
-        let usage = match &msg.usage {
-            Some(u) => u,
-            None => continue,
-        };
-
-        // Count this as a message
-        *message_count += 1;
-
-        // Track session
-        if let Some(sid) = &record.session_id {
-            session_ids.insert(sid.clone());
-        }
-
-        // Token accounting: input = input_tokens + cache_read + cache_creation
-        let input = usage.input_tokens
-            + usage.cache_read_input_tokens
-            + usage.cache_creation_input_tokens;
-        let output = usage.output_tokens;
-
-        *total_input += input;
-        *total_output += output;
-
-        // Per-model
-        if let Some(model) = &msg.model {
-            let total_for_msg = input + output;
-            *tokens_by_model.entry(model.clone()).or_insert(0) += total_for_msg;
-
-            if let Some(date) = record.timestamp.as_deref().and_then(|ts| ts.get(..10)) {
-                daily_model
-                    .entry(date.to_string())
-                    .or_default()
-                    .entry(model.clone())
-                    .and_modify(|v| *v += total_for_msg)
-                    .or_insert(total_for_msg);
-            }
-        }
-
-        // Per-day
-        if let Some(date) = record.timestamp.as_deref().and_then(|ts| ts.get(..10)) {
-            *daily_input.entry(date.to_string()).or_insert(0) += input;
-            *daily_output.entry(date.to_string()).or_insert(0) += output;
-        }
     }
 }
 
