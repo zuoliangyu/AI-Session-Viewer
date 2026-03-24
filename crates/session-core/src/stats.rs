@@ -120,7 +120,7 @@ fn save_cache(cache: &AsvStatsCache) {
 fn file_mtime(path: &Path) -> u64 {
     fs::metadata(path)
         .and_then(|m| m.modified())
-        .and_then(|t| Ok(t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()))
+        .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
         .unwrap_or(0)
 }
 
