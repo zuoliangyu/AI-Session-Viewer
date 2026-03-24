@@ -779,6 +779,7 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
         daily_tokens,
         session_count,
         message_count,
+        is_first_build: false,
     })
 }
 

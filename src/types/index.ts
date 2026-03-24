@@ -64,6 +64,7 @@ export interface TokenUsageSummary {
   dailyTokens: DailyTokenEntry[];
   sessionCount: number;
   messageCount: number;
+  isFirstBuild: boolean;
 }
 
 export interface DailyTokenEntry {

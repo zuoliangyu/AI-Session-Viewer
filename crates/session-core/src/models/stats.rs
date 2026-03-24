@@ -55,6 +55,9 @@ pub struct TokenUsageSummary {
     pub daily_tokens: Vec<DailyTokenEntry>,
     pub session_count: u64,
     pub message_count: u64,
+    /// True when no prior cache existed — first-time full scan (may be slow)
+    #[serde(default)]
+    pub is_first_build: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

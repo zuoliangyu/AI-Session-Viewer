@@ -59,7 +59,7 @@ function getDateRange(
 }
 
 export function StatsPage() {
-  const { source, tokenSummary, statsLoading, loadStats } = useAppStore();
+  const { source, tokenSummary, statsLoading, statsIsFirstBuild, loadStats } = useAppStore();
   const [preset, setPreset] = useState<TimePreset>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -102,10 +102,23 @@ export function StatsPage() {
   }, [filteredDays, tokenSummary]);
 
   if (statsLoading) {
+    // statsIsFirstBuild === null means "unknown" (loading hasn't finished yet to tell us)
+    // We only know it's a first build AFTER completion, so on next load statsIsFirstBuild
+    // will be false (cached). Show hint when: null (unknown = possibly first time) or true.
+    const mayBeFirstBuild = statsIsFirstBuild !== false;
     return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        加载统计数据...
+      <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>{mayBeFirstBuild ? "正在建立统计索引..." : "加载统计数据..."}</span>
+        </div>
+        {mayBeFirstBuild && (
+          <p className="text-xs text-center max-w-sm leading-relaxed px-4">
+            首次使用需要扫描所有会话文件建立索引，会话较多时可能需要一些时间，请耐心等待。
+            <br />
+            <span className="text-muted-foreground/60">索引完成后将缓存到本地，下次打开会非常快。</span>
+          </p>
+        )}
       </div>
     );
   }

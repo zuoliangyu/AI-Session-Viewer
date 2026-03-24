@@ -50,6 +50,8 @@ interface AppState {
   // Stats
   tokenSummary: TokenUsageSummary | null;
   statsLoading: boolean;
+  /** null = unknown (loading), true = first-time full scan, false = cache hit */
+  statsIsFirstBuild: boolean | null;
 
   // Tags
   allTags: string[];
@@ -104,6 +106,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       searchResults: [],
       searchQuery: "",
       tokenSummary: null,
+      statsIsFirstBuild: null,
       allTags: [],
       tagFilter: [],
       crossProjectTags: {},
@@ -150,6 +153,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   tokenSummary: null,
   statsLoading: false,
+  statsIsFirstBuild: null,
 
   allTags: [],
   tagFilter: [],
@@ -324,10 +328,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadStats: async () => {
-    set({ statsLoading: true });
+    set({ statsLoading: true, statsIsFirstBuild: null });
     try {
       const tokenSummary = await api.getStats(get().source);
-      set({ tokenSummary, statsLoading: false });
+      set({ tokenSummary, statsLoading: false, statsIsFirstBuild: tokenSummary.isFirstBuild });
     } catch (e) {
       console.error("Failed to load stats:", e);
       set({ statsLoading: false });

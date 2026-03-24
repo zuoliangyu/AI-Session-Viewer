@@ -8,7 +8,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
-use crate::parser::path_encoder::{get_claude_home, get_projects_dir};
+use crate::parser::path_encoder::get_projects_dir;
 use crate::provider::codex;
 
 // ── Public entry point ──────────────────────────────────────────────────────
@@ -81,7 +81,13 @@ struct FileStat {
 }
 
 fn cache_path() -> Option<PathBuf> {
-    get_claude_home().map(|h| h.join(".asv-stats-cache.json"))
+    // Store in the OS config dir for this app, not in ~/.claude
+    // Windows:  %APPDATA%\ai-session-viewer\stats-cache.json
+    // macOS:    ~/Library/Application Support/ai-session-viewer/stats-cache.json
+    // Linux:    ~/.config/ai-session-viewer/stats-cache.json
+    let dir = dirs::config_dir()?.join("ai-session-viewer");
+    let _ = fs::create_dir_all(&dir);
+    Some(dir.join("stats-cache.json"))
 }
 
 fn load_cache() -> AsvStatsCache {
@@ -132,7 +138,9 @@ fn get_claude_stats() -> Result<TokenUsageSummary, String> {
         return Ok(empty_summary());
     }
 
-    // 2. Load existing per-file cache
+    // 2. Load existing per-file cache; detect first-time build
+    let cache_exists = cache_path().map(|p| p.exists()).unwrap_or(false);
+    let is_first_build = !cache_exists;
     let mut cache = load_cache();
 
     // 3. Determine which files need re-scanning
@@ -174,7 +182,9 @@ fn get_claude_stats() -> Result<TokenUsageSummary, String> {
     save_cache(&cache);
 
     // 8. Merge all cached file stats into summary
-    Ok(merge_into_summary(&cache))
+    let mut summary = merge_into_summary(&cache);
+    summary.is_first_build = is_first_build;
+    Ok(summary)
 }
 
 /// Collect all *.jsonl paths under the projects directory.
@@ -340,6 +350,7 @@ fn merge_into_summary(cache: &AsvStatsCache) -> TokenUsageSummary {
         daily_tokens,
         session_count: all_session_ids.len() as u64,
         message_count,
+        is_first_build: false, // caller overrides if needed
     }
 }
 
@@ -352,5 +363,6 @@ fn empty_summary() -> TokenUsageSummary {
         daily_tokens: Vec::new(),
         session_count: 0,
         message_count: 0,
+        is_first_build: false,
     }
 }
