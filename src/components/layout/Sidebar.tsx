@@ -45,6 +45,7 @@ export function Sidebar() {
   const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias } =
     useAppStore();
   const { theme, setTheme } = useTheme();
+  const { detectCli, availableClis } = useChatStore();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"guide" | "chat" | "update" | "about">("guide");
   const [projectActionsMenu, setProjectActionsMenu] = useState<{
@@ -63,6 +64,12 @@ export function Sidebar() {
     loadProjects();
     loadBookmarks();
   }, [source]);
+
+  useEffect(() => {
+    if (availableClis.length === 0) {
+      detectCli();
+    }
+  }, []);
 
   const openExternal = async (url: string) => {
     if (__IS_TAURI__) {

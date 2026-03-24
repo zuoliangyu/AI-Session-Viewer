@@ -48,37 +48,50 @@ pub fn discover_installations() -> Vec<CliInstallation> {
 /// Use `where` (Windows) or `which` (Unix) to find a binary.
 fn which_binary(name: &str) -> Option<String> {
     #[cfg(windows)]
-    let result = Command::new("where").arg(name).output();
-
-    #[cfg(not(windows))]
-    let result = Command::new("which").arg(name).output();
-
-    if let Ok(output) = result {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            // `where` on Windows may return multiple lines.
-            // Filter to only accept executable extensions (.exe/.cmd),
-            // since npm also creates an extensionless Unix shell script
-            // that is not a valid Win32 application.
-            for line in stdout.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                #[cfg(windows)]
-                {
+    {
+        let result = Command::new("where").arg(name).output();
+        if let Ok(output) = result {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
                     let lower = trimmed.to_lowercase();
                     if lower.ends_with(".exe") || lower.ends_with(".cmd") {
                         return Some(trimmed.to_string());
                     }
                 }
-                #[cfg(not(windows))]
-                {
-                    return Some(trimmed.to_string());
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        // First try direct which
+        if let Ok(output) = Command::new("which").arg(name).output() {
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    return Some(path);
+                }
+            }
+        }
+        // Fallback: run via login shell to inherit nvm / asdf PATH
+        for shell in &["zsh", "bash"] {
+            let cmd = format!("which {name}");
+            if let Ok(output) = Command::new(shell).args(["-l", "-c", &cmd]).output() {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() && !path.contains("not found") {
+                        return Some(path);
+                    }
                 }
             }
         }
     }
+
     None
 }
 
@@ -96,7 +109,7 @@ fn known_paths() -> Vec<PathBuf> {
             paths.push(home.join(".npm-global/bin/claude"));
         }
 
-        // NVM paths
+        // NVM (Unix/Mac): ~/.nvm/versions/node/{version}/bin/claude
         let nvm_dir = home.join(".nvm/versions/node");
         if nvm_dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
@@ -107,6 +120,35 @@ fn known_paths() -> Vec<PathBuf> {
                         paths.push(bin_dir.join("claude.exe"));
                     } else {
                         paths.push(bin_dir.join("claude"));
+                    }
+                }
+            }
+        }
+
+        // nvm-windows: %APPDATA%\nvm\{version}\claude.cmd
+        #[cfg(windows)]
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let nvm_win_dir = PathBuf::from(&appdata).join("nvm");
+            if nvm_win_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_win_dir) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            paths.push(entry.path().join("claude.cmd"));
+                            paths.push(entry.path().join("claude.exe"));
+                        }
+                    }
+                }
+            }
+        }
+
+        // NVM_DIR env var (nvm sets this; works even if not in ~/.nvm)
+        #[cfg(not(windows))]
+        if let Ok(nvm_dir_env) = std::env::var("NVM_DIR") {
+            let nvm_versions = PathBuf::from(&nvm_dir_env).join("versions/node");
+            if nvm_versions.exists() && nvm_versions != nvm_dir {
+                if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin").join("claude"));
                     }
                 }
             }
