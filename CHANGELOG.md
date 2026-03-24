@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.4] - 2026-03-24
+
+### Added
+
+- **CLI 安装方式选择器**：对话设置中新增安装方式 chip（npm / nvm / bun / 手动），点击「重新检测」失败后，根据所选方式展示对应的预期路径和操作提示，帮助用户快速定位 CLI 可执行文件；所选方式持久化到 localStorage
+
+### Changed
+
+- **使用统计改为直接扫描 JSONL**：不再依赖 `~/.claude/stats-cache.json`（由 Claude Code 定期更新，可能滞后数周），改为直接扫描 `~/.claude/projects/**/*.jsonl`，token 统计始终反映最新会话数据
+- **统计索引本地缓存**：以 per-file mtime 为 key 缓存每个 JSONL 文件的统计结果，保存于系统 config 目录（`~/.config/ai-session-viewer/`，Windows: `%APPDATA%\ai-session-viewer\`），不污染 `~/.claude/`；下次加载只重新扫描有变动的文件
+- **并行扫描加速**：使用 rayon 并行处理需要重新扫描的文件，并在 JSON 解析前通过字符串预过滤跳过无 `usage` 字段的行
+- **首次建立索引提示**：首次打开统计页时，若本地无缓存，界面提示「正在建立统计索引，会话较多时可能需要较长时间」，有缓存时仅显示普通加载状态
+
+### Fixed
+
+- **CLI 自动检测**：应用启动时若未检测到 CLI，自动触发一次检测，无需手动进入设置点击按钮
+- **nvm 路径扫描**：Unix/Mac 新增 `zsh/bash -l -c "which claude"` login shell 回退，解决 Tauri 进程不继承 nvm PATH 导致检测失败的问题；Windows 补充扫描 nvm-windows 路径（`%APPDATA%\nvm\{version}\claude.cmd`）；同时支持 `$NVM_DIR` 自定义 nvm 根目录
+
+---
+
 ## [2.6.3] - 2026-03-24
 
 ### Added
