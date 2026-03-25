@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useChatStore } from "../../stores/chatStore";
+import { useAppStore } from "../../stores/appStore";
 import {
   FolderOpen,
   Bot,
@@ -19,7 +20,9 @@ export function ChatHeader() {
     setSkipPermissions,
   } = useChatStore();
 
-  const cliInfo = availableClis.find((c) => c.cliType === "claude");
+  const appSource = useAppStore((s) => s.source);
+  const cliLabel = appSource === "codex" ? "Codex" : "Claude";
+  const cliInfo = availableClis.find((c) => c.cliType === appSource);
 
   // Aggregate token stats
   const tokenStats = useMemo(() => {
@@ -43,7 +46,7 @@ export function ChatHeader() {
       {/* Source indicator */}
       <div className="flex items-center gap-1.5">
         <Bot className="w-4 h-4 text-orange-500" />
-        <span className="text-sm font-medium">Claude</span>
+        <span className="text-sm font-medium">{cliLabel}</span>
       </div>
 
       {/* CLI status */}

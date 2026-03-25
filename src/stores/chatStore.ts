@@ -14,6 +14,7 @@ interface ChatState {
   sessionId: string | null;
   projectPath: string;
   model: string;
+  source: "claude" | "codex";
 
   // Messages
   messages: ChatMessage[];
@@ -33,6 +34,15 @@ interface ChatState {
   cliConfig: CliConfig | null;
   cliConfigLoading: boolean;
   cliConfigError: string | null;
+  codexCliConfig: CliConfig | null;
+  codexCliConfigLoading: boolean;
+  codexCliConfigError: string | null;
+
+  // Manual API overrides (persisted to localStorage)
+  claudeApiKeyOverride: string;
+  claudeBaseUrlOverride: string;
+  codexApiKeyOverride: string;
+  codexBaseUrlOverride: string;
 
   // Settings (persisted to localStorage)
   skipPermissions: boolean;
@@ -42,6 +52,11 @@ interface ChatState {
   // Actions
   detectCli: () => Promise<void>;
   fetchCliConfig: () => Promise<void>;
+  fetchCodexCliConfig: () => Promise<void>;
+  setClaudeApiKeyOverride: (v: string) => void;
+  setClaudeBaseUrlOverride: (v: string) => void;
+  setCodexApiKeyOverride: (v: string) => void;
+  setCodexBaseUrlOverride: (v: string) => void;
   fetchModelList: () => Promise<void>;
   startNewChat: (
     projectPath: string,
@@ -59,14 +74,15 @@ interface ChatState {
   setSkipPermissions: (v: boolean) => void;
   setDefaultModel: (m: string) => void;
   setCliPath: (p: string) => void;
-  addCustomModel: (modelId: string) => void;
-  removeCustomModel: (modelId: string) => void;
+  addCustomModel: (modelId: string, source?: "claude" | "codex") => void;
+  removeCustomModel: (modelId: string, source?: "claude" | "codex") => void;
   addStreamLine: (line: string) => void;
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string) => void;
   setError: (e: string | null) => void;
   setProjectPath: (p: string) => void;
   setModel: (m: string) => void;
+  setSource: (s: "claude" | "codex") => void;
 }
 
 function generateUUID(): string {
@@ -291,11 +307,90 @@ function parseContentValue(content: any): ChatContentBlock[] {
   return results;
 }
 
+/**
+ * Parse a single line from `codex exec --json` stdout.
+ * Events: thread.started, item.completed (agent_message/reasoning/command_execution/file_change),
+ *         turn.completed, turn.failed
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseCodexStreamLine(line: string): { action: "session_id"; id: string } | { action: "add"; message: ChatMessage } | { action: "done"; usage?: any } | null {
+  let data: any;
+  try { data = JSON.parse(line); } catch { return null; }
+  if (!data || typeof data !== "object") return null;
+
+  const type: string = data.type;
+
+  // Session ID comes from thread.started
+  if (type === "thread.started" && data.thread_id) {
+    return { action: "session_id", id: data.thread_id };
+  }
+
+  // Completed items — agent messages and reasoning
+  if (type === "item.completed" && data.item) {
+    const item = data.item;
+    const itemType: string = item.type || "";
+
+    if (itemType === "agent_message" && item.text) {
+      return {
+        action: "add",
+        message: {
+          id: generateUUID(),
+          role: "assistant",
+          content: [{ type: "text", text: item.text }],
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    if (itemType === "reasoning" && item.text) {
+      return {
+        action: "add",
+        message: {
+          id: generateUUID(),
+          role: "assistant",
+          content: [{ type: "thinking", text: item.text }],
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+
+    if (itemType === "command_execution") {
+      const cmd = item.command || "";
+      const output = item.output || "";
+      return {
+        action: "add",
+        message: {
+          id: item.id || generateUUID(),
+          role: "assistant",
+          content: [
+            { type: "tool_use", id: item.id || "", name: "shell", input: cmd },
+            ...(output ? [{ type: "tool_result" as const, toolUseId: item.id || "", content: output, isError: item.exit_code !== 0 && item.exit_code != null }] : []),
+          ],
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+  }
+
+  // Turn completed — streaming done, report token usage
+  if (type === "turn.completed") {
+    return { action: "done", usage: data.usage };
+  }
+
+  // Turn failed — surface error
+  if (type === "turn.failed") {
+    return { action: "done", usage: undefined };
+  }
+
+  return null;
+}
+
 export const useChatStore = create<ChatState>((set, get) => ({
   isActive: false,
   sessionId: null,
   projectPath: "",
   model: localStorage.getItem("chat_lastUsedModel") || "",
+  source: "claude",
 
   messages: [],
   rawOutput: [],
@@ -311,6 +406,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
   cliConfig: null,
   cliConfigLoading: false,
   cliConfigError: null,
+  codexCliConfig: null,
+  codexCliConfigLoading: false,
+  codexCliConfigError: null,
+
+  claudeApiKeyOverride: localStorage.getItem("chat_claudeApiKey") || "",
+  claudeBaseUrlOverride: localStorage.getItem("chat_claudeBaseUrl") || "",
+  codexApiKeyOverride: localStorage.getItem("chat_codexApiKey") || "",
+  codexBaseUrlOverride: localStorage.getItem("chat_codexBaseUrl") || "",
 
   skipPermissions: localStorage.getItem("chat_skipPermissions") === "true",
   defaultModel: localStorage.getItem("chat_defaultModel") || "",
@@ -338,40 +441,48 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  fetchCodexCliConfig: async () => {
+    set({ codexCliConfigLoading: true, codexCliConfigError: null });
+    try {
+      const config = await api.getCliConfig("codex");
+      set({ codexCliConfig: config, codexCliConfigLoading: false });
+    } catch (e) {
+      set({
+        codexCliConfigLoading: false,
+        codexCliConfigError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+
   fetchModelList: async () => {
+    const { source, claudeApiKeyOverride, claudeBaseUrlOverride, codexApiKeyOverride, codexBaseUrlOverride } = get();
+    const apiKey = source === "codex" ? codexApiKeyOverride : claudeApiKeyOverride;
+    const baseUrl = source === "codex" ? codexBaseUrlOverride : claudeBaseUrlOverride;
     set({ modelListLoading: true, modelListError: null });
     try {
-      const models = await api.listModels("claude", "", "");
-      // Merge custom models (localStorage) that aren't already in the list
-      const customKey = "chat_customModels_claude";
+      const models = await api.listModels(source, apiKey, baseUrl);
+      const customKey = `chat_customModels_${source}`;
       const customIds: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
       const existingIds = new Set(models.map((m) => m.id));
+      const provider = source === "codex" ? "openai" : "anthropic";
       const customModels: ModelInfo[] = customIds
         .filter((id) => !existingIds.has(id))
-        .map((id) => ({
-          id,
-          name: id,
-          provider: "anthropic",
-          group: "自定义",
-          created: null,
-        }));
+        .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
       const allModels = [...customModels, ...models];
       set({ modelList: allModels, modelListLoading: false });
 
-      // Auto-select model if current model is empty or not in the fetched list
+      // Auto-select first model if current model is empty or not in this source's list
       const state = get();
       const modelIds = new Set(allModels.map((m) => m.id));
       if (!state.model || !modelIds.has(state.model)) {
-        // Helper: resolve a short name like "opus" to full ID "claude-opus-4-6"
         const resolve = (name: string): string => {
           if (!name) return "";
           if (modelIds.has(name)) return name;
           const lower = name.toLowerCase();
-          const match = allModels.find((m) => m.id.toLowerCase().includes(lower));
-          return match?.id || "";
+          return allModels.find((m) => m.id.toLowerCase().includes(lower))?.id || "";
         };
         const candidates = [
-          resolve(state.model),  // current model might be a short name
+          resolve(state.model),
           resolve(state.defaultModel),
           resolve(state.cliConfig?.defaultModel || ""),
         ].filter(Boolean);
@@ -411,7 +522,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       const sessionId = await api.startChat({
-        source: "claude",
+        source: get().source,
         projectPath,
         prompt,
         model,
@@ -451,7 +562,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       await api.continueChat({
-        source: "claude",
+        source: get().source,
         sessionId,
         projectPath,
         prompt,
@@ -505,41 +616,80 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ cliPath: p });
   },
 
-  addCustomModel: (modelId) => {
+  addCustomModel: (modelId, sourceOverride) => {
     const state = get();
-    const customKey = "chat_customModels_claude";
+    const src = sourceOverride ?? state.source;
+    const customKey = `chat_customModels_${src}`;
     const existing: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
     if (!existing.includes(modelId)) {
-      const updated = [...existing, modelId];
-      localStorage.setItem(customKey, JSON.stringify(updated));
+      localStorage.setItem(customKey, JSON.stringify([...existing, modelId]));
     }
-    // Add to current modelList if not present
-    if (!state.modelList.some((m) => m.id === modelId)) {
+    // Only update chatStore.modelList if this source matches the active source
+    if (src === state.source && !state.modelList.some((m) => m.id === modelId)) {
       set({
         modelList: [
-          {
-            id: modelId,
-            name: modelId,
-            provider: "anthropic",
-            group: "自定义",
-            created: null,
-          },
+          { id: modelId, name: modelId, provider: src === "codex" ? "openai" : "anthropic", group: "自定义", created: null },
           ...state.modelList,
         ],
       });
     }
   },
 
-  removeCustomModel: (modelId) => {
+  removeCustomModel: (modelId, sourceOverride) => {
     const state = get();
-    const customKey = "chat_customModels_claude";
+    const src = sourceOverride ?? state.source;
+    const customKey = `chat_customModels_${src}`;
     const existing: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
-    const updated = existing.filter((id) => id !== modelId);
-    localStorage.setItem(customKey, JSON.stringify(updated));
-    set({ modelList: state.modelList.filter((m) => m.id !== modelId) });
+    localStorage.setItem(customKey, JSON.stringify(existing.filter((id) => id !== modelId)));
+    // Only update chatStore.modelList if this source matches the active source
+    if (src === state.source) {
+      set({ modelList: state.modelList.filter((m) => m.id !== modelId) });
+    }
   },
 
   addStreamLine: (line: string) => {
+    const { source } = get();
+
+    if (source === "codex") {
+      const parsed = parseCodexStreamLine(line);
+      if (!parsed) {
+        set((state) => ({ rawOutput: [...state.rawOutput, line] }));
+        return;
+      }
+      if (parsed.action === "session_id") {
+        set({ sessionId: parsed.id });
+      } else if (parsed.action === "add") {
+        set((state) => ({ rawOutput: [...state.rawOutput, line], messages: [...state.messages, parsed.message] }));
+      } else if (parsed.action === "done") {
+        const usageInfo = parsed.usage;
+        if (usageInfo) {
+          const parts: string[] = [];
+          if (usageInfo.input_tokens) parts.push(`输入: ${usageInfo.input_tokens.toLocaleString()}`);
+          if (usageInfo.output_tokens) parts.push(`输出: ${usageInfo.output_tokens.toLocaleString()}`);
+          if (usageInfo.cached_input_tokens) parts.push(`缓存命中: ${usageInfo.cached_input_tokens.toLocaleString()}`);
+          if (parts.length > 0) {
+            set((state) => ({
+              isStreaming: false,
+              rawOutput: [...state.rawOutput, line],
+              messages: [
+                ...state.messages,
+                {
+                  id: generateUUID(),
+                  role: "system" as const,
+                  content: [{ type: "text" as const, text: `完成 [${parts.join(" · ")}]` }],
+                  timestamp: new Date().toISOString(),
+                },
+              ],
+            }));
+            return;
+          }
+        }
+        set((state) => ({ isStreaming: false, rawOutput: [...state.rawOutput, line] }));
+      }
+      return;
+    }
+
+    // Claude path
     const parsed = parseClaudeStreamLine(line);
 
     try {
@@ -551,7 +701,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // Result message means CLI is done — stop streaming
       if (data.type === "result") {
         const extras: Partial<ChatState> = { isStreaming: false };
-        // If it's an error result, show in error banner
         if (data.is_error || data.error) {
           extras.error = data.error || data.result || "Unknown error";
         }
@@ -570,7 +719,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       let newMessages = state.messages;
 
       if (parsed.action === "add") {
-        // Complete message: if same role as last, replace (final replaces streaming placeholder)
         const lastIdx = newMessages.length - 1;
         if (
           parsed.message.role === "assistant" &&
@@ -582,7 +730,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           newMessages = [...newMessages, parsed.message];
         }
       } else if (parsed.action === "block_start") {
-        // Add a new content block to the last assistant message
         const lastIdx = newMessages.length - 1;
         if (lastIdx >= 0 && newMessages[lastIdx].role === "assistant") {
           const lastMsg = newMessages[lastIdx];
@@ -597,7 +744,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
           newMessages = [...newMessages.slice(0, lastIdx), updated];
         }
       } else if (parsed.action === "delta") {
-        // Append text delta to the appropriate content block in the last assistant message
         const lastIdx = newMessages.length - 1;
         if (lastIdx >= 0 && newMessages[lastIdx].role === "assistant") {
           const lastMsg = newMessages[lastIdx];
@@ -623,6 +769,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
+  setClaudeApiKeyOverride: (v) => { localStorage.setItem("chat_claudeApiKey", v); set({ claudeApiKeyOverride: v }); },
+  setClaudeBaseUrlOverride: (v) => { localStorage.setItem("chat_claudeBaseUrl", v); set({ claudeBaseUrlOverride: v }); },
+  setCodexApiKeyOverride: (v) => { localStorage.setItem("chat_codexApiKey", v); set({ codexApiKeyOverride: v }); },
+  setCodexBaseUrlOverride: (v) => { localStorage.setItem("chat_codexBaseUrl", v); set({ codexBaseUrlOverride: v }); },
+
   setStreaming: (v) => set({ isStreaming: v }),
   setSessionId: (id) => set({ sessionId: id }),
   setError: (e) => set({ error: e }),
@@ -630,5 +781,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setModel: (m) => {
     localStorage.setItem("chat_lastUsedModel", m);
     set({ model: m });
+  },
+  setSource: (s) => {
+    if (get().source === s) return;
+    // Clear model list so fetchModelList loads the correct source's models
+    set({ source: s, modelList: [], model: "" });
   },
 }));

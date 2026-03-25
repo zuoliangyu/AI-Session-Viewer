@@ -4,15 +4,42 @@ use std::env;
 use std::path::PathBuf;
 
 /// CLI configuration info returned to the frontend (API key is masked).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CliConfig {
     pub source: String,
+    /// Final resolved API key (masked), used for actual requests.
     pub api_key_masked: String,
     pub has_api_key: bool,
+    /// Final resolved base URL.
     pub base_url: String,
     pub default_model: String,
+    /// Primary config file path (settings.json for Claude, config.toml for Codex).
     pub config_path: String,
+
+    // ── Codex-specific fields (empty for Claude) ──
+    /// Path to ~/.codex/auth.json (Codex only).
+    #[serde(default)]
+    pub auth_json_path: String,
+    /// API key found in auth.json (masked). Primary key source for Codex.
+    #[serde(default)]
+    pub auth_json_key_masked: String,
+    #[serde(default)]
+    pub auth_json_has_key: bool,
+    /// API key found in config.toml (masked), if present.
+    #[serde(default)]
+    pub config_toml_key_masked: String,
+    #[serde(default)]
+    pub config_toml_has_key: bool,
+    /// Base URL found in config.toml, if present.
+    #[serde(default)]
+    pub config_toml_url: String,
+    /// Where the final API key came from: "auth.json" | "config.toml" | "env" | "".
+    #[serde(default)]
+    pub api_key_source: String,
+    /// Where the final base URL came from: "config.toml" | "env" | "default".
+    #[serde(default)]
+    pub base_url_source: String,
 }
 
 // ── Internal deserialization structures ──
@@ -26,14 +53,44 @@ struct ClaudeSettings {
     model: Option<String>,
 }
 
+/// Codex's `~/.codex/config.toml`
+#[derive(Debug, Deserialize, Default)]
+struct CodexConfig {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    api_key: Option<String>,
+    #[serde(default)]
+    provider: Option<CodexProvider>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct CodexProvider {
+    #[serde(default)]
+    base_url: Option<String>,
+    #[serde(default)]
+    api_key: Option<String>,
+}
+
+/// Codex's `~/.codex/auth.json`
+#[derive(Debug, Deserialize, Default)]
+struct CodexAuth {
+    #[serde(rename = "OPENAI_API_KEY", default)]
+    openai_api_key: Option<String>,
+    #[serde(rename = "CODEX_API_KEY", default)]
+    codex_api_key: Option<String>,
+}
+
 // ── Public interface ──
 
-/// Read Claude CLI configuration and return a masked version for the frontend.
+/// Read CLI configuration for the given source and return a masked version.
 pub fn read_cli_config(source: &str) -> Result<CliConfig, String> {
-    // For chat features, always use Claude config regardless of source
-    let _ = source;
+    if source == "codex" {
+        return read_codex_cli_config();
+    }
     let (api_key, base_url, default_model, config_path) = read_claude_config()?;
-
     Ok(CliConfig {
         source: "claude".to_string(),
         api_key_masked: mask_key(&api_key),
@@ -41,21 +98,152 @@ pub fn read_cli_config(source: &str) -> Result<CliConfig, String> {
         base_url,
         default_model,
         config_path,
+        ..Default::default()
     })
 }
 
 /// Get real credentials for internal use (e.g. model_list, quick_chat).
-pub(crate) fn get_credentials(_source: &str) -> (String, String) {
-    match read_claude_config() {
-        Ok((api_key, base_url, _, _)) if !api_key.is_empty() => (api_key, base_url),
-        _ => (
-            String::new(),
-            "https://api.anthropic.com".to_string(),
-        ),
+pub(crate) fn get_credentials(source: &str) -> (String, String) {
+    if source == "codex" {
+        read_codex_credentials()
+    } else {
+        match read_claude_config() {
+            Ok((api_key, base_url, _, _)) if !api_key.is_empty() => (api_key, base_url),
+            _ => (String::new(), "https://api.anthropic.com".to_string()),
+        }
     }
 }
 
 // ── Internal helpers ──
+
+/// Read Codex config with full source attribution.
+fn read_codex_cli_config() -> Result<CliConfig, String> {
+    let home = dirs::home_dir().ok_or("Cannot determine home directory")?;
+    let codex_dir = home.join(".codex");
+    let toml_path = codex_dir.join("config.toml");
+    let auth_path = codex_dir.join("auth.json");
+
+    let toml_cfg: CodexConfig = std::fs::read_to_string(&toml_path)
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .unwrap_or_default();
+
+    let auth: CodexAuth = read_json_file(&auth_path).unwrap_or_default();
+
+    // ── Per-file key extraction ──
+    // config.toml key (direct field or under [provider])
+    let toml_key = toml_cfg.api_key.clone().filter(|s| !s.is_empty())
+        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+
+    // auth.json key: prefer CODEX_API_KEY, fall back to OPENAI_API_KEY
+    let auth_key = auth.codex_api_key.clone().filter(|s| !s.is_empty())
+        .or_else(|| auth.openai_api_key.clone().filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+
+    // ── Final API key: auth.json is primary (it's the dedicated key store),
+    //    config.toml key is secondary, env vars are last resort ──
+    let (api_key, api_key_source) = if !auth_key.is_empty() {
+        (auth_key.clone(), "auth.json".to_string())
+    } else if !toml_key.is_empty() {
+        (toml_key.clone(), "config.toml".to_string())
+    } else if let Some(k) = env::var("CODEX_API_KEY").ok().filter(|v| !v.is_empty()) {
+        (k, "env:CODEX_API_KEY".to_string())
+    } else if let Some(k) = env::var("OPENAI_API_KEY").ok().filter(|v| !v.is_empty()) {
+        (k, "env:OPENAI_API_KEY".to_string())
+    } else {
+        (String::new(), String::new())
+    };
+
+    // ── Base URL: config.toml is primary (it's the dedicated URL store) ──
+    let toml_url = toml_cfg.base_url.clone().filter(|s| !s.is_empty())
+        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+
+    let (base_url, base_url_source) = if !toml_url.is_empty() {
+        (toml_url.clone(), "config.toml".to_string())
+    } else if let Some(u) = env::var("OPENAI_BASE_URL").ok().filter(|v| !v.is_empty()) {
+        (u, "env:OPENAI_BASE_URL".to_string())
+    } else if let Some(u) = env::var("CODEX_BASE_URL").ok().filter(|v| !v.is_empty()) {
+        (u, "env:CODEX_BASE_URL".to_string())
+    } else {
+        ("https://api.openai.com".to_string(), "default".to_string())
+    };
+
+    let default_model = toml_cfg.model.unwrap_or_default();
+
+    Ok(CliConfig {
+        source: "codex".to_string(),
+        api_key_masked: mask_key(&api_key),
+        has_api_key: !api_key.is_empty(),
+        base_url,
+        default_model,
+        config_path: toml_path.display().to_string(),
+        auth_json_path: auth_path.display().to_string(),
+        auth_json_key_masked: mask_key(&auth_key),
+        auth_json_has_key: !auth_key.is_empty(),
+        config_toml_key_masked: mask_key(&toml_key),
+        config_toml_has_key: !toml_key.is_empty(),
+        config_toml_url: toml_url,
+        api_key_source,
+        base_url_source,
+    })
+}
+
+/// Returns raw (api_key, base_url) for Codex — for internal use only.
+pub(crate) fn read_codex_credentials() -> (String, String) {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return (String::new(), "https://api.openai.com".to_string()),
+    };
+    let codex_dir = home.join(".codex");
+
+    let auth: CodexAuth = read_json_file(&codex_dir.join("auth.json")).unwrap_or_default();
+    let toml_cfg: CodexConfig = std::fs::read_to_string(codex_dir.join("config.toml"))
+        .ok()
+        .and_then(|s| toml::from_str(&s).ok())
+        .unwrap_or_default();
+
+    // API key: auth.json first (primary), then config.toml, then env
+    let auth_key = auth.codex_api_key.filter(|s| !s.is_empty())
+        .or_else(|| auth.openai_api_key.filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+    let toml_key = toml_cfg.api_key.filter(|s| !s.is_empty())
+        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+    let api_key = if !auth_key.is_empty() {
+        auth_key
+    } else if !toml_key.is_empty() {
+        toml_key
+    } else {
+        env::var("CODEX_API_KEY").unwrap_or_default()
+            .pipe_if_empty(|| env::var("OPENAI_API_KEY").unwrap_or_default())
+    };
+
+    // Base URL: config.toml first, then env, then default
+    let toml_url = toml_cfg.base_url.filter(|s| !s.is_empty())
+        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+        .unwrap_or_default();
+    let base_url = if !toml_url.is_empty() {
+        toml_url
+    } else {
+        env::var("OPENAI_BASE_URL").unwrap_or_default()
+            .pipe_if_empty(|| env::var("CODEX_BASE_URL").unwrap_or_default())
+            .pipe_if_empty(|| "https://api.openai.com".to_string())
+    };
+
+    (api_key, base_url)
+}
+
+/// Helper: if `self` is empty, call `f` and return its result.
+trait PipeIfEmpty {
+    fn pipe_if_empty(self, f: impl FnOnce() -> String) -> String;
+}
+impl PipeIfEmpty for String {
+    fn pipe_if_empty(self, f: impl FnOnce() -> String) -> String {
+        if self.is_empty() { f() } else { self }
+    }
+}
 
 /// Returns (api_key, base_url, default_model, config_path).
 fn read_claude_config() -> Result<(String, String, String, String), String> {

@@ -61,6 +61,15 @@ export interface CliConfig {
   baseUrl: string;
   defaultModel: string;
   configPath: string;
+  // Codex-specific fields (empty for Claude)
+  authJsonPath: string;
+  authJsonKeyMasked: string;
+  authJsonHasKey: boolean;
+  configTomlKeyMasked: string;
+  configTomlHasKey: boolean;
+  configTomlUrl: string;
+  apiKeySource: string;
+  baseUrlSource: string;
 }
 
 export interface QuickChatMessage {

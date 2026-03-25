@@ -21,6 +21,7 @@ interface Props {
 export function ModelSelector({ open, onClose, onSelect }: Props) {
   const {
     model,
+    source,
     modelList,
     modelListLoading,
     modelListError,
@@ -87,11 +88,11 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
   // Get custom model IDs for delete detection
   const customModelIds = useMemo(() => {
     try {
-      return new Set<string>(JSON.parse(localStorage.getItem("chat_customModels_claude") || "[]"));
+      return new Set<string>(JSON.parse(localStorage.getItem(`chat_customModels_${source}`) || "[]"));
     } catch {
       return new Set<string>();
     }
-  }, [modelList]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [modelList, source]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset highlight when search changes
   useEffect(() => {
@@ -173,7 +174,7 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="搜索或输入模型 ID (如 opus, claude-sonnet-4-6)"
+            placeholder={`搜索或输入模型 ID${modelList.length > 0 ? ` (如 ${modelList.slice(0, 2).map(m => m.id).join(", ")})` : ""}`}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           <button

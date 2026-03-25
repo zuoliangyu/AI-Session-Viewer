@@ -63,6 +63,8 @@ export function MessagesPage() {
     skipPermissions,
     setProjectPath: setChatProjectPath,
     setModel: setChatModel,
+    setSource: setChatSource,
+    fetchModelList: fetchChatModelList,
     model: chatModel,
   } = useChatStore();
 
@@ -73,12 +75,18 @@ export function MessagesPage() {
   const project = projects.find((p) => p.id === projectId);
 
   const chatProjectPath = session?.projectPath || session?.cwd || project?.displayPath || "";
-  const cliAvailable = availableClis.some((c) => c.cliType === "claude");
+  const cliAvailable = availableClis.some((c) => c.cliType === source);
 
   // Detect CLI and set chat context on mount
   useEffect(() => {
     detectCli();
   }, [detectCli]);
+
+  // Sync source from appStore into chatStore, then refresh model list
+  useEffect(() => {
+    setChatSource(source);
+    fetchChatModelList();
+  }, [source, setChatSource, fetchChatModelList]);
 
   // Extract the model used in this historical session
   const sessionModel = useMemo(() => {

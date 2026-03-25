@@ -176,23 +176,38 @@ fn build_chat_command(
 ) -> Result<Command, String> {
     let mut cmd = Command::new(cli_path);
 
-    // Build Claude CLI arguments
-    let _ = source; // always claude
-    if let Some(sid) = resume_session_id {
-        cmd.arg("--resume").arg(sid);
-    }
-    cmd.arg("-p").arg(prompt);
-    if !model.is_empty() {
-        // Strip "-latest" suffix — Claude CLI expects full names like
-        // "claude-sonnet-4-6", not API-style "claude-sonnet-4-6-latest"
-        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-        cmd.arg("--model").arg(cli_model);
-    }
-    cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--include-partial-messages");
-    cmd.arg("--verbose");
-    if skip_permissions {
-        cmd.arg("--dangerously-skip-permissions");
+    if source == "codex" {
+        // codex exec [resume <session_id>] "prompt" --json --full-auto [--model m] [--skip-git-repo-check]
+        cmd.arg("exec");
+        if let Some(sid) = resume_session_id {
+            cmd.arg("resume").arg(sid);
+        }
+        cmd.arg(prompt);
+        cmd.arg("--json");
+        cmd.arg("--full-auto");
+        if !model.is_empty() {
+            cmd.arg("--model").arg(model);
+        }
+        // Codex requires a git repo; skip the check so it works in any directory
+        cmd.arg("--skip-git-repo-check");
+    } else {
+        // Claude CLI arguments
+        if let Some(sid) = resume_session_id {
+            cmd.arg("--resume").arg(sid);
+        }
+        cmd.arg("-p").arg(prompt);
+        if !model.is_empty() {
+            // Strip "-latest" suffix — Claude CLI expects full names like
+            // "claude-sonnet-4-6", not API-style "claude-sonnet-4-6-latest"
+            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+            cmd.arg("--model").arg(cli_model);
+        }
+        cmd.arg("--output-format").arg("stream-json");
+        cmd.arg("--include-partial-messages");
+        cmd.arg("--verbose");
+        if skip_permissions {
+            cmd.arg("--dangerously-skip-permissions");
+        }
     }
 
     eprintln!("[chat] source={}, model={}, project={}", source, model, project_path);

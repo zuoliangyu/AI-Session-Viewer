@@ -24,7 +24,7 @@ struct AnthropicModel {
     created_at: Option<String>,
 }
 
-/// Infer a human-friendly group name from a model ID.
+/// Infer a human-friendly group name from a Claude model ID.
 fn infer_group(id: &str) -> String {
     let lower = id.to_lowercase();
     if lower.contains("opus") {
@@ -39,32 +39,65 @@ fn infer_group(id: &str) -> String {
     "Other".to_string()
 }
 
-/// Built-in Claude models — mirrors Claude CLI `/model` output.
-fn builtin_claude_models() -> Vec<ModelInfo> {
-    vec![
-        ModelInfo {
-            id: "claude-sonnet-4-6".to_string(),
-            name: "Sonnet 4.6 (默认推荐)".to_string(),
-            provider: "anthropic".to_string(),
-            group: "Claude Sonnet".to_string(),
-            created: None,
-        },
-        ModelInfo {
-            id: "claude-opus-4-6".to_string(),
-            name: "Opus 4.6".to_string(),
-            provider: "anthropic".to_string(),
-            group: "Claude Opus".to_string(),
-            created: None,
-        },
-        ModelInfo {
-            id: "claude-haiku-4-5".to_string(),
-            name: "Haiku 4.5".to_string(),
-            provider: "anthropic".to_string(),
-            group: "Claude Haiku".to_string(),
-            created: None,
-        },
-    ]
+/// Infer a human-friendly group name from an OpenAI model ID.
+fn infer_openai_group(id: &str) -> String {
+    let lower = id.to_lowercase();
+    if lower.starts_with("codex") {
+        return "Codex".to_string();
+    }
+    if lower.starts_with("o4") {
+        return "OpenAI o4".to_string();
+    }
+    if lower.starts_with("o3") {
+        return "OpenAI o3".to_string();
+    }
+    if lower.starts_with("o1") {
+        return "OpenAI o1".to_string();
+    }
+    if lower.starts_with("gpt-4") {
+        return "GPT-4".to_string();
+    }
+    if lower.starts_with("gpt-3") {
+        return "GPT-3".to_string();
+    }
+    "OpenAI".to_string()
 }
+
+
+/// Resolve Codex API key: CODEX_API_KEY → OPENAI_API_KEY → shell rc files.
+fn get_codex_api_key() -> String {
+    if let Ok(k) = std::env::var("CODEX_API_KEY") {
+        if !k.is_empty() { return k; }
+    }
+    if let Ok(k) = std::env::var("OPENAI_API_KEY") {
+        if !k.is_empty() { return k; }
+    }
+    // Try shell rc files (Unix only)
+    #[cfg(unix)]
+    if let Some(home) = dirs::home_dir() {
+        use std::collections::HashMap;
+        let mut map: HashMap<String, String> = HashMap::new();
+        for name in &[".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile"] {
+            if let Ok(content) = std::fs::read_to_string(home.join(name)) {
+                for line in content.lines() {
+                    let t = line.trim();
+                    let assign = t.strip_prefix("export ").unwrap_or(t);
+                    if let Some(eq) = assign.find('=') {
+                        let key = assign[..eq].trim();
+                        if key == "CODEX_API_KEY" || key == "OPENAI_API_KEY" {
+                            let val = assign[eq + 1..].trim().trim_matches('"').trim_matches('\'').to_string();
+                            map.entry(key.to_string()).or_insert(val);
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(k) = map.get("CODEX_API_KEY") { if !k.is_empty() { return k.clone(); } }
+        if let Some(k) = map.get("OPENAI_API_KEY") { if !k.is_empty() { return k.clone(); } }
+    }
+    String::new()
+}
+
 
 async fn fetch_anthropic_models(api_key: &str, base_url: &str) -> Result<Vec<ModelInfo>, String> {
     let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
@@ -119,29 +152,101 @@ async fn fetch_anthropic_models(api_key: &str, base_url: &str) -> Result<Vec<Mod
     Ok(models)
 }
 
-/// Merge: built-in models first, then append any API-only extras (deduped).
-fn merge_models(builtin: Vec<ModelInfo>, api_models: Vec<ModelInfo>) -> Vec<ModelInfo> {
-    use std::collections::HashSet;
-    let builtin_ids: HashSet<String> = builtin.iter().map(|m| m.id.clone()).collect();
-    let mut result = builtin;
-    for m in api_models {
-        if !builtin_ids.contains(&m.id) {
-            result.push(m);
-        }
+/// Fetch available models from OpenAI /v1/models and filter to relevant ones.
+async fn fetch_openai_models(api_key: &str, base_url: &str) -> Result<Vec<ModelInfo>, String> {
+    #[derive(Debug, Deserialize)]
+    struct OpenAIModelsResponse {
+        data: Vec<OpenAIModel>,
     }
-    result
+    #[derive(Debug, Deserialize)]
+    struct OpenAIModel {
+        id: String,
+        created: Option<i64>,
+    }
+
+    let effective_base = if base_url.is_empty() { "https://api.openai.com" } else { base_url };
+    let url = format!("{}/v1/models", effective_base.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .await
+        .map_err(|e| format!("OpenAI API request failed: {}", e))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("OpenAI API error {}: {}", status, text));
+    }
+
+    let body: OpenAIModelsResponse = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse OpenAI models response: {}", e))?;
+
+    let mut models: Vec<ModelInfo> = body
+        .data
+        .into_iter()
+        .map(|m| {
+            let group = infer_openai_group(&m.id);
+            let name = m.id
+                .split('-')
+                .map(|s| {
+                    let mut c = s.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("-");
+            ModelInfo {
+                id: m.id,
+                name,
+                provider: "openai".to_string(),
+                group,
+                created: m.created,
+            }
+        })
+        .collect();
+
+    // Sort: codex first (by group priority), then by created desc within group
+    models.sort_by(|a, b| {
+        let priority = |g: &str| match g {
+            "Codex" => 0,
+            "OpenAI o4" => 1,
+            "OpenAI o3" => 2,
+            "OpenAI o1" => 3,
+            "GPT-4" => 4,
+            _ => 5,
+        };
+        priority(&a.group)
+            .cmp(&priority(&b.group))
+            .then(b.created.cmp(&a.created))
+    });
+
+    Ok(models)
 }
 
-/// List available Claude models.
+
+/// List available models.
 ///
-/// - `_source`: ignored (always uses Claude)
-/// - `api_key`: user-provided key (empty string = use CLI config / env var)
-/// - `base_url`: base URL for the API (empty string = use CLI config / env var / default)
+/// - `source`: "claude" or "codex"
+/// - `api_key`: user-provided key (empty = auto-detect from config/env)
+/// - `base_url`: base URL (empty = default for the given source)
 pub async fn list_models(
-    _source: &str,
+    source: &str,
     api_key: &str,
     base_url: &str,
 ) -> Result<Vec<ModelInfo>, String> {
+    if source == "codex" {
+        let key = if api_key.is_empty() { get_codex_api_key() } else { api_key.to_string() };
+        if key.is_empty() {
+            return Ok(vec![]);
+        }
+        return fetch_openai_models(&key, base_url).await;
+    }
     let (resolved_key, resolved_url) = if api_key.is_empty() && base_url.is_empty() {
         let (cli_key, cli_url) = cli_config::get_credentials("claude");
         let final_key = if cli_key.is_empty() {
@@ -165,18 +270,9 @@ pub async fn list_models(
         (key, url)
     };
 
-    let builtin = builtin_claude_models();
     if resolved_key.is_empty() {
-        return Ok(builtin);
+        return Ok(vec![]);
     }
 
-    let api_models = match fetch_anthropic_models(&resolved_key, &resolved_url).await {
-        Ok(models) => models,
-        Err(e) => {
-            eprintln!("Warning: failed to fetch Anthropic models: {}", e);
-            vec![]
-        }
-    };
-
-    Ok(merge_models(builtin, api_models))
+    fetch_anthropic_models(&resolved_key, &resolved_url).await
 }

@@ -10,23 +10,23 @@ pub struct CliInstallation {
     pub cli_type: String, // "claude"
 }
 
-/// Find the Claude CLI binary path.
-pub fn find_cli(_cli_type: &str) -> Result<String, String> {
-    // Try system lookup first (which/where)
-    // On Windows, search without extension so `where` uses PATHEXT
-    // to find .exe, .cmd, .bat etc.
+/// Find a CLI binary path by source name ("claude" or "codex").
+pub fn find_cli(cli_type: &str) -> Result<String, String> {
+    if cli_type == "codex" {
+        return find_codex()
+            .ok_or_else(|| "Codex CLI not found. Run: npm install -g @openai/codex".to_string());
+    }
+
+    // Claude: try system lookup first, then known paths
     if let Some(path) = which_binary("claude") {
         return Ok(path);
     }
-
-    // Try known paths
     for candidate in claude_known_paths() {
         if candidate.exists() {
             return Ok(candidate.to_string_lossy().to_string());
         }
     }
-
-    Err("Claude CLI not found. Please install it first.".to_string())
+    Err("Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code".to_string())
 }
 
 /// Find the Codex CLI binary path (npm/nvm only).

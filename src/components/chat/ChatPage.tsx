@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatStore } from "../../stores/chatStore";
+import { useAppStore } from "../../stores/appStore";
 import { useChatStream } from "../../hooks/useChatStream";
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
@@ -40,12 +41,20 @@ export function ChatPage() {
     cancelChat,
     setProjectPath,
     setModel,
+    setSource,
   } = useChatStore();
+
+  const appSource = useAppStore((s) => s.source);
+  const cliLabel = appSource === "codex" ? "Codex" : "Claude";
+
+  // Sync source from appStore into chatStore
+  useEffect(() => { setSource(appSource); }, [appSource, setSource]);
 
   // Detect CLI on mount + fetch config & model list
   useEffect(() => { detectCli(); }, [detectCli]);
-  useEffect(() => { fetchCliConfig(); }, [fetchCliConfig]);
-  useEffect(() => { fetchModelList(); }, [fetchModelList]);
+  useEffect(() => { if (appSource === "claude") fetchCliConfig(); }, [appSource, fetchCliConfig]);
+  // Re-fetch model list whenever source changes (setSource clears modelList first)
+  useEffect(() => { fetchModelList(); }, [appSource, fetchModelList]);
 
   // Listen for stream events
   useChatStream();
@@ -59,7 +68,7 @@ export function ChatPage() {
     }
   }, [projectPath, sessionId, urlSessionId, model, continueExistingChat, startNewChat]);
 
-  const cliAvailable = availableClis.some((c) => c.cliType === "claude");
+  const cliAvailable = availableClis.some((c) => c.cliType === appSource);
 
   // Build tool linking maps
   const { toolResultMap, linkedToolUseIds } = useMemo(() => {
@@ -120,6 +129,7 @@ export function ChatPage() {
             projectPath={projectPath}
             onProjectPathChange={setProjectPath}
             cliAvailable={cliAvailable}
+            cliLabel={cliLabel}
           />
         ) : useVirtual ? (
           <VirtualizedTurns
@@ -308,10 +318,12 @@ function EmptyState({
   projectPath,
   onProjectPathChange,
   cliAvailable,
+  cliLabel,
 }: {
   projectPath: string;
   onProjectPathChange: (p: string) => void;
   cliAvailable: boolean;
+  cliLabel: string;
 }) {
   return (
     <div className="flex items-center justify-center h-full">
@@ -320,24 +332,24 @@ function EmptyState({
           <MessageSquarePlus className="w-10 h-10 mx-auto text-muted-foreground" />
           <h2 className="text-lg font-semibold">新建对话</h2>
           <p className="text-sm text-muted-foreground">
-            选择工作目录，开始与 Claude 对话
+            选择工作目录，开始与 {cliLabel} 对话
           </p>
         </div>
 
         <div>
           <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-            Claude CLI
+            {cliLabel} CLI
           </label>
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
             <Bot className="w-4 h-4 text-orange-500" />
-            <span className="text-sm font-medium">Claude</span>
+            <span className="text-sm font-medium">{cliLabel}</span>
             <span className={`ml-auto text-xs ${cliAvailable ? "text-green-500" : "text-red-400"}`}>
               {cliAvailable ? "已安装" : "未检测到"}
             </span>
           </div>
           {!cliAvailable && (
             <p className="mt-1.5 text-xs text-red-400">
-              未检测到 Claude CLI。请先安装后再试。
+              未检测到 {cliLabel} CLI。请先安装后再试。
             </p>
           )}
         </div>
