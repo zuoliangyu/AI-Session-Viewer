@@ -15,9 +15,11 @@ pub fn run() {
         .manage(ChatProcessState::new())
         .invoke_handler(tauri::generate_handler![
             commands::projects::get_projects,
+            commands::projects::refresh_projects_cache,
             commands::projects::delete_project,
             commands::projects::set_project_alias,
             commands::sessions::get_sessions,
+            commands::sessions::refresh_sessions_cache,
             commands::sessions::delete_session,
             commands::sessions::update_session_meta,
             commands::sessions::get_all_tags,

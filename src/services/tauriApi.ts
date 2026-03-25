@@ -16,11 +16,22 @@ export async function getProjects(source: string): Promise<ProjectEntry[]> {
   return invoke<ProjectEntry[]>("get_projects", { source });
 }
 
+export async function refreshProjectsCache(source: string): Promise<ProjectEntry[]> {
+  return invoke<ProjectEntry[]>("refresh_projects_cache", { source });
+}
+
 export async function getSessions(
   source: string,
   projectId: string
 ): Promise<SessionIndexEntry[]> {
   return invoke<SessionIndexEntry[]>("get_sessions", { source, projectId });
+}
+
+export async function refreshSessionsCache(
+  source: string,
+  projectId: string
+): Promise<SessionIndexEntry[]> {
+  return invoke<SessionIndexEntry[]>("refresh_sessions_cache", { source, projectId });
 }
 
 export async function getMessages(

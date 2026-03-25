@@ -6,6 +6,7 @@ import { api } from "../../services/api";
 import type { ModelInfo } from "../../types/chat";
 import { useTheme } from "../../hooks/useTheme";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
+import { useBackgroundRefresh } from "../../hooks/useBackgroundRefresh";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { UpdateIndicator } from "./UpdateIndicator";
 import { ProjectActionsMenu } from "../project/ProjectActionsMenu";
@@ -62,6 +63,7 @@ export function Sidebar() {
   const [renameLoading, setRenameLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ProjectEntry | null>(null);
   useUpdateChecker();
+  useBackgroundRefresh();
   useFileWatcher();
 
   useEffect(() => {

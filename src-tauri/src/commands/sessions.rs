@@ -34,6 +34,36 @@ pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionInd
 }
 
 #[tauri::command]
+pub fn refresh_sessions_cache(
+    source: String,
+    project_id: String,
+) -> Result<Vec<SessionIndexEntry>, String> {
+    let mut sessions = match source.as_str() {
+        "claude" => claude::refresh_sessions_cache(&project_id)?,
+        "codex" => codex::refresh_sessions_cache(&project_id)?,
+        _ => return Err(format!("Unknown source: {}", source)),
+    };
+
+    let meta = metadata::load_metadata(&source, &project_id);
+    for session in &mut sessions {
+        if let Some(sm) = meta.sessions.get(&session.session_id) {
+            if source == "claude" {
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            } else {
+                session.alias = sm.alias.clone();
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            }
+        }
+    }
+
+    Ok(sessions)
+}
+
+#[tauri::command]
 pub fn delete_session(
     file_path: String,
     source: String,
@@ -58,6 +88,11 @@ pub fn delete_session(
 
     // Clean up metadata
     let _ = metadata::remove_session_meta(&source, &project_id, &session_id);
+    if source == "claude" {
+        claude::invalidate_cache();
+    } else if source == "codex" {
+        codex::invalidate_sessions_cache();
+    }
 
     Ok(())
 }
@@ -84,9 +119,13 @@ pub fn update_session_meta(
             }
         }
         // Only persist tags to metadata (alias is now in JSONL for Claude)
-        metadata::update_session_meta(&source, &project_id, &session_id, None, tags)
+        let result = metadata::update_session_meta(&source, &project_id, &session_id, None, tags);
+        claude::invalidate_cache();
+        result
     } else {
-        metadata::update_session_meta(&source, &project_id, &session_id, alias, tags)
+        let result = metadata::update_session_meta(&source, &project_id, &session_id, alias, tags);
+        codex::invalidate_sessions_cache();
+        result
     }
 }
 

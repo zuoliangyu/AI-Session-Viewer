@@ -82,7 +82,7 @@ interface AppState {
   loadStats: () => Promise<void>;
   clearSelection: () => void;
   /** Silently refresh projects and current session list without loading states */
-  refreshInBackground: () => Promise<void>;
+  refreshInBackground: (forceReload?: boolean) => Promise<void>;
   updateSessionMeta: (
     sessionId: string,
     alias: string | null,
@@ -110,13 +110,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       source: s,
       projects: [],
+      projectsLoading: false,
       sessions: [],
+      sessionsLoading: false,
       messages: [],
+      messagesLoading: false,
       selectedProject: null,
       selectedFilePath: null,
       searchResults: [],
       searchQuery: "",
+      searchLoading: false,
       tokenSummary: null,
+      statsLoading: false,
       statsIsFirstBuild: null,
       allTags: [],
       tagFilter: [],
@@ -179,17 +184,22 @@ export const useAppStore = create<AppState>((set, get) => ({
   recyclebinLoading: false,
 
   loadProjects: async () => {
+    const requestSource = get().source;
     set({ projectsLoading: true });
     try {
-      const projects = await api.getProjects(get().source);
+      const projects = await api.getProjects(requestSource);
+      if (get().source !== requestSource) return;
       set({ projects, projectsLoading: false });
     } catch (e) {
       console.error("Failed to load projects:", e);
-      set({ projectsLoading: false });
+      if (get().source === requestSource) {
+        set({ projectsLoading: false });
+      }
     }
   },
 
   selectProject: async (projectId: string) => {
+    const requestSource = get().source;
     set({
       selectedProject: projectId,
       sessions: [],
@@ -201,9 +211,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       tagFilter: [],
     });
     try {
-      const sessions = await api.getSessions(get().source, projectId);
+      const sessions = await api.getSessions(requestSource, projectId);
       // Stale check: ignore result if user already navigated to another project
-      if (get().selectedProject !== projectId) return;
+      if (
+        get().source !== requestSource ||
+        get().selectedProject !== projectId
+      ) {
+        return;
+      }
       set((state) => ({
         sessions,
         sessionsLoading: false,
@@ -217,13 +232,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     } catch (e) {
       console.error("Failed to load sessions:", e);
-      if (get().selectedProject === projectId) {
+      if (
+        get().source === requestSource &&
+        get().selectedProject === projectId
+      ) {
         set({ sessions: [], sessionsLoading: false });
       }
     }
   },
 
   selectSession: async (filePath: string) => {
+    const requestSource = get().source;
     set({
       selectedFilePath: filePath,
       messagesLoading: true,
@@ -232,8 +251,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       messagesPage: 0,
     });
     try {
-      const result = await api.getMessages(get().source, filePath, 0, 50, true);
-      if (get().selectedFilePath !== filePath) return;
+      const result = await api.getMessages(requestSource, filePath, 0, 50, true);
+      if (
+        get().source !== requestSource ||
+        get().selectedFilePath !== filePath
+      ) {
+        return;
+      }
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -243,7 +267,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("Failed to load messages:", e);
-      if (get().selectedFilePath === filePath) {
+      if (
+        get().source === requestSource &&
+        get().selectedFilePath === filePath
+      ) {
         set({ messagesLoading: false });
       }
     }
@@ -361,15 +388,28 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  refreshInBackground: async () => {
+  refreshInBackground: async (forceReload = false) => {
     const { source, selectedProject } = get();
     try {
-      const projects = await api.getProjects(source);
+      const loadProjects = forceReload
+        ? api.refreshProjectsCache
+        : api.getProjects;
+      const loadSessions = forceReload
+        ? api.refreshSessionsCache
+        : api.getSessions;
+      const projects = await loadProjects(source);
+      if (get().source !== source) return;
 
       if (selectedProject) {
         // Fetch sessions first, then update projects + sessions atomically
         // to avoid sessionCount flashing between raw file count and filtered count
-        const sessions = await api.getSessions(source, selectedProject);
+        const sessions = await loadSessions(source, selectedProject);
+        if (
+          get().source !== source ||
+          get().selectedProject !== selectedProject
+        ) {
+          return;
+        }
         set({
           sessions,
           projects: projects.map((p) =>
@@ -390,6 +430,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (selectedFilePath && messagesPage === 0) {
       try {
         const result = await api.getMessages(currentSource, selectedFilePath, 0, 50, true);
+        if (
+          get().source !== currentSource ||
+          get().selectedFilePath !== selectedFilePath ||
+          get().messagesPage !== 0
+        ) {
+          return;
+        }
         set({
           messages: result.messages,
           messagesTotal: result.total,

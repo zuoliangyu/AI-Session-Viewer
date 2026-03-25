@@ -56,7 +56,7 @@ export function SessionsPage() {
     if (projectId) {
       selectProject(projectId);
     }
-  }, [projectId]);
+  }, [projectId, source]);
 
   const handleDelete = async () => {
     if (!deleteTarget) return;

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,101 @@ pub struct DeleteResult {
 #[serde(rename_all = "camelCase")]
 struct ProjectMeta {
     alias: Option<String>,
+}
+
+const CACHE_VERSION: u32 = 2;
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct ClaudeCacheFile {
+    version: u32,
+    #[serde(default)]
+    projects: Option<CachedProjects>,
+    #[serde(default)]
+    sessions_by_project: HashMap<String, CachedSessions>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct CachedProjects {
+    entries: Vec<ProjectEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct CachedSessions {
+    entries: Vec<SessionIndexEntry>,
+}
+
+fn cache_path() -> Option<PathBuf> {
+    let dir = dirs::config_dir()?.join("ai-session-viewer");
+    let _ = fs::create_dir_all(&dir);
+    Some(dir.join("claude-list-cache.json"))
+}
+
+fn load_cache() -> ClaudeCacheFile {
+    let path = match cache_path() {
+        Some(path) => path,
+        None => return ClaudeCacheFile::default(),
+    };
+
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return ClaudeCacheFile::default(),
+    };
+
+    let cache: ClaudeCacheFile = match serde_json::from_str(&content) {
+        Ok(cache) => cache,
+        Err(_) => return ClaudeCacheFile::default(),
+    };
+
+    if cache.version != CACHE_VERSION {
+        return ClaudeCacheFile::default();
+    }
+
+    cache
+}
+
+fn save_cache(cache: &ClaudeCacheFile) {
+    if let Some(path) = cache_path() {
+        if let Ok(json) = serde_json::to_string(cache) {
+            let _ = fs::write(path, json);
+        }
+    }
+}
+
+fn store_projects_cache(entries: &[ProjectEntry]) {
+    let mut cache = load_cache();
+    cache.version = CACHE_VERSION;
+    cache.projects = Some(CachedProjects {
+        entries: entries.to_vec(),
+    });
+    save_cache(&cache);
+}
+
+fn cached_sessions(project_id: &str) -> Option<Vec<SessionIndexEntry>> {
+    load_cache()
+        .sessions_by_project
+        .get(project_id)
+        .map(|sessions| sessions.entries.clone())
+}
+
+fn store_sessions_cache(project_id: &str, entries: &[SessionIndexEntry]) {
+    let mut cache = load_cache();
+    cache.version = CACHE_VERSION;
+    cache.sessions_by_project.insert(
+        project_id.to_string(),
+        CachedSessions {
+            entries: entries.to_vec(),
+        },
+    );
+    save_cache(&cache);
+}
+
+pub fn invalidate_cache() {
+    if let Some(path) = cache_path() {
+        let _ = fs::remove_file(path);
+    }
 }
 
 /// 读取项目别名。文件不存在或 alias 字段缺失时返回 Ok(None)，不报错。
@@ -124,19 +220,19 @@ pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), 
             .map_err(|e| format!("Failed to write project meta: {}", e))?;
     }
 
+    invalidate_cache();
     Ok(())
 }
 
-/// Get all Claude projects
-pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
-    let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
-
+fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, String> {
     if !projects_dir.exists() {
         return Ok(Vec::new());
     }
 
+    let cache = std::sync::Arc::new(load_cache());
+
     // Collect all project directory entries first (fast, sequential)
-    let dir_entries: Vec<PathBuf> = fs::read_dir(&projects_dir)
+    let dir_entries: Vec<PathBuf> = fs::read_dir(projects_dir)
         .map_err(|e| format!("Failed to read projects dir: {}", e))?
         .flatten()
         .map(|e| e.path())
@@ -171,10 +267,16 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 });
             let short_name = short_name_from_path(&display_path);
 
-            let session_count = count_jsonl_files(&path);
-            if session_count == 0 {
+            let fast_count = count_jsonl_files_fast(&path);
+            if fast_count == 0 {
                 return None;
             }
+
+            let session_count = cache
+                .sessions_by_project
+                .get(&encoded_name)
+                .map(|cached| cached.entries.len())
+                .unwrap_or(fast_count);
 
             let last_modified = fs::metadata(&path)
                 .and_then(|m| m.modified())
@@ -205,8 +307,20 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
     Ok(projects)
 }
 
+pub fn refresh_projects_cache() -> Result<Vec<ProjectEntry>, String> {
+    let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
+    let projects = scan_projects_from_disk(&projects_dir)?;
+    store_projects_cache(&projects);
+    Ok(projects)
+}
+
+/// Get all Claude projects
+pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
+    refresh_projects_cache()
+}
+
 /// Get sessions for a Claude project
-pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String> {
+pub fn refresh_sessions_cache(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String> {
     let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
     let project_dir = projects_dir.join(encoded_name);
 
@@ -221,7 +335,17 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
     enrich_with_index(&project_dir, &mut valid_sessions);
 
     valid_sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    store_sessions_cache(encoded_name, &valid_sessions);
     Ok(valid_sessions)
+}
+
+/// Get sessions for a Claude project
+pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String> {
+    if let Some(sessions) = cached_sessions(encoded_name) {
+        return Ok(sessions);
+    }
+
+    refresh_sessions_cache(encoded_name)
 }
 
 
@@ -470,7 +594,7 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
     };
 
     // 统计 session 文件数（回收站将使用此计数）
-    let sessions_deleted = count_jsonl_files(&canonical_dir);
+    let sessions_deleted = count_valid_jsonl_files(&canonical_dir);
 
     // 将顶层 .jsonl 文件逐个移入回收站
     let project_name = {
@@ -524,6 +648,8 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
         bookmarks_removed = clean_bookmarks_for_project(project_id);
     }
     // Level 3 (WithHistory) 的 history.jsonl 清理逻辑预留此处，本次不实现具体功能。
+
+    invalidate_cache();
 
     Ok(DeleteResult {
         sessions_deleted,
@@ -700,9 +826,26 @@ pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
     Ok(moved)
 }
 
-/// Count .jsonl files at the TOP LEVEL of dir that contain at least one user/assistant message.
+/// Fast project-list count: count top-level `.jsonl` files only.
+/// Does not inspect file contents, so it may differ from the filtered session list.
+fn count_jsonl_files_fast(dir: &Path) -> usize {
+    fs::read_dir(dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    let p = e.path();
+                    p.is_file()
+                        && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Count valid session files at the TOP LEVEL of dir.
 /// Does NOT descend into subdirectories.
-fn count_jsonl_files(dir: &Path) -> usize {
+/// A valid session must be non-empty, contain messages, and not be corrupt.
+fn count_valid_jsonl_files(dir: &Path) -> usize {
     fs::read_dir(dir)
         .map(|rd| {
             rd.flatten()
@@ -711,27 +854,11 @@ fn count_jsonl_files(dir: &Path) -> usize {
                     p.is_file()
                         && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
                         && e.metadata().map(|m| m.len() > 0).unwrap_or(false)
-                        && has_message_lines(&p)
+                        && claude_parser::scan_session_file_once(&p)
+                            .map(|scan| scan.has_messages && !scan.is_corrupt)
+                            .unwrap_or(false)
                 })
                 .count()
         })
         .unwrap_or(0)
-}
-
-/// Fast check: does the file contain at least one user or assistant message line?
-/// Uses string matching (no full JSON parse) for performance.
-fn has_message_lines(path: &Path) -> bool {
-    use std::io::{BufRead, BufReader};
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return false,
-    };
-    let reader = BufReader::new(file);
-    for line in reader.lines().map_while(Result::ok) {
-        let t = line.trim().to_string();
-        if t.contains("\"type\":\"user\"") || t.contains("\"type\":\"assistant\"") {
-            return true;
-        }
-    }
-    false
 }

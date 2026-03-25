@@ -19,7 +19,7 @@ export function useFileWatcher() {
   const handleChange = useCallback(() => {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      refreshInBackground();
+      refreshInBackground(true);
     }, 1000);
   }, [refreshInBackground]);
 

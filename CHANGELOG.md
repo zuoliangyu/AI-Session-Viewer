@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.2] - 2026-03-26
+
+### Changed
+
+- **项目列表加载策略重构**：Claude 和 Codex 启动时改为快速扫描工程目录，项目列表优先显示“上次进入工程后精确扫描得到的缓存会话数”，没有缓存时才回退到快速计数；不再在启动阶段对所有工程执行全盘精确扫描
+- **工程详情按需精确扫描**：仅在用户点进某个工程时，才对该工程执行精确会话扫描，并将结果持久化到本地缓存，供下次启动直接复用
+- **后台静默刷新**：桌面端对当前数据源新增 10 分钟一次的后台缓存刷新；文件系统监听到相关变更时也会失效缓存并强制刷新，尽量保证列表数据“秒开但不过时”
+
+### Fixed
+
+- **修复 Claude/Codex 源切换后会话页卡在“加载中”**：切换数据源时现在会同步重置 loading 状态，并为项目/会话/消息请求增加 source 级 stale check，旧请求返回后不再把新页面状态卡死
+- **启动更新提示改为确认式交互**：桌面端启动后约 1.5 秒自动检查更新，检测到新版本时直接弹出确认框；安装版可立即更新并重启，便携版可直接跳转下载页
+
+### Documentation
+
+- 更新 README 中关于项目扫描、会话加载、后台刷新和应用内更新的行为说明
+
+---
+
 ## [2.7.1] - 2026-03-25
 
 ### Performance
@@ -1013,6 +1032,8 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.7.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.2
+[2.7.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.1
 [2.2.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.2.0
 [2.1.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.1.0
 [1.9.7]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.9.7

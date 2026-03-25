@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use session_core::parser::path_encoder::get_projects_dir;
-use session_core::provider::codex;
+use session_core::provider::{claude, codex};
 
 /// Minimum interval between emitting fs-change events to the frontend.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
@@ -71,6 +71,20 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                     });
 
                     if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
+                        let is_claude_change = claude_dir.as_ref().map(|dir| {
+                            event.paths.iter().any(|path| path.starts_with(dir))
+                        }).unwrap_or(false);
+                        let is_codex_change = codex_dir.as_ref().map(|dir| {
+                            event.paths.iter().any(|path| path.starts_with(dir))
+                        }).unwrap_or(false);
+
+                        if is_claude_change {
+                            claude::invalidate_cache();
+                        }
+                        if is_codex_change {
+                            codex::invalidate_sessions_cache();
+                        }
+
                         let paths: Vec<String> = event
                             .paths
                             .iter()

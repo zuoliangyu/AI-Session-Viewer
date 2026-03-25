@@ -78,11 +78,22 @@ export async function getProjects(source: string): Promise<ProjectEntry[]> {
   return apiFetch("/api/projects", { source });
 }
 
+export async function refreshProjectsCache(source: string): Promise<ProjectEntry[]> {
+  return getProjects(source);
+}
+
 export async function getSessions(
   source: string,
   projectId: string
 ): Promise<SessionIndexEntry[]> {
   return apiFetch("/api/sessions", { source, projectId });
+}
+
+export async function refreshSessionsCache(
+  source: string,
+  projectId: string
+): Promise<SessionIndexEntry[]> {
+  return getSessions(source, projectId);
 }
 
 export async function getMessages(

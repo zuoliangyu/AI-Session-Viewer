@@ -2,10 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
 
-use parking_lot::Mutex;
 use rayon::prelude::*;
 use serde_json::Value;
 
@@ -14,41 +11,93 @@ use crate::models::project::ProjectEntry;
 use crate::models::session::SessionIndexEntry;
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
 
-// ── Session list cache ──
+const DISK_CACHE_VERSION: u32 = 1;
 
-struct SessionsCache {
-    built_at: Instant,
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CodexDiskCache {
+    version: u32,
+    #[serde(default)]
+    sessions_by_project: HashMap<String, CachedSessions>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct CachedSessions {
     entries: Vec<SessionIndexEntry>,
 }
 
-const CACHE_TTL: Duration = Duration::from_secs(10);
-
-static SESSIONS_CACHE: OnceLock<Mutex<Option<SessionsCache>>> = OnceLock::new();
-
-fn sessions_cache() -> &'static Mutex<Option<SessionsCache>> {
-    SESSIONS_CACHE.get_or_init(|| Mutex::new(None))
+fn disk_cache_path() -> Option<PathBuf> {
+    let dir = dirs::config_dir()?.join("ai-session-viewer");
+    let _ = fs::create_dir_all(&dir);
+    Some(dir.join("codex-list-cache.json"))
 }
 
-fn get_cached_sessions() -> Option<Vec<SessionIndexEntry>> {
-    let guard = sessions_cache().lock();
-    guard.as_ref().and_then(|c| {
-        if c.built_at.elapsed() < CACHE_TTL {
-            Some(c.entries.clone())
-        } else {
-            None
+fn load_disk_cache() -> CodexDiskCache {
+    let path = match disk_cache_path() {
+        Some(path) => path,
+        None => return CodexDiskCache::default(),
+    };
+
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(_) => return CodexDiskCache::default(),
+    };
+
+    let cache: CodexDiskCache = match serde_json::from_str(&content) {
+        Ok(cache) => cache,
+        Err(_) => return CodexDiskCache::default(),
+    };
+
+    if cache.version != DISK_CACHE_VERSION {
+        return CodexDiskCache::default();
+    }
+
+    cache
+}
+
+fn save_disk_cache(cache: &CodexDiskCache) {
+    if let Some(path) = disk_cache_path() {
+        if let Ok(json) = serde_json::to_string(cache) {
+            let _ = fs::write(path, json);
         }
-    })
+    }
 }
 
-fn set_cached_sessions(entries: Vec<SessionIndexEntry>) {
-    *sessions_cache().lock() = Some(SessionsCache {
-        built_at: Instant::now(),
-        entries,
-    });
+fn cached_project_sessions(cwd: &str) -> Option<Vec<SessionIndexEntry>> {
+    load_disk_cache()
+        .sessions_by_project
+        .get(cwd)
+        .map(|cached| cached.entries.clone())
+}
+
+fn cached_project_count(cwd: &str) -> Option<usize> {
+    load_disk_cache()
+        .sessions_by_project
+        .get(cwd)
+        .map(|cached| cached.entries.len())
+}
+
+fn store_project_sessions(cwd: &str, entries: &[SessionIndexEntry]) {
+    let mut cache = load_disk_cache();
+    cache.version = DISK_CACHE_VERSION;
+    cache.sessions_by_project.insert(
+        cwd.to_string(),
+        CachedSessions {
+            entries: entries.to_vec(),
+        },
+    );
+    save_disk_cache(&cache);
+}
+
+fn clear_disk_cache() {
+    if let Some(path) = disk_cache_path() {
+        let _ = fs::remove_file(path);
+    }
 }
 
 pub fn invalidate_sessions_cache() {
-    *sessions_cache().lock() = None;
+    clear_disk_cache();
 }
 
 /// Maximum size for text content blocks sent to frontend (20KB)
@@ -240,7 +289,6 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
 // ── Single-pass file scan ──
 
 struct SessionFileScan {
-    meta: Option<SessionMeta>,
     first_prompt: Option<String>,
     message_count: u32,
 }
@@ -251,7 +299,6 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
         Ok(f) => f,
         Err(_) => {
             return SessionFileScan {
-                meta: None,
                 first_prompt: None,
                 message_count: 0,
             }
@@ -259,9 +306,9 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
     };
     let reader = BufReader::new(file);
 
-    let mut meta: Option<SessionMeta> = None;
     let mut first_prompt: Option<String> = None;
     let mut message_count: u32 = 0;
+    let mut meta_found = false;
 
     for line in reader.lines() {
         let line = match line {
@@ -274,7 +321,7 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
         }
 
         // Fast path: count messages without JSON parsing
-        if first_prompt.is_some() && meta.is_some() {
+        if first_prompt.is_some() && meta_found {
             // Only need message count from here — use cheap string check
             if (trimmed.contains("\"type\":\"response_item\"")
                 || trimmed.contains("\"type\": \"response_item\""))
@@ -295,45 +342,8 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
         };
         let row_type = row.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
-        if meta.is_none() && row_type == "session_meta" {
-            if let Some(payload) = row.get("payload") {
-                let id = payload
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let cwd = payload
-                    .get("cwd")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let cli_version = payload
-                    .get("cli_version")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let model_provider = payload
-                    .get("model_provider")
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let git_branch = payload
-                    .get("git")
-                    .and_then(|g| g.get("branch"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
-                let is_interactive = match payload.get("source") {
-                    Some(Value::String(s)) => s == "cli" || s == "vscode",
-                    None => true,
-                    _ => false,
-                };
-                meta = Some(SessionMeta {
-                    id,
-                    cwd,
-                    cli_version,
-                    model_provider,
-                    git_branch,
-                    is_interactive,
-                });
-            }
+        if !meta_found && row_type == "session_meta" {
+            meta_found = true;
             continue;
         }
 
@@ -372,48 +382,92 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
     }
 
     SessionFileScan {
-        meta,
         first_prompt,
         message_count,
     }
 }
 
-// ── Projects and sessions ──
+fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
+    let files = scan_all_session_files();
+    let mut project_map: HashMap<String, ProjectEntry> = HashMap::new();
 
-fn list_all_sessions() -> Result<Vec<SessionIndexEntry>, String> {
-    // Return cached result if still fresh
-    if let Some(cached) = get_cached_sessions() {
-        return Ok(cached);
+    for file_path in files {
+        let Some(meta) = extract_session_meta(&file_path) else {
+            continue;
+        };
+        if !meta.is_interactive || meta.cwd.is_empty() {
+            continue;
+        }
+
+        let cwd = meta.cwd;
+        let modified = fs::metadata(&file_path)
+            .and_then(|m| m.modified())
+            .ok()
+            .map(|t| {
+                let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            });
+
+        let entry = project_map
+            .entry(cwd.clone())
+            .or_insert_with(|| ProjectEntry {
+                source: "codex".to_string(),
+                id: cwd.clone(),
+                display_path: cwd.clone(),
+                short_name: short_name_from_path(&cwd),
+                session_count: 0,
+                last_modified: None,
+                model_provider: meta.model_provider.clone(),
+                alias: None,
+                path_exists: std::path::Path::new(&cwd).exists(),
+            });
+
+        entry.session_count += 1;
+
+        if let Some(ref modified) = modified {
+            if entry
+                .last_modified
+                .as_ref()
+                .map(|m| modified > m)
+                .unwrap_or(true)
+            {
+                entry.last_modified = Some(modified.clone());
+            }
+        }
     }
 
+    for (cwd, project) in &mut project_map {
+        if let Some(cached_count) = cached_project_count(cwd) {
+            if cached_count == project.session_count {
+                project.session_count = cached_count;
+            }
+        }
+    }
+
+    let mut projects: Vec<ProjectEntry> = project_map.into_values().collect();
+    projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
+
+    Ok(projects)
+}
+
+pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
+    scan_projects_from_meta()
+}
+
+pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
     let files = scan_all_session_files();
 
-    // Parallel scan: each file is read independently, safe to parallelize
     let mut entries: Vec<SessionIndexEntry> = files
         .into_par_iter()
         .filter_map(|file_path| {
-            let scan = scan_session_file(&file_path);
-
-            // Skip non-interactive sessions
-            if let Some(ref m) = scan.meta {
-                if !m.is_interactive {
-                    return None;
-                }
+            let meta = extract_session_meta(&file_path)?;
+            if !meta.is_interactive || meta.cwd != cwd {
+                return None;
             }
 
-            let (session_id, cwd, model_provider, cli_version, git_branch) = match scan.meta {
-                Some(m) => (m.id, m.cwd, m.model_provider, m.cli_version, m.git_branch),
-                None => {
-                    let stem = file_path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("unknown");
-                    let id =
-                        extract_uuid_from_filename(stem).unwrap_or_else(|| stem.to_string());
-                    (id, String::new(), None, None, None)
-                }
-            };
-
+            let scan = scan_session_file(&file_path);
             let file_meta = fs::metadata(&file_path).ok();
             let modified = file_meta.as_ref().and_then(|m| {
                 m.modified().ok().map(|t| {
@@ -434,18 +488,18 @@ fn list_all_sessions() -> Result<Vec<SessionIndexEntry>, String> {
 
             Some(SessionIndexEntry {
                 source: "codex".to_string(),
-                session_id,
+                session_id: meta.id,
                 file_path: file_path.to_string_lossy().to_string(),
                 first_prompt: scan.first_prompt,
                 message_count: scan.message_count,
                 created,
                 modified,
-                git_branch,
+                git_branch: meta.git_branch,
                 project_path: None,
                 is_sidechain: None,
-                cwd: Some(cwd),
-                model_provider,
-                cli_version,
+                cwd: Some(meta.cwd),
+                model_provider: meta.model_provider,
+                cli_version: meta.cli_version,
                 alias: None,
                 tags: None,
             })
@@ -453,59 +507,16 @@ fn list_all_sessions() -> Result<Vec<SessionIndexEntry>, String> {
         .collect();
 
     entries.sort_by(|a, b| b.modified.cmp(&a.modified));
-    set_cached_sessions(entries.clone());
+    store_project_sessions(cwd, &entries);
     Ok(entries)
-}
-
-pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
-    let sessions = list_all_sessions()?;
-
-    let mut project_map: HashMap<String, ProjectEntry> = HashMap::new();
-
-    for session in sessions {
-        let cwd = session.cwd.as_deref().unwrap_or("").to_string();
-        if cwd.is_empty() {
-            continue;
-        }
-
-        let entry = project_map
-            .entry(cwd.clone())
-            .or_insert_with(|| ProjectEntry {
-                source: "codex".to_string(),
-                id: cwd.clone(),
-                display_path: cwd.clone(),
-                short_name: short_name_from_path(&cwd),
-                session_count: 0,
-                last_modified: None,
-                model_provider: session.model_provider.clone(),
-                alias: None,
-                path_exists: std::path::Path::new(&cwd).exists(),
-            });
-
-        entry.session_count += 1;
-
-        if let Some(ref modified) = session.modified {
-            if entry
-                .last_modified
-                .as_ref()
-                .map(|m| modified > m)
-                .unwrap_or(true)
-            {
-                entry.last_modified = Some(modified.clone());
-            }
-        }
-    }
-
-    let mut projects: Vec<ProjectEntry> = project_map.into_values().collect();
-    projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
-
-    Ok(projects)
 }
 
 pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut entries = list_all_sessions()?;
-    entries.retain(|e| e.cwd.as_deref() == Some(cwd));
-    Ok(entries)
+    if let Some(entries) = cached_project_sessions(cwd) {
+        return Ok(entries);
+    }
+
+    refresh_sessions_cache(cwd)
 }
 
 // ── Message parsing ──
@@ -958,22 +969,6 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
     })
 }
 
-/// Extract UUID from a rollout filename stem like "rollout-2025-01-05T12-00-00-550e8400-..."
-/// The UUID is 36 chars at the end (8-4-4-4-12 with hyphens).
-fn extract_uuid_from_filename(stem: &str) -> Option<String> {
-    // UUID is always 36 chars: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-    if stem.len() < 36 {
-        return None;
-    }
-    let candidate = &stem[stem.len() - 36..];
-    // Quick validation: check hyphen positions (8, 13, 18, 23)
-    let bytes = candidate.as_bytes();
-    if bytes[8] == b'-' && bytes[13] == b'-' && bytes[18] == b'-' && bytes[23] == b'-' {
-        Some(candidate.to_string())
-    } else {
-        None
-    }
-}
 
 fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
