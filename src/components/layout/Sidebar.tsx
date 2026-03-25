@@ -2,6 +2,8 @@ import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
+import { api } from "../../services/api";
+import type { ModelInfo } from "../../types/chat";
 import { useTheme } from "../../hooks/useTheme";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
@@ -44,7 +46,7 @@ declare const __APP_VERSION__: string;
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias } =
+  const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias, recycledItems } =
     useAppStore();
   const { theme, setTheme } = useTheme();
   const { detectCli, availableClis } = useChatStore();
@@ -188,6 +190,22 @@ export function Sidebar() {
             {bookmarks.filter((b) => b.source === source).length > 0 && (
               <span className="ml-auto text-xs bg-yellow-500/20 text-yellow-500 px-1.5 py-0.5 rounded-full">
                 {bookmarks.filter((b) => b.source === source).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => navigate("/recyclebin")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+              isActive("/recyclebin")
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            }`}
+          >
+            <Trash2 className="w-4 h-4" />
+            回收站
+            {recycledItems.length > 0 && (
+              <span className="ml-auto text-xs bg-muted text-muted-foreground px-1.5 py-0.5 rounded-full">
+                {recycledItems.length}
               </span>
             )}
           </button>
@@ -567,84 +585,108 @@ export function Sidebar() {
   );
 }
 
-function ProviderModelManager() {
+function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
   const {
-    modelList,
-    modelListLoading,
-    modelListError,
-    fetchModelList,
     addCustomModel,
     removeCustomModel,
+    claudeApiKeyOverride,
+    claudeBaseUrlOverride,
+    codexApiKeyOverride,
+    codexBaseUrlOverride,
   } = useChatStore();
 
+  const [models, setModels] = useState<ModelInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fetched, setFetched] = useState(false);
   const [showAddInput, setShowAddInput] = useState(false);
   const [newModelIds, setNewModelIds] = useState("");
-  const [fetched, setFetched] = useState(false);
   const [addedCount, setAddedCount] = useState<number | null>(null);
 
+  const apiKey = source === "codex" ? codexApiKeyOverride : claudeApiKeyOverride;
+  const baseUrl = source === "codex" ? codexBaseUrlOverride : claudeBaseUrlOverride;
+
+  // Custom model IDs for this source (re-read whenever models change)
   const customModelIds = useMemo(() => {
     try {
-      return new Set<string>(JSON.parse(localStorage.getItem("chat_customModels_claude") || "[]"));
+      return new Set<string>(JSON.parse(localStorage.getItem(`chat_customModels_${source}`) || "[]"));
     } catch {
       return new Set<string>();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelList]);
+  }, [models, source]);
 
-  const handleFetch = async () => {
-    await fetchModelList();
-    setFetched(true);
+  const loadModels = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.listModels(source, apiKey, baseUrl);
+      // Prepend persisted custom models not already in result
+      const customKey = `chat_customModels_${source}`;
+      const customIds: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
+      const resultIds = new Set(result.map((m) => m.id));
+      const provider = source === "codex" ? "openai" : "anthropic";
+      const extras: ModelInfo[] = customIds
+        .filter((id) => !resultIds.has(id))
+        .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
+      setModels([...extras, ...result]);
+      setFetched(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setFetched(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Parse input: support comma, newline, semicolon separated
-  const parseModelIds = (input: string): string[] => {
-    return input
-      .split(/[,;\n]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  };
+  const parseModelIds = (input: string): string[] =>
+    input.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
 
   const handleBatchAdd = () => {
     const ids = parseModelIds(newModelIds);
     if (ids.length === 0) return;
     let count = 0;
+    const provider = source === "codex" ? "openai" : "anthropic";
     for (const id of ids) {
-      // Avoid duplicates
-      if (!modelList.some((m) => m.id === id)) {
-        addCustomModel(id);
+      if (!models.some((m) => m.id === id)) {
+        addCustomModel(id, source);
+        setModels((prev) => [{ id, name: id, provider, group: "自定义", created: null }, ...prev]);
         count++;
       }
     }
     setAddedCount(count);
     setNewModelIds("");
     setShowAddInput(false);
-    // Clear the toast after 2s
     setTimeout(() => setAddedCount(null), 2000);
+  };
+
+  const handleRemove = (id: string) => {
+    removeCustomModel(id, source);
+    setModels((prev) => prev.filter((m) => m.id !== id));
   };
 
   const parsedCount = parseModelIds(newModelIds).length;
 
-  // Group models
   const grouped = useMemo(() => {
-    const groups: Record<string, typeof modelList> = {};
-    for (const m of modelList) {
+    const groups: Record<string, ModelInfo[]> = {};
+    for (const m of models) {
       if (!groups[m.group]) groups[m.group] = [];
       groups[m.group].push(m);
     }
     return groups;
-  }, [modelList]);
+  }, [models]);
 
   return (
-    <div className="space-y-2">
-      {/* Action buttons */}
-      <div className="flex items-center gap-1.5">
+    <div className="mt-3 space-y-2">
+      {/* Action row */}
+      <div className="flex items-center gap-1.5 flex-wrap">
         <button
-          onClick={handleFetch}
-          disabled={modelListLoading}
+          onClick={loadModels}
+          disabled={loading}
           className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
         >
-          <RefreshCw className={`w-3 h-3 ${modelListLoading ? "animate-spin" : ""}`} />
-          {fetched ? "刷新" : "获取模型列表"}
+          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+          {fetched ? "刷新模型列表" : "获取模型列表"}
         </button>
         <button
           onClick={() => { setShowAddInput((v) => !v); setAddedCount(null); }}
@@ -655,11 +697,12 @@ function ProviderModelManager() {
           }`}
         >
           <Plus className="w-3 h-3" />
-          批量添加
+          手动添加
         </button>
-        {fetched && !modelListLoading && (
+        {fetched && !loading && (
           <span className="text-[10px] text-muted-foreground ml-auto">
-            共 {modelList.length} 个模型
+            {models.length} 个模型
+            {customModelIds.size > 0 && `（${customModelIds.size} 个自定义）`}
           </span>
         )}
       </div>
@@ -668,94 +711,93 @@ function ProviderModelManager() {
       {addedCount !== null && (
         <div className="flex items-center gap-1 text-xs text-green-500">
           <Check className="w-3 h-3" />
-          已添加 {addedCount} 个模型
+          已添加 {addedCount} 个自定义模型
         </div>
       )}
 
-      {/* Batch add input */}
+      {/* Batch add textarea */}
       {showAddInput && (
         <div className="space-y-1.5">
           <textarea
             value={newModelIds}
             onChange={(e) => setNewModelIds(e.target.value)}
             onKeyDown={(e) => {
-              // Ctrl+Enter to submit
-              if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                e.preventDefault();
-                handleBatchAdd();
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setShowAddInput(false);
-              }
+              if ((e.ctrlKey || e.metaKey) && e.key === "Enter") { e.preventDefault(); handleBatchAdd(); }
+              if (e.key === "Escape") { e.preventDefault(); setShowAddInput(false); }
             }}
-            placeholder={"每行一个模型 ID，或用逗号分隔\n例如：\nclaude-sonnet-4-20250514\nclaude-opus-4-20250514"}
+            placeholder={
+              source === "codex"
+                ? "每行一个模型 ID，例如：\no4-mini\ngpt-4.1\ncustom-model-id"
+                : "每行一个模型 ID，例如：\nclaude-sonnet-4-20250514\nclaude-opus-4-20250514"
+            }
             rows={4}
-            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none font-mono"
+            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
             autoFocus
           />
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground">
-              {parsedCount > 0 ? `已识别 ${parsedCount} 个模型 ID` : "输入模型 ID"}
+              {parsedCount > 0 ? `识别到 ${parsedCount} 个 ID` : "每行一个或逗号分隔"}
             </span>
             <button
               onClick={handleBatchAdd}
               disabled={parsedCount === 0}
               className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              添加 {parsedCount > 0 && `(${parsedCount})`}
+              添加{parsedCount > 0 ? `（${parsedCount}）` : ""}
             </button>
           </div>
         </div>
       )}
 
-      {/* Loading */}
-      {modelListLoading && (
-        <div className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
+      {/* Status */}
+      {loading && (
+        <div className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" />
-          加载中...
+          正在获取...
         </div>
       )}
-
-      {/* Error */}
-      {modelListError && (
+      {error && (
         <div className="flex items-center gap-1.5 py-1 text-xs text-red-400">
           <AlertCircle className="w-3 h-3 shrink-0" />
-          <span className="truncate">{modelListError}</span>
+          <span className="truncate">{error}</span>
         </div>
       )}
+      {fetched && !loading && models.length === 0 && !error && (
+        <p className="text-xs text-muted-foreground py-1">
+          未获取到模型。{!apiKey && "请先配置 API Key 或手动输入覆盖值。"}
+        </p>
+      )}
 
-      {/* Model list — display only, no select */}
-      {fetched && !modelListLoading && modelList.length > 0 && (
-        <div className="border border-border rounded max-h-48 overflow-y-auto">
-          {Object.entries(grouped).map(([group, models]) => (
+      {/* Model list */}
+      {fetched && !loading && models.length > 0 && (
+        <div className="border border-border rounded overflow-hidden max-h-52 overflow-y-auto">
+          {Object.entries(grouped).map(([group, grpModels]) => (
             <div key={group}>
-              <div className="px-2 py-0.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/50 sticky top-0">
-                {group} ({models.length})
+              <div className="px-2 py-0.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider bg-muted/60 sticky top-0">
+                {group}
+                <span className="ml-1 font-normal opacity-60">({grpModels.length})</span>
               </div>
-              {models.map((m) => {
+              {grpModels.map((m) => {
                 const isCustom = customModelIds.has(m.id);
                 return (
                   <div
                     key={m.id}
                     className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/30 transition-colors group"
                   >
-                    <span className="truncate flex-1 text-foreground" title={m.id}>
-                      {m.name}
-                    </span>
+                    <span className="truncate flex-1 text-foreground" title={m.id}>{m.name}</span>
                     {m.id !== m.name && (
-                      <span className="text-[10px] text-muted-foreground truncate max-w-[8rem]">
-                        {m.id}
-                      </span>
+                      <span className="text-[10px] text-muted-foreground/70 truncate max-w-[9rem] font-mono">{m.id}</span>
                     )}
-                    {isCustom && (
+                    {isCustom ? (
                       <button
-                        onClick={() => removeCustomModel(m.id)}
+                        onClick={() => handleRemove(m.id)}
                         className="p-0.5 rounded text-transparent group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
                         title="移除自定义模型"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
+                    ) : (
+                      <span className="w-4 shrink-0" />
                     )}
                   </div>
                 );
@@ -764,31 +806,22 @@ function ProviderModelManager() {
           ))}
         </div>
       )}
-
-      {fetched && !modelListLoading && modelList.length === 0 && !modelListError && (
-        <p className="text-xs text-muted-foreground py-1">未获取到模型，请检查配置是否正确</p>
-      )}
     </div>
   );
 }
 
-function CliConfigDisplay() {
-  const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore();
-  const [fetched, setFetched] = useState(false);
-
-  const handleFetch = async () => {
-    await fetchCliConfig();
-    setFetched(true);
-  };
-
-  useEffect(() => {
-    if (!fetched) {
-      handleFetch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  if (cliConfigLoading) {
+function CliConfigInfo({
+  config,
+  loading,
+  error,
+  onFetch,
+}: {
+  config: import("../../types/chat").CliConfig | null;
+  loading: boolean;
+  error: string | null;
+  onFetch: () => void;
+}) {
+  if (loading) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2 className="w-3 h-3 animate-spin" />
@@ -796,57 +829,139 @@ function CliConfigDisplay() {
       </div>
     );
   }
-
-  if (cliConfigError) {
+  if (error) {
     return (
       <div className="space-y-1">
         <div className="flex items-center gap-1.5 text-xs text-red-400">
           <AlertCircle className="w-3 h-3" />
-          {cliConfigError}
+          {error}
         </div>
-        <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80">
-          重试
-        </button>
+        <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">重试</button>
       </div>
     );
   }
-
-  if (!cliConfig) {
-    return (
-      <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80">
-        检测配置
-      </button>
-    );
+  if (!config) {
+    return <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">检测配置</button>;
   }
+
+  const isCodex = config.source === "codex";
 
   return (
-    <div className="space-y-1.5 text-xs">
-      <div className="flex items-center gap-2">
-        <div className={`w-1.5 h-1.5 rounded-full ${cliConfig.hasApiKey ? "bg-green-500" : "bg-red-500"}`} />
-        <span className="text-muted-foreground">API Key:</span>
-        <span className="text-foreground font-mono">
-          {cliConfig.hasApiKey ? cliConfig.apiKeyMasked : "未配置"}
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground ml-3.5">Base URL:</span>
-        <span className="text-foreground font-mono truncate">{cliConfig.baseUrl}</span>
-      </div>
-      {cliConfig.defaultModel && (
-        <div className="flex items-center gap-2">
-          <span className="text-muted-foreground ml-3.5">默认模型:</span>
-          <span className="text-foreground font-mono">{cliConfig.defaultModel}</span>
-        </div>
+    <div className="space-y-2 text-xs">
+      {isCodex ? (
+        // ── Codex: show both files separately ──
+        <>
+          {/* auth.json */}
+          <div className="rounded-md border border-border bg-muted/40 px-2.5 py-2 space-y-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <span>auth.json</span>
+              <span className="font-normal opacity-60 truncate">{config.authJsonPath}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.authJsonHasKey ? "bg-green-500" : "bg-yellow-500"}`} />
+              <span className="text-muted-foreground">API Key:</span>
+              <span className="font-mono text-foreground">
+                {config.authJsonHasKey ? config.authJsonKeyMasked : "未找到"}
+              </span>
+              {config.authJsonHasKey && config.apiKeySource === "auth.json" && (
+                <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+              )}
+            </div>
+          </div>
+
+          {/* config.toml */}
+          <div className="rounded-md border border-border bg-muted/40 px-2.5 py-2 space-y-1">
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+              <span>config.toml</span>
+              <span className="font-normal opacity-60 truncate">{config.configPath}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.configTomlUrl ? "bg-green-500" : "bg-yellow-500"}`} />
+              <span className="text-muted-foreground">Base URL:</span>
+              <span className="font-mono text-foreground truncate">
+                {config.configTomlUrl || "未找到（将用默认值）"}
+              </span>
+              {config.configTomlUrl && config.baseUrlSource === "config.toml" && (
+                <span className="ml-auto shrink-0 text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+              )}
+            </div>
+            {config.configTomlHasKey && (
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 rounded-full shrink-0 bg-blue-400" />
+                <span className="text-muted-foreground">API Key:</span>
+                <span className="font-mono text-foreground">{config.configTomlKeyMasked}</span>
+                {config.apiKeySource === "config.toml" && (
+                  <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+                )}
+              </div>
+            )}
+            {config.defaultModel && (
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 shrink-0" />
+                <span className="text-muted-foreground">默认模型:</span>
+                <span className="font-mono text-foreground">{config.defaultModel}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Resolved summary */}
+          {!config.hasApiKey && (
+            <p className="text-[11px] text-yellow-500">
+              未找到 API Key，请在 auth.json 中配置或在下方手动填入。
+            </p>
+          )}
+          {config.baseUrlSource === "default" && (
+            <p className="text-[11px] text-muted-foreground">
+              Base URL 使用默认值：{config.baseUrl}
+            </p>
+          )}
+        </>
+      ) : (
+        // ── Claude: simple display ──
+        <>
+          <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${config.hasApiKey ? "bg-green-500" : "bg-red-500"}`} />
+            <span className="text-muted-foreground">API Key:</span>
+            <span className="font-mono text-foreground">{config.hasApiKey ? config.apiKeyMasked : "未配置"}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="ml-3.5 text-muted-foreground">Base URL:</span>
+            <span className="font-mono text-foreground truncate">{config.baseUrl}</span>
+          </div>
+          {config.defaultModel && (
+            <div className="flex items-center gap-2">
+              <span className="ml-3.5 text-muted-foreground">默认模型:</span>
+              <span className="font-mono text-foreground">{config.defaultModel}</span>
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <span className="ml-3.5 text-muted-foreground">配置文件:</span>
+            <span className="text-foreground/60 font-mono truncate text-[10px]">{config.configPath}</span>
+          </div>
+        </>
       )}
-      <div className="flex items-center gap-2">
-        <span className="text-muted-foreground ml-3.5">配置文件:</span>
-        <span className="text-foreground/60 font-mono truncate text-[10px]">{cliConfig.configPath}</span>
-      </div>
-      <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80 mt-1">
+
+      <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">
         重新检测
       </button>
     </div>
   );
+}
+
+function CliConfigDisplay() {
+  const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore();
+  const [fetched, setFetched] = useState(false);
+  const handleFetch = async () => { await fetchCliConfig(); setFetched(true); };
+  useEffect(() => { if (!fetched) handleFetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <CliConfigInfo config={cliConfig} loading={cliConfigLoading} error={cliConfigError} onFetch={handleFetch} />;
+}
+
+function CodexCliConfigDisplay() {
+  const { codexCliConfig, codexCliConfigLoading, codexCliConfigError, fetchCodexCliConfig } = useChatStore();
+  const [fetched, setFetched] = useState(false);
+  const handleFetch = async () => { await fetchCodexCliConfig(); setFetched(true); };
+  useEffect(() => { if (!fetched) handleFetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <CliConfigInfo config={codexCliConfig} loading={codexCliConfigLoading} error={codexCliConfigError} onFetch={handleFetch} />;
 }
 
 type InstallMethod = "npm" | "nvm" | "bun" | "other";
@@ -914,6 +1029,14 @@ function ChatSettingsTab() {
     setCliPath,
     availableClis,
     detectCli,
+    claudeApiKeyOverride,
+    claudeBaseUrlOverride,
+    codexApiKeyOverride,
+    codexBaseUrlOverride,
+    setClaudeApiKeyOverride,
+    setClaudeBaseUrlOverride,
+    setCodexApiKeyOverride,
+    setCodexBaseUrlOverride,
   } = useChatStore();
 
   const isWindows = __IS_TAURI__ && navigator.platform.startsWith("Win");
@@ -1071,13 +1194,62 @@ function ChatSettingsTab() {
         </p>
       </section>
 
-      {/* Anthropic (Claude) — auto-detected config */}
+      {/* Anthropic (Claude) */}
       <section>
         <h3 className="font-medium mb-2 text-foreground">Anthropic (Claude)</h3>
         <CliConfigDisplay />
-        <div className="mt-2">
-          <ProviderModelManager />
+        <div className="mt-3 space-y-2">
+          <div>
+            <label className="text-xs text-muted-foreground">手动 API Key（覆盖自动检测）</label>
+            <input
+              type="password"
+              value={claudeApiKeyOverride}
+              onChange={(e) => setClaudeApiKeyOverride(e.target.value)}
+              placeholder="sk-ant-..."
+              className="mt-1 w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">手动 Base URL（覆盖自动检测）</label>
+            <input
+              type="text"
+              value={claudeBaseUrlOverride}
+              onChange={(e) => setClaudeBaseUrlOverride(e.target.value)}
+              placeholder="https://api.anthropic.com"
+              className="mt-1 w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
         </div>
+        <ProviderModelManager source="claude" />
+      </section>
+
+      {/* OpenAI (Codex) */}
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">OpenAI (Codex)</h3>
+        <CodexCliConfigDisplay />
+        <div className="mt-3 space-y-2">
+          <div>
+            <label className="text-xs text-muted-foreground">手动 API Key（覆盖自动检测）</label>
+            <input
+              type="password"
+              value={codexApiKeyOverride}
+              onChange={(e) => setCodexApiKeyOverride(e.target.value)}
+              placeholder="sk-..."
+              className="mt-1 w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">手动 Base URL（覆盖自动检测）</label>
+            <input
+              type="text"
+              value={codexBaseUrlOverride}
+              onChange={(e) => setCodexBaseUrlOverride(e.target.value)}
+              placeholder="https://api.openai.com"
+              className="mt-1 w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        </div>
+        <ProviderModelManager source="codex" />
       </section>
 
       {isWindows && (

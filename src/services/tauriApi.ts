@@ -8,6 +8,7 @@ import type {
   Bookmark,
   DeleteLevel,
   DeleteResult,
+  RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig, QuickChatMessage } from "../types/chat";
 
@@ -248,4 +249,25 @@ export async function setProjectAlias(
   alias: string | null
 ): Promise<void> {
   return invoke<void>("set_project_alias", { source, projectId, alias });
+}
+
+// Recyclebin API
+export async function listRecycledItems(): Promise<RecycledItem[]> {
+  return invoke<RecycledItem[]>("list_recycled_items");
+}
+
+export async function restoreRecycledItem(id: string): Promise<void> {
+  return invoke<void>("restore_recycled_item", { id });
+}
+
+export async function permanentlyDeleteRecycledItem(id: string): Promise<void> {
+  return invoke<void>("permanently_delete_recycled_item", { id });
+}
+
+export async function emptyRecyclebin(): Promise<number> {
+  return invoke<number>("empty_recyclebin");
+}
+
+export async function cleanupOrphanDirs(source: string): Promise<number> {
+  return invoke<number>("cleanup_orphan_dirs", { source });
 }

@@ -38,6 +38,11 @@ pub fn run() {
             commands::bookmarks::list_bookmarks,
             commands::bookmarks::add_bookmark,
             commands::bookmarks::remove_bookmark,
+            commands::recyclebin::list_recycled_items,
+            commands::recyclebin::restore_recycled_item,
+            commands::recyclebin::permanently_delete_recycled_item,
+            commands::recyclebin::empty_recyclebin,
+            commands::recyclebin::cleanup_orphan_dirs,
         ])
         .setup(|app| {
             #[cfg(desktop)]

@@ -367,7 +367,7 @@ fn scan_project_dir(
         }
     }
 
-    // 第二遍：检测孤儿 UUID 子目录（跳过 "invalid" 目录本身）
+    // 第二遍：检测孤儿 UUID 子目录
     if let Ok(entries2) = fs::read_dir(project_dir) {
         for entry in entries2.flatten() {
             let path = entry.path();
@@ -379,7 +379,7 @@ fn scan_project_dir(
                 .and_then(|n| n.to_str())
                 .unwrap_or("")
                 .to_string();
-            if dir_name == "invalid" || dir_name.is_empty() {
+            if dir_name.is_empty() {
                 continue;
             }
             // 只处理 UUID 格式目录（36 字符含连字符）
@@ -398,44 +398,21 @@ fn scan_project_dir(
     (valid_sessions, invalid_items)
 }
 
-/// Step 3：将无效 session 移入 project_dir/invalid/。
+/// Step 3：将无效 session 移入全局回收站。
 /// 内部错误不向上传播，eprintln! 静默记录。
 fn cleanup_invalid_sessions(project_dir: &Path, invalid_items: Vec<InvalidItem>) {
     if invalid_items.is_empty() {
         return;
     }
 
-    let invalid_dir = project_dir.join("invalid");
-    if let Err(e) = fs::create_dir_all(&invalid_dir) {
-        eprintln!("[cleanup] Failed to create invalid dir: {}", e);
-        return;
-    }
-
-    // 读取已有 manifest（追加模式）
-    let manifest_path = invalid_dir.join("manifest.json");
-    let mut manifest: Vec<serde_json::Value> = if manifest_path.exists() {
-        fs::read_to_string(&manifest_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-
-    let moved_at = chrono::Utc::now().to_rfc3339();
+    // 尝试从 sessions-index.json 获取 project_id（目录名）
+    let project_id = project_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_string();
 
     for item in invalid_items {
-        let file_name = match item.path.file_name().and_then(|n| n.to_str()) {
-            Some(n) => n.to_string(),
-            None => continue,
-        };
-        let target = invalid_dir.join(&file_name);
-
-        // 目标已存在 → 跳过，避免覆盖
-        if target.exists() {
-            continue;
-        }
-
         let reason = match item.reason {
             InvalidReason::Empty => "Empty",
             InvalidReason::NoMessages => "NoMessages",
@@ -443,27 +420,18 @@ fn cleanup_invalid_sessions(project_dir: &Path, invalid_items: Vec<InvalidItem>)
             InvalidReason::OrphanDir => "OrphanDir",
         };
 
-        match fs::rename(&item.path, &target) {
-            Ok(()) => {
-                manifest.push(serde_json::json!({
-                    "file": file_name,
-                    "reason": reason,
-                    "movedAt": moved_at,
-                }));
-            }
-            Err(e) => {
-                eprintln!("[cleanup] Failed to move {:?}: {}", item.path, e);
-            }
-        }
-    }
+        let item_type = if item.path.is_dir() { "orphanDir" } else { "session" };
 
-    // 原子写回 manifest.json
-    if let Ok(json) = serde_json::to_string_pretty(&manifest) {
-        let tmp_path = manifest_path.with_extension("json.tmp");
-        if fs::write(&tmp_path, &json).is_ok() {
-            if let Err(e) = fs::rename(&tmp_path, &manifest_path) {
-                eprintln!("[cleanup] Failed to write manifest: {}", e);
-            }
+        if let Err(e) = crate::recyclebin::move_to_recyclebin(
+            &item.path,
+            item_type,
+            reason,
+            "claude",
+            &project_id,
+            None,
+            None,
+        ) {
+            eprintln!("[cleanup] Failed to move {:?} to recyclebin: {}", item.path, e);
         }
     }
 }
@@ -612,12 +580,49 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
         None
     };
 
-    // 统计 session 文件数
+    // 统计 session 文件数（回收站将使用此计数）
     let sessions_deleted = count_jsonl_files(&canonical_dir);
 
-    // 删除会话数据目录
-    fs::remove_dir_all(&canonical_dir)
-        .map_err(|e| format!("Failed to delete project: {}", e))?;
+    // 将顶层 .jsonl 文件逐个移入回收站
+    let project_name = {
+        let index_path = canonical_dir.join("sessions-index.json");
+        let display_path = fs::read_to_string(&index_path)
+            .ok()
+            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
+            .and_then(|idx| {
+                idx.original_path
+                    .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
+            })
+            .unwrap_or_else(|| {
+                decode_project_path_validated(project_id).display_path
+            });
+        short_name_from_path(&display_path)
+    };
+
+    if let Ok(dir_entries) = fs::read_dir(&canonical_dir) {
+        for entry in dir_entries.flatten() {
+            let p = entry.path();
+            if p.is_file() && p.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                if let Err(e) = crate::recyclebin::move_to_recyclebin(
+                    &p,
+                    "project",
+                    "ManualDelete",
+                    "claude",
+                    project_id,
+                    None,
+                    Some(project_name.clone()),
+                ) {
+                    eprintln!("[delete_project] Failed to move {:?} to recyclebin: {}", p, e);
+                }
+            }
+        }
+    }
+
+    // 删除（现已清空 jsonl 的）项目目录
+    if let Err(e) = fs::remove_dir_all(&canonical_dir) {
+        // 可能还有非 jsonl 文件，或目录不为空，静默记录
+        eprintln!("[delete_project] Failed to remove dir {:?}: {}", canonical_dir, e);
+    }
 
     let mut config_cleaned = false;
     let mut bookmarks_removed = 0;
@@ -764,6 +769,84 @@ fn count_messages_result(path: &Path) -> Result<u32, String> {
         }
     }
     Ok(count)
+}
+
+/// 扫描所有项目目录，将孤儿 UUID 子目录批量移入回收站。
+/// 返回成功移入的数量。
+pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
+    let projects_dir = get_projects_dir()
+        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    if !projects_dir.exists() {
+        return Ok(0);
+    }
+
+    let project_dirs: Vec<PathBuf> = fs::read_dir(&projects_dir)
+        .map_err(|e| format!("Failed to read projects dir: {}", e))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+
+    let mut moved = 0usize;
+
+    for project_dir in project_dirs {
+        let project_id = match project_dir.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+
+        // 收集本项目中已有的 valid session ID
+        let valid_ids: std::collections::HashSet<String> = match fs::read_dir(&project_dir) {
+            Ok(entries) => entries
+                .flatten()
+                .filter_map(|e| {
+                    let p = e.path();
+                    if p.is_file() && p.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
+                        p.file_stem()
+                            .and_then(|s| s.to_str())
+                            .map(|s| s.to_string())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            Err(_) => continue,
+        };
+
+        // 查找孤儿 UUID 子目录
+        if let Ok(entries) = fs::read_dir(&project_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let dir_name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                // UUID 格式：36 字符，含 4 个连字符
+                if dir_name.len() == 36
+                    && dir_name.chars().filter(|&c| c == '-').count() == 4
+                    && !valid_ids.contains(&dir_name)
+                {
+                    match crate::recyclebin::move_to_recyclebin(
+                        &path,
+                        "orphanDir",
+                        "OrphanDir",
+                        "claude",
+                        &project_id,
+                        None,
+                        None,
+                    ) {
+                        Ok(_) => moved += 1,
+                        Err(e) => eprintln!("[cleanup_orphan] Failed to move {:?}: {}", path, e),
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(moved)
 }
 
 /// Count valid (non-empty) .jsonl files at the TOP LEVEL of dir only.

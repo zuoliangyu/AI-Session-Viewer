@@ -7,6 +7,7 @@ import type {
   SearchResult,
   Bookmark,
   DeleteLevel,
+  RecycledItem,
 } from "../types";
 import { api } from "../services/api";
 
@@ -65,6 +66,10 @@ interface AppState {
   bookmarks: Bookmark[];
   bookmarksLoading: boolean;
 
+  // Recyclebin
+  recycledItems: RecycledItem[];
+  recyclebinLoading: boolean;
+
   // Actions
   loadProjects: () => Promise<void>;
   selectProject: (projectId: string) => Promise<void>;
@@ -91,6 +96,12 @@ interface AppState {
   addBookmark: (bookmark: Omit<Bookmark, "id" | "createdAt">) => Promise<void>;
   removeBookmark: (id: string) => Promise<void>;
   isBookmarked: (sessionId: string, messageId?: string | null) => boolean;
+
+  loadRecycledItems: () => Promise<void>;
+  restoreItem: (id: string) => Promise<void>;
+  permanentlyDeleteItem: (id: string) => Promise<void>;
+  emptyRecyclebin: () => Promise<void>;
+  cleanupOrphanDirs: () => Promise<number>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -163,6 +174,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   bookmarks: [],
   bookmarksLoading: false,
+
+  recycledItems: [],
+  recyclebinLoading: false,
 
   loadProjects: async () => {
     set({ projectsLoading: true });
@@ -472,5 +486,46 @@ export const useAppStore = create<AppState>((set, get) => ({
     return get().bookmarks.some(
       (b) => b.sessionId === sessionId && b.messageId === (messageId ?? null)
     );
+  },
+
+  loadRecycledItems: async () => {
+    set({ recyclebinLoading: true });
+    try {
+      const recycledItems = await api.listRecycledItems();
+      set({ recycledItems, recyclebinLoading: false });
+    } catch (e) {
+      console.error("Failed to load recycled items:", e);
+      set({ recyclebinLoading: false });
+    }
+  },
+
+  restoreItem: async (id: string) => {
+    await api.restoreRecycledItem(id);
+    set((state) => ({
+      recycledItems: state.recycledItems.filter((item) => item.id !== id),
+    }));
+  },
+
+  permanentlyDeleteItem: async (id: string) => {
+    await api.permanentlyDeleteRecycledItem(id);
+    set((state) => ({
+      recycledItems: state.recycledItems.filter((item) => item.id !== id),
+    }));
+  },
+
+  emptyRecyclebin: async () => {
+    await api.emptyRecyclebin();
+    set({ recycledItems: [] });
+  },
+
+  cleanupOrphanDirs: async () => {
+    const { source } = get();
+    const count = await api.cleanupOrphanDirs(source);
+    // 刷新回收站列表
+    if (count > 0) {
+      const recycledItems = await api.listRecycledItems();
+      set({ recycledItems });
+    }
+    return count;
   },
 }));

@@ -8,6 +8,7 @@ import { StatsPage } from "./components/stats/StatsPage";
 import { ChatPage } from "./components/chat/ChatPage";
 import { QuickChatPage } from "./components/quick-chat/QuickChatPage";
 import { BookmarksPage } from "./components/bookmark/BookmarksPage";
+import { RecyclebinPage } from "./components/recyclebin/RecyclebinPage";
 
 function App() {
   return (
@@ -23,6 +24,7 @@ function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="/bookmarks" element={<BookmarksPage />} />
+        <Route path="/recyclebin" element={<RecyclebinPage />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />
         <Route path="/quick-chat" element={<QuickChatPage />} />

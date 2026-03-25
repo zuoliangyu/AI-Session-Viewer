@@ -1,3 +1,4 @@
+pub mod app_dir;
 pub mod bookmarks;
 pub mod cli;
 pub mod cli_config;
@@ -7,6 +8,7 @@ pub mod models;
 pub mod parser;
 pub mod provider;
 pub mod quick_chat;
+pub mod recyclebin;
 pub mod search;
 pub mod state;
 pub mod stats;

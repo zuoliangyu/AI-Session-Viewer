@@ -7,6 +7,7 @@ import type {
   Bookmark,
   DeleteLevel,
   DeleteResult,
+  RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig, QuickChatMessage } from "../types/chat";
 
@@ -483,4 +484,25 @@ export async function setProjectAlias(
   alias: string | null
 ): Promise<void> {
   await apiPut("/api/projects/alias", { source, projectId, alias });
+}
+
+// Recyclebin API (web mode stubs — not supported)
+export async function listRecycledItems(): Promise<RecycledItem[]> {
+  return [];
+}
+
+export async function restoreRecycledItem(_id: string): Promise<void> {
+  throw new Error("Recyclebin is not available in web mode");
+}
+
+export async function permanentlyDeleteRecycledItem(_id: string): Promise<void> {
+  throw new Error("Recyclebin is not available in web mode");
+}
+
+export async function emptyRecyclebin(): Promise<number> {
+  throw new Error("Recyclebin is not available in web mode");
+}
+
+export async function cleanupOrphanDirs(_source: string): Promise<number> {
+  throw new Error("Orphan dir cleanup is not available in web mode");
 }

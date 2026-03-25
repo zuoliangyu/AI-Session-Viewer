@@ -110,3 +110,16 @@ export interface DeleteResult {
   configCleaned: boolean;
   bookmarksRemoved: number;
 }
+
+export interface RecycledItem {
+  id: string;
+  itemType: string;
+  reason: string;
+  source: string;
+  projectId: string;
+  sessionTitle: string | null;
+  projectName: string | null;
+  originalPath: string;
+  storedName: string;
+  movedAt: string;
+}

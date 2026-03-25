@@ -1,8 +1,7 @@
-use std::fs;
-
 use session_core::metadata;
 use session_core::models::session::SessionIndexEntry;
 use session_core::provider::{claude, codex};
+use session_core::recyclebin;
 
 #[tauri::command]
 pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionIndexEntry>, String> {
@@ -45,7 +44,17 @@ pub fn delete_session(
     if !path.exists() {
         return Err(format!("File not found: {}", file_path));
     }
-    fs::remove_file(path).map_err(|e| format!("Failed to delete session: {}", e))?;
+
+    // 移入回收站而非直接删除
+    recyclebin::move_to_recyclebin(
+        path,
+        "session",
+        "ManualDelete",
+        &source,
+        &project_id,
+        None,
+        None,
+    )?;
 
     // Clean up metadata
     let _ = metadata::remove_session_meta(&source, &project_id, &session_id);
