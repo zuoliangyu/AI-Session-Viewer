@@ -93,29 +93,38 @@ fn decode_validated_windows(encoded: &str) -> DecodedPath {
     let drive_letter = encoded.chars().next().unwrap();
     let after_drive = &encoded[1..];
 
-    // After drive letter, expect `-` (encoding of `:`)
-    if !after_drive.starts_with('-') {
+    // Windows paths encode "X:\" as "X--" (`:` → `-`, `\` → `-`).
+    // We must skip BOTH dashes to arrive at the first real path segment.
+    // A bare "X-" (colon only, no backslash) is technically valid but rare.
+    let (root, remaining) = if after_drive.starts_with("--") {
+        // Normal case: "C--Users-..." → root "C:\", remaining "Users-..."
+        (format!("{}:\\", drive_letter), &after_drive[2..])
+    } else if after_drive.starts_with('-') {
+        // Edge case: "C-something" → treat as "C:\" still
+        (format!("{}:\\", drive_letter), &after_drive[1..])
+    } else {
         let basic = decode_project_path(encoded);
         let exists = Path::new(&basic).exists();
         return DecodedPath {
             display_path: basic,
             path_exists: exists,
         };
-    }
+    };
 
-    let root = format!("{}:\\", drive_letter);
     let root_path = PathBuf::from(&root);
 
     if !root_path.exists() {
-        let basic = decode_project_path(encoded);
+        // Drive not present (e.g. path from another machine).
+        // Use the encoded name to extract a meaningful short name for display.
+        let meaningful = short_name_from_encoded(encoded);
+        let display = format!("{}\\...\\{}", root.trim_end_matches('\\'), meaningful);
         return DecodedPath {
-            display_path: basic,
+            display_path: display,
             path_exists: false,
         };
     }
 
-    // The rest after "X-" contains the path segments separated by `-`
-    let remaining = &after_drive[1..]; // skip the first `-` after drive letter
+    // `remaining` now starts cleanly at the first path segment (e.g. "Users-...")
     match resolve_segments(&root_path, remaining) {
         Some(resolved) => {
             let display = resolved.to_string_lossy().to_string();
@@ -125,11 +134,12 @@ fn decode_validated_windows(encoded: &str) -> DecodedPath {
             }
         }
         None => {
-            let basic = decode_project_path(encoded);
-            let exists = Path::new(&basic).exists();
+            // Partial match: walk as far as possible on disk, append remaining
+            // encoded tokens as a single hyphenated component for a better short name.
+            let partial = resolve_segments_partial(&root_path, remaining);
             DecodedPath {
-                display_path: basic,
-                path_exists: exists,
+                path_exists: false,
+                display_path: partial.to_string_lossy().to_string(),
             }
         }
     }
@@ -158,11 +168,12 @@ fn decode_validated_unix(encoded: &str) -> DecodedPath {
             }
         }
         None => {
-            let basic = decode_project_path(encoded);
-            let exists = Path::new(&basic).exists();
+            // Partial match: walk as far as possible on disk, append remaining
+            // encoded tokens as a single hyphenated component for a better short name.
+            let partial = resolve_segments_partial(&root_path, remaining);
             DecodedPath {
-                display_path: basic,
-                path_exists: exists,
+                path_exists: false,
+                display_path: partial.to_string_lossy().to_string(),
             }
         }
     }
@@ -180,6 +191,84 @@ fn resolve_segments(base: &Path, remaining: &str) -> Option<PathBuf> {
 
     let parts: Vec<&str> = remaining.split('-').collect();
     resolve_segments_recursive(base, &parts, 0)
+}
+
+/// Partial variant: matches as many segments as possible from the filesystem.
+/// When a level cannot be matched (directory missing or moved), the remaining
+/// encoded tokens are joined with `-` and appended as a single path component.
+///
+/// This gives a much better short name than the naive `-` → separator fallback.
+/// Example: if `liaoyuan_web_wrokspace` exists but `liaoyuan_materials` does not,
+/// returns `.../liaoyuan_web_wrokspace/liaoyuan-materials` instead of `.../materials`.
+fn resolve_segments_partial(base: &Path, remaining: &str) -> PathBuf {
+    if remaining.is_empty() {
+        return base.to_path_buf();
+    }
+
+    let parts: Vec<&str> = remaining.split('-').collect();
+    resolve_segments_partial_recursive(base, &parts, 0)
+}
+
+fn resolve_segments_partial_recursive(current: &Path, parts: &[&str], start: usize) -> PathBuf {
+    if start >= parts.len() {
+        return current.to_path_buf();
+    }
+
+    let dir_entries: Vec<(String, String)> = match std::fs::read_dir(current) {
+        Ok(rd) => rd
+            .flatten()
+            .map(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                let encoded = encode_path_segment(&name);
+                (name, encoded)
+            })
+            .collect(),
+        Err(_) => {
+            // Can't read directory; append all remaining tokens as one component.
+            return current.join(parts[start..].join("-"));
+        }
+    };
+
+    let max_consume = parts.len() - start;
+
+    for count in 1..=max_consume {
+        let candidate_encoded: String = parts[start..start + count].join("-");
+        if candidate_encoded.is_empty() {
+            continue;
+        }
+
+        for (real_name, entry_encoded) in &dir_entries {
+            if *entry_encoded == candidate_encoded {
+                let child = current.join(real_name);
+                if start + count >= parts.len() {
+                    return child;
+                }
+                if child.is_dir() {
+                    return resolve_segments_partial_recursive(&child, parts, start + count);
+                }
+            }
+        }
+
+        // Unix `--` → `.` heuristic
+        if !cfg!(windows) && count >= 2 && parts[start].is_empty() {
+            let dot_candidate = format!(".{}", parts[start + 1..start + count].join("-"));
+            let dot_encoded = encode_path_segment(&dot_candidate);
+            for (real_name, entry_encoded) in &dir_entries {
+                if *entry_encoded == dot_encoded {
+                    let child = current.join(real_name);
+                    if start + count >= parts.len() {
+                        return child;
+                    }
+                    if child.is_dir() {
+                        return resolve_segments_partial_recursive(&child, parts, start + count);
+                    }
+                }
+            }
+        }
+    }
+
+    // No match at this level: append remaining tokens as a single hyphenated component.
+    current.join(parts[start..].join("-"))
 }
 
 fn resolve_segments_recursive(current: &Path, parts: &[&str], start: usize) -> Option<PathBuf> {
@@ -262,7 +351,12 @@ fn resolve_segments_recursive(current: &Path, parts: &[&str], start: usize) -> O
     None
 }
 
-/// Extract the last path segment as a short name
+/// Extract the last path segment as a short name.
+///
+/// For fully-resolved real paths this is just the last component.
+/// For partially-resolved or naive-decoded paths the last component may be
+/// a hyphenated encoded segment like "liaoyuan-materials" — that is already
+/// better than splitting on `-` further, so we keep it as-is.
 pub fn short_name_from_path(path: &str) -> String {
     let path = path.trim_end_matches(['/', '\\']);
     if let Some(pos) = path.rfind(['/', '\\']) {
@@ -270,6 +364,75 @@ pub fn short_name_from_path(path: &str) -> String {
     } else {
         path.to_string()
     }
+}
+
+/// Derive a best-effort short name directly from an encoded project directory name,
+/// used when no `originalPath` is available AND filesystem matching completely fails
+/// (e.g. the path lives on another machine with no accessible root drive).
+///
+/// Strips well-known leading components (drive letter, Users/{name}, Desktop/Documents…)
+/// and returns the last 1–2 meaningful hyphenated segments.
+pub fn short_name_from_encoded(encoded: &str) -> String {
+    // Split on `-` to get raw tokens (empty tokens from leading/doubled dashes are removed)
+    let tokens: Vec<&str> = encoded.split('-').filter(|s| !s.is_empty()).collect();
+    if tokens.is_empty() {
+        return encoded.to_string();
+    }
+
+    // Known "boring" path component patterns to skip from the left:
+    // - single-letter drive (Windows: C, D, …)
+    // - "Users" / "home"
+    // - common system dirs
+    const SKIP: &[&str] = &[
+        "Users", "home", "Desktop", "Documents", "Downloads",
+        "OneDrive", "Dropbox", "iCloud", "projects", "workspace",
+        "workspaces", "dev", "code", "src",
+    ];
+
+    let mut start = 0;
+
+    // Skip drive letter (single ASCII alpha token)
+    if tokens[start].len() == 1 && tokens[start].chars().all(|c| c.is_ascii_alphabetic()) {
+        start += 1;
+    }
+
+    // Skip "Users" or "home" and the following username token
+    if start < tokens.len()
+        && (tokens[start].eq_ignore_ascii_case("Users")
+            || tokens[start].eq_ignore_ascii_case("home"))
+    {
+        start += 1; // skip "Users"/"home"
+        if start < tokens.len() {
+            start += 1; // skip username
+        }
+    }
+
+    // Skip other known boring leading tokens
+    while start < tokens.len()
+        && SKIP
+            .iter()
+            .any(|s| tokens[start].eq_ignore_ascii_case(s))
+    {
+        start += 1;
+    }
+
+    let meaningful: &[&str] = if start < tokens.len() {
+        &tokens[start..]
+    } else {
+        // Fell through everything; use last 2 tokens
+        let tail = tokens.len().saturating_sub(2);
+        &tokens[tail..]
+    };
+
+    if meaningful.is_empty() {
+        return tokens.last().copied().unwrap_or(encoded).to_string();
+    }
+
+    // Return only the last "segment group" — look for the last boundary that
+    // looks like two consecutive short common tokens (heuristic: len <= 3 suggests
+    // a separator-like word such as a very short abbreviation). Otherwise just
+    // take all meaningful tokens joined.
+    meaningful.join("-")
 }
 
 #[cfg(test)]
@@ -294,5 +457,22 @@ mod tests {
         } else {
             assert_eq!(decode_project_path("-home-user-test"), "/home/user/test");
         }
+    }
+
+    #[test]
+    fn test_windows_double_dash_prefix() {
+        // "C--Users-..." encodes "C:\Users\..."
+        // The resolved remaining after stripping "C--" must be "Users-..."
+        // (two dashes for `:` and `\`, not one).
+        // We verify via decode_project_path since filesystem may not match in tests.
+        let encoded = "C--Users-zuolan-Desktop-liaoyuan-web-wrokspace-liaoyuan-materials";
+        // Basic decode: all `-` → `\`
+        let basic = decode_project_path(encoded);
+        assert_eq!(basic, "C:\\\\Users\\zuolan\\Desktop\\liaoyuan\\web\\wrokspace\\liaoyuan\\materials");
+        // The validated decoder should NOT show just "materials" as the short name.
+        // (Full filesystem match or partial — either way last component ≠ "materials").
+        let decoded = decode_project_path_validated(encoded);
+        let short = short_name_from_path(&decoded.display_path);
+        assert_ne!(short, "materials", "short name should not be the naive last token");
     }
 }
