@@ -96,12 +96,12 @@ fn decode_validated_windows(encoded: &str) -> DecodedPath {
     // Windows paths encode "X:\" as "X--" (`:` → `-`, `\` → `-`).
     // We must skip BOTH dashes to arrive at the first real path segment.
     // A bare "X-" (colon only, no backslash) is technically valid but rare.
-    let (root, remaining) = if after_drive.starts_with("--") {
+    let (root, remaining) = if let Some(stripped) = after_drive.strip_prefix("--") {
         // Normal case: "C--Users-..." → root "C:\", remaining "Users-..."
-        (format!("{}:\\", drive_letter), &after_drive[2..])
-    } else if after_drive.starts_with('-') {
+        (format!("{}:\\", drive_letter), stripped)
+    } else if let Some(stripped) = after_drive.strip_prefix('-') {
         // Edge case: "C-something" → treat as "C:\" still
-        (format!("{}:\\", drive_letter), &after_drive[1..])
+        (format!("{}:\\", drive_letter), stripped)
     } else {
         let basic = decode_project_path(encoded);
         let exists = Path::new(&basic).exists();

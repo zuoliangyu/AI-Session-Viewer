@@ -100,10 +100,35 @@ fn which_binary(name: &str) -> Option<String> {
                 }
             }
         }
-        // Fallback: run via login shell to inherit nvm / asdf PATH
-        for shell in &["zsh", "bash"] {
+        // Fallback: run via login shell to inherit nvm / asdf PATH.
+        // Try multiple invocation styles:
+        //   1. `zsh -l -c` — sources .zprofile (standard login shell)
+        //   2. `zsh -c '. ~/.zprofile 2>/dev/null; . ~/.zshrc 2>/dev/null; which X'`
+        //      — also sources .zshrc where Homebrew-nvm users typically init nvm
+        //   3. Same for bash (.bash_profile / .bashrc)
+        let shell_cmds: &[(&str, &[&str])] = &[
+            ("zsh", &["-l", "-c"]),
+            ("bash", &["-l", "-c"]),
+        ];
+        for (shell, args) in shell_cmds {
             let cmd = format!("which {name}");
-            if let Ok(output) = Command::new(shell).args(["-l", "-c", &cmd]).output() {
+            if let Ok(output) = Command::new(shell).args(*args).arg(&cmd).output() {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() && !path.contains("not found") {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+        // Also try sourcing rc files explicitly (covers Homebrew nvm in .zshrc / .bashrc)
+        let rc_cmds: &[(&str, &str)] = &[
+            ("zsh", ". ~/.zprofile 2>/dev/null; . ~/.zshrc 2>/dev/null"),
+            ("bash", ". ~/.bash_profile 2>/dev/null; . ~/.bashrc 2>/dev/null"),
+        ];
+        for (shell, source_cmds) in rc_cmds {
+            let cmd = format!("{source_cmds}; which {name}");
+            if let Ok(output) = Command::new(shell).args(["-c", &cmd]).output() {
                 if output.status.success() {
                     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
                     if !path.is_empty() && !path.contains("not found") {
@@ -169,6 +194,22 @@ fn claude_known_paths() -> Vec<PathBuf> {
             let nvm_versions = PathBuf::from(&nvm_dir_env).join("versions/node");
             if nvm_versions.exists() && nvm_versions != nvm_dir {
                 if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin").join("claude"));
+                    }
+                }
+            }
+        }
+
+        // Homebrew nvm alternative NVM_DIR (macOS)
+        #[cfg(target_os = "macos")]
+        for brew_nvm in &[
+            "/opt/homebrew/var/nvm/versions/node",
+            "/usr/local/var/nvm/versions/node",
+        ] {
+            let brew_nvm_path = PathBuf::from(brew_nvm);
+            if brew_nvm_path.exists() && brew_nvm_path != nvm_dir {
+                if let Ok(entries) = std::fs::read_dir(&brew_nvm_path) {
                     for entry in entries.flatten() {
                         paths.push(entry.path().join("bin").join("claude"));
                     }
@@ -251,6 +292,23 @@ fn codex_npm_nvm_paths() -> Vec<PathBuf> {
             let nvm_versions = PathBuf::from(&nvm_dir_env).join("versions/node");
             if nvm_versions.exists() && nvm_versions != nvm_dir {
                 if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin").join("codex"));
+                    }
+                }
+            }
+        }
+
+        // Homebrew nvm alternative NVM_DIR: /opt/homebrew/var/nvm (Apple Silicon)
+        // and /usr/local/var/nvm (Intel Mac). Some users set NVM_DIR to these paths.
+        #[cfg(target_os = "macos")]
+        for brew_nvm in &[
+            "/opt/homebrew/var/nvm/versions/node",
+            "/usr/local/var/nvm/versions/node",
+        ] {
+            let brew_nvm_path = PathBuf::from(brew_nvm);
+            if brew_nvm_path.exists() && brew_nvm_path != nvm_dir {
+                if let Ok(entries) = std::fs::read_dir(&brew_nvm_path) {
                     for entry in entries.flatten() {
                         paths.push(entry.path().join("bin").join("codex"));
                     }
