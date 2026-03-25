@@ -9,6 +9,7 @@ import { UpdateIndicator } from "./UpdateIndicator";
 import { ProjectActionsMenu } from "../project/ProjectActionsMenu";
 import { DeleteProjectDialog } from "../project/DeleteProjectDialog";
 import type { ProjectEntry } from "../../types";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   FolderOpen,
   Search,
@@ -31,6 +32,7 @@ import {
   Plus,
   Trash2,
   Check,
+  Copy,
   Loader2,
   AlertCircle,
   Star,
@@ -859,10 +861,10 @@ const INSTALL_HINTS: Record<InstallMethod, { label: string; paths: string[]; tip
     tip: "在终端运行 `npm list -g @anthropic-ai/claude-code` 确认安装，再用 `which claude`（Mac/Linux）或 `where claude`（Windows）获取实际路径，填入下方「CLI 路径」",
   },
   nvm: {
-    label: "nvm / nvm-windows",
+    label: "nvm (all platforms)",
     paths: [
       "Mac/Linux: ~/.nvm/versions/node/{version}/bin/claude",
-      "nvm-windows: %APPDATA%\\nvm\\{version}\\claude.cmd",
+      "Windows (nvm-windows): %APPDATA%\\nvm\\{version}\\claude.cmd",
     ],
     tip: "由于桌面应用不继承 shell 的 nvm PATH，自动检测可能失败。请在终端执行 `nvm use` 激活版本后运行 `which claude`（Mac/Linux）或 `where claude`（Windows），将完整路径填入下方「CLI 路径」",
   },
@@ -880,6 +882,26 @@ const INSTALL_HINTS: Record<InstallMethod, { label: string; paths: string[]; tip
     tip: "在终端运行 `which claude`（Mac/Linux）或 `where claude`（Windows）获取路径，填入下方「CLI 路径」",
   },
 };
+
+function CopyCommandLine({ cmd }: { cmd: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
+      <code className="flex-1 text-[11px] font-mono text-foreground select-all">{cmd}</code>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(cmd);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+        title="复制"
+      >
+        {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+      </button>
+    </div>
+  );
+}
 
 function ChatSettingsTab() {
   const { terminalShell, setTerminalShell } = useAppStore();
@@ -915,7 +937,8 @@ function ChatSettingsTab() {
   };
 
   const hint = INSTALL_HINTS[installMethod];
-  const notFound = detected && availableClis.length === 0;
+  const claudeNotFound = detected && !availableClis.some((c) => c.cliType === "claude");
+  const codexNotFound = detected && !availableClis.some((c) => c.cliType === "codex");
 
   return (
     <div className="p-4 space-y-4 text-sm">
@@ -969,13 +992,15 @@ function ChatSettingsTab() {
             {detecting ? "检测中..." : "重新检测"}
           </button>
 
-          {/* 检测失败提示 */}
-          {notFound && (
+          {/* Claude 检测失败提示 */}
+          {claudeNotFound && (
             <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-2.5 space-y-1.5">
               <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
-                未找到 Claude CLI，请按以下提示手动填写路径：
+                未找到 Claude CLI
               </p>
-              <ul className="space-y-0.5">
+              <p className="text-[11px] text-muted-foreground">通过 npm 安装：</p>
+              <CopyCommandLine cmd="npm install -g @anthropic-ai/claude-code" />
+              <ul className="space-y-0.5 mt-1">
                 {hint.paths.map((p, i) => (
                   <li key={i} className="text-[11px] text-muted-foreground font-mono">{p}</li>
                 ))}
@@ -983,22 +1008,50 @@ function ChatSettingsTab() {
               <p className="text-[11px] text-muted-foreground leading-relaxed">{hint.tip}</p>
             </div>
           )}
+
+          {/* Codex 检测失败提示 */}
+          {codexNotFound && (
+            <div className="rounded-md bg-blue-500/10 border border-blue-500/30 p-2.5 space-y-1.5">
+              <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                未找到 Codex CLI（可选）
+              </p>
+              <p className="text-[11px] text-muted-foreground">通过 npm 安装：</p>
+              <CopyCommandLine cmd="npm install -g @openai/codex" />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                安装后点击「重新检测」。若使用 nvm，需先 <code className="font-mono">nvm use</code> 激活对应版本。
+              </p>
+            </div>
+          )}
         </div>
       </section>
 
       <section>
         <h3 className="font-medium mb-2 text-foreground">CLI 路径</h3>
-        <input
-          type="text"
-          value={cliPath}
-          onChange={(e) => setCliPath(e.target.value)}
-          placeholder={
-            navigator.platform.startsWith("Win")
-              ? "C:\\Users\\<user>\\.bun\\bin\\claude.exe"
-              : "/usr/local/bin/claude"
-          }
-          className="w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
-        />
+        <div className="flex gap-1.5">
+          <input
+            type="text"
+            value={cliPath}
+            onChange={(e) => setCliPath(e.target.value)}
+            placeholder={
+              navigator.platform.startsWith("Win")
+                ? "C:\\Users\\<user>\\.bun\\bin\\claude.exe"
+                : "/usr/local/bin/claude"
+            }
+            className="flex-1 bg-muted border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary font-mono"
+          />
+          {__IS_TAURI__ && (
+            <button
+              onClick={async () => {
+                const selected = await openFileDialog({ multiple: false, directory: false });
+                if (typeof selected === "string") setCliPath(selected);
+              }}
+              className="shrink-0 px-2.5 py-1.5 text-xs bg-muted border border-border rounded hover:bg-accent transition-colors"
+              title="浏览文件"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
         <p className="mt-1 text-xs text-muted-foreground">
           留空则自动检测。如自动检测失败，请手动指定 Claude CLI 可执行文件路径
         </p>

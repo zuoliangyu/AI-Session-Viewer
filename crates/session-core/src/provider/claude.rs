@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use rayon::prelude::*;
+
 use crate::models::message::{DisplayMessage, PaginatedMessages};
 use crate::models::project::ProjectEntry;
 use crate::models::session::{SessionIndexEntry, SessionsIndex, SessionsIndexFileEntry};
@@ -133,65 +135,59 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
         return Ok(Vec::new());
     }
 
-    let mut projects: Vec<ProjectEntry> = Vec::new();
+    // Collect all project directory entries first (fast, sequential)
+    let dir_entries: Vec<PathBuf> = fs::read_dir(&projects_dir)
+        .map_err(|e| format!("Failed to read projects dir: {}", e))?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
 
-    let entries =
-        fs::read_dir(&projects_dir).map_err(|e| format!("Failed to read projects dir: {}", e))?;
+    // Parallel processing: read index.json + count files for each project dir
+    let mut projects: Vec<ProjectEntry> = dir_entries
+        .into_par_iter()
+        .filter_map(|path| {
+            let encoded_name = path.file_name().and_then(|n| n.to_str())?.to_string();
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
+            let index_path = path.join("sessions-index.json");
+            let parsed_index = fs::read_to_string(&index_path)
+                .ok()
+                .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
 
-        let encoded_name = match path.file_name().and_then(|n| n.to_str()) {
-            Some(name) => name.to_string(),
-            None => continue,
-        };
-
-        // Read sessions-index.json for display path and accurate session count
-        let index_path = path.join("sessions-index.json");
-        let parsed_index = fs::read_to_string(&index_path)
-            .ok()
-            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
-
-        let (display_path, path_exists) = parsed_index
-            .as_ref()
-            .and_then(|idx| {
-                // Primary: use originalPath from the index
-                idx.original_path.clone().or_else(|| {
-                    // Secondary: use projectPath from the first available entry
-                    idx.entries.iter().find_map(|e| e.project_path.clone())
+            let (display_path, path_exists) = parsed_index
+                .as_ref()
+                .and_then(|idx| {
+                    idx.original_path.clone().or_else(|| {
+                        idx.entries.iter().find_map(|e| e.project_path.clone())
+                    })
                 })
-            })
-            .map(|p| {
-                let exists = std::path::Path::new(&p).exists();
-                (p, exists)
-            })
-            .unwrap_or_else(|| {
-                let decoded = decode_project_path_validated(&encoded_name);
-                (decoded.display_path, decoded.path_exists)
-            });
-        let short_name = short_name_from_path(&display_path);
+                .map(|p| {
+                    let exists = std::path::Path::new(&p).exists();
+                    (p, exists)
+                })
+                .unwrap_or_else(|| {
+                    let decoded = decode_project_path_validated(&encoded_name);
+                    (decoded.display_path, decoded.path_exists)
+                });
+            let short_name = short_name_from_path(&display_path);
 
-        // 用轻量计数：只检查文件大小，避免读取文件内容
-        let session_count = count_jsonl_files(&path);
+            let session_count = count_jsonl_files(&path);
+            if session_count == 0 {
+                return None;
+            }
 
-        let last_modified = fs::metadata(&path)
-            .and_then(|m| m.modified())
-            .ok()
-            .map(|t| {
-                let duration = t
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default();
-                chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
-            });
+            let last_modified = fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .map(|t| {
+                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                });
 
-        if session_count > 0 {
             let alias = get_project_alias(&encoded_name).unwrap_or(None);
-            projects.push(ProjectEntry {
+            Some(ProjectEntry {
                 source: "claude".to_string(),
                 id: encoded_name,
                 display_path,
@@ -201,9 +197,9 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 model_provider: None,
                 alias,
                 path_exists,
-            });
-        }
-    }
+            })
+        })
+        .collect();
 
     projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
     Ok(projects)

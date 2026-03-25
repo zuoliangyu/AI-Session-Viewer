@@ -20,7 +20,7 @@ pub fn find_cli(_cli_type: &str) -> Result<String, String> {
     }
 
     // Try known paths
-    for candidate in known_paths() {
+    for candidate in claude_known_paths() {
         if candidate.exists() {
             return Ok(candidate.to_string_lossy().to_string());
         }
@@ -29,7 +29,20 @@ pub fn find_cli(_cli_type: &str) -> Result<String, String> {
     Err("Claude CLI not found. Please install it first.".to_string())
 }
 
-/// Discover installed Claude CLI.
+/// Find the Codex CLI binary path (npm/nvm only).
+fn find_codex() -> Option<String> {
+    if let Some(path) = which_binary("codex") {
+        return Some(path);
+    }
+    for candidate in codex_npm_nvm_paths() {
+        if candidate.exists() {
+            return Some(candidate.to_string_lossy().to_string());
+        }
+    }
+    None
+}
+
+/// Discover installed CLIs (Claude + Codex).
 pub fn discover_installations() -> Vec<CliInstallation> {
     let mut installations = Vec::new();
 
@@ -39,6 +52,15 @@ pub fn discover_installations() -> Vec<CliInstallation> {
             path,
             version,
             cli_type: "claude".to_string(),
+        });
+    }
+
+    if let Some(path) = find_codex() {
+        let version = get_cli_version(&path);
+        installations.push(CliInstallation {
+            path,
+            version,
+            cli_type: "codex".to_string(),
         });
     }
 
@@ -95,8 +117,8 @@ fn which_binary(name: &str) -> Option<String> {
     None
 }
 
-/// Known installation paths to check.
-fn known_paths() -> Vec<PathBuf> {
+/// Known installation paths for Claude CLI.
+fn claude_known_paths() -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let home = dirs::home_dir();
 
@@ -172,6 +194,69 @@ fn known_paths() -> Vec<PathBuf> {
     {
         paths.push(PathBuf::from("/usr/local/bin/claude"));
         paths.push(PathBuf::from("/opt/homebrew/bin/claude"));
+    }
+
+    paths
+}
+
+/// Known npm/nvm-only paths for Codex CLI (codex is npm-only, no bun/brew support).
+fn codex_npm_nvm_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let home = dirs::home_dir();
+
+    if let Some(ref home) = home {
+        // npm global
+        if cfg!(windows) {
+            paths.push(home.join("AppData/Roaming/npm/codex.cmd"));
+            paths.push(home.join("AppData/Roaming/npm/codex.exe"));
+        } else {
+            paths.push(home.join(".npm-global/bin/codex"));
+        }
+
+        // NVM (Unix/Mac): ~/.nvm/versions/node/{version}/bin/codex
+        let nvm_dir = home.join(".nvm/versions/node");
+        if nvm_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+                for entry in entries.flatten() {
+                    let bin_dir = entry.path().join("bin");
+                    if cfg!(windows) {
+                        paths.push(bin_dir.join("codex.cmd"));
+                        paths.push(bin_dir.join("codex.exe"));
+                    } else {
+                        paths.push(bin_dir.join("codex"));
+                    }
+                }
+            }
+        }
+
+        // nvm-windows: %APPDATA%\nvm\{version}\codex.cmd
+        #[cfg(windows)]
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let nvm_win_dir = PathBuf::from(&appdata).join("nvm");
+            if nvm_win_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_win_dir) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            paths.push(entry.path().join("codex.cmd"));
+                            paths.push(entry.path().join("codex.exe"));
+                        }
+                    }
+                }
+            }
+        }
+
+        // NVM_DIR env var (Unix/Mac)
+        #[cfg(not(windows))]
+        if let Ok(nvm_dir_env) = std::env::var("NVM_DIR") {
+            let nvm_versions = PathBuf::from(&nvm_dir_env).join("versions/node");
+            if nvm_versions.exists() && nvm_versions != nvm_dir {
+                if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    for entry in entries.flatten() {
+                        paths.push(entry.path().join("bin").join("codex"));
+                    }
+                }
+            }
+        }
     }
 
     paths

@@ -2,13 +2,54 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
+use parking_lot::Mutex;
+use rayon::prelude::*;
 use serde_json::Value;
 
 use crate::models::message::{DisplayContentBlock, DisplayMessage, PaginatedMessages};
 use crate::models::project::ProjectEntry;
 use crate::models::session::SessionIndexEntry;
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
+
+// ── Session list cache ──
+
+struct SessionsCache {
+    built_at: Instant,
+    entries: Vec<SessionIndexEntry>,
+}
+
+const CACHE_TTL: Duration = Duration::from_secs(10);
+
+static SESSIONS_CACHE: OnceLock<Mutex<Option<SessionsCache>>> = OnceLock::new();
+
+fn sessions_cache() -> &'static Mutex<Option<SessionsCache>> {
+    SESSIONS_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn get_cached_sessions() -> Option<Vec<SessionIndexEntry>> {
+    let guard = sessions_cache().lock();
+    guard.as_ref().and_then(|c| {
+        if c.built_at.elapsed() < CACHE_TTL {
+            Some(c.entries.clone())
+        } else {
+            None
+        }
+    })
+}
+
+fn set_cached_sessions(entries: Vec<SessionIndexEntry>) {
+    *sessions_cache().lock() = Some(SessionsCache {
+        built_at: Instant::now(),
+        entries,
+    });
+}
+
+pub fn invalidate_sessions_cache() {
+    *sessions_cache().lock() = None;
+}
 
 /// Maximum size for text content blocks sent to frontend (20KB)
 const MAX_TEXT_BLOCK_SIZE: usize = 20_000;
@@ -196,89 +237,223 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
     None
 }
 
+// ── Single-pass file scan ──
+
+struct SessionFileScan {
+    meta: Option<SessionMeta>,
+    first_prompt: Option<String>,
+    message_count: u32,
+}
+
+/// Read a session JSONL file once and extract meta + first_prompt + message count.
+fn scan_session_file(path: &Path) -> SessionFileScan {
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => {
+            return SessionFileScan {
+                meta: None,
+                first_prompt: None,
+                message_count: 0,
+            }
+        }
+    };
+    let reader = BufReader::new(file);
+
+    let mut meta: Option<SessionMeta> = None;
+    let mut first_prompt: Option<String> = None;
+    let mut message_count: u32 = 0;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Fast path: count messages without JSON parsing
+        if first_prompt.is_some() && meta.is_some() {
+            // Only need message count from here — use cheap string check
+            if (trimmed.contains("\"type\":\"response_item\"")
+                || trimmed.contains("\"type\": \"response_item\""))
+                && (trimmed.contains("\"type\":\"message\"")
+                    || trimmed.contains("\"type\": \"message\""))
+                && !trimmed.contains("\"developer\"")
+                && !trimmed.contains("\"system\"")
+            {
+                message_count += 1;
+            }
+            continue;
+        }
+
+        // Need to parse JSON for meta or first_prompt
+        let row: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let row_type = row.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        if meta.is_none() && row_type == "session_meta" {
+            if let Some(payload) = row.get("payload") {
+                let id = payload
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let cwd = payload
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let cli_version = payload
+                    .get("cli_version")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let model_provider = payload
+                    .get("model_provider")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let git_branch = payload
+                    .get("git")
+                    .and_then(|g| g.get("branch"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                let is_interactive = match payload.get("source") {
+                    Some(Value::String(s)) => s == "cli" || s == "vscode",
+                    None => true,
+                    _ => false,
+                };
+                meta = Some(SessionMeta {
+                    id,
+                    cwd,
+                    cli_version,
+                    model_provider,
+                    git_branch,
+                    is_interactive,
+                });
+            }
+            continue;
+        }
+
+        if row_type == "response_item" {
+            if let Some(payload) = row.get("payload") {
+                let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                if payload_type == "message" {
+                    let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    if role != "developer" && role != "system" {
+                        message_count += 1;
+                        if first_prompt.is_none() && role == "user" {
+                            if let Some(content) =
+                                payload.get("content").and_then(|c| c.as_array())
+                            {
+                                for item in content {
+                                    let item_type =
+                                        item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                                    if item_type == "input_text" || item_type == "text" {
+                                        if let Some(text) =
+                                            item.get("text").and_then(|v| v.as_str())
+                                        {
+                                            if !text.is_empty() {
+                                                first_prompt =
+                                                    Some(truncate_string(text, 200));
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    SessionFileScan {
+        meta,
+        first_prompt,
+        message_count,
+    }
+}
+
 // ── Projects and sessions ──
 
 fn list_all_sessions() -> Result<Vec<SessionIndexEntry>, String> {
-    let files = scan_all_session_files();
-    let mut entries: Vec<SessionIndexEntry> = Vec::new();
-
-    for file_path in files {
-        let meta = extract_session_meta(&file_path);
-
-        // Skip non-interactive sessions (SubAgent, Exec, Mcp, etc.)
-        // Only show Cli and VSCode sessions, matching Codex's INTERACTIVE_SESSION_SOURCES
-        if let Some(ref m) = meta {
-            if !m.is_interactive {
-                continue;
-            }
-        }
-
-        let first_prompt = extract_first_prompt(&file_path);
-        let message_count = count_messages(&file_path);
-
-        let (session_id, cwd, model_provider, cli_version, git_branch) = match meta {
-            Some(m) => (m.id, m.cwd, m.model_provider, m.cli_version, m.git_branch),
-            None => {
-                // Try to extract UUID from filename: rollout-YYYY-MM-DDThh-mm-ss-UUID.jsonl
-                let stem = file_path
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or("unknown");
-                let id = extract_uuid_from_filename(stem).unwrap_or_else(|| stem.to_string());
-                (id, String::new(), None, None, None)
-            }
-        };
-
-        let short_name = if cwd.is_empty() {
-            "unknown".to_string()
-        } else {
-            short_name_from_path(&cwd)
-        };
-        let _ = short_name; // used indirectly via cwd
-
-        let file_meta = fs::metadata(&file_path).ok();
-        let modified = file_meta.as_ref().and_then(|m| {
-            m.modified().ok().map(|t| {
-                let d = t
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default();
-                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
-            })
-        });
-
-        let created = file_meta.as_ref().and_then(|m| {
-            m.created().ok().map(|t| {
-                let d = t
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default();
-                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
-            })
-        });
-
-        entries.push(SessionIndexEntry {
-            source: "codex".to_string(),
-            session_id,
-            file_path: file_path.to_string_lossy().to_string(),
-            first_prompt,
-            message_count,
-            created,
-            modified,
-            git_branch,
-            project_path: None,
-            is_sidechain: None,
-            cwd: Some(cwd),
-            model_provider,
-            cli_version,
-            alias: None,
-            tags: None,
-        });
+    // Return cached result if still fresh
+    if let Some(cached) = get_cached_sessions() {
+        return Ok(cached);
     }
 
+    let files = scan_all_session_files();
+
+    // Parallel scan: each file is read independently, safe to parallelize
+    let mut entries: Vec<SessionIndexEntry> = files
+        .into_par_iter()
+        .filter_map(|file_path| {
+            let scan = scan_session_file(&file_path);
+
+            // Skip non-interactive sessions
+            if let Some(ref m) = scan.meta {
+                if !m.is_interactive {
+                    return None;
+                }
+            }
+
+            let (session_id, cwd, model_provider, cli_version, git_branch) = match scan.meta {
+                Some(m) => (m.id, m.cwd, m.model_provider, m.cli_version, m.git_branch),
+                None => {
+                    let stem = file_path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("unknown");
+                    let id =
+                        extract_uuid_from_filename(stem).unwrap_or_else(|| stem.to_string());
+                    (id, String::new(), None, None, None)
+                }
+            };
+
+            let file_meta = fs::metadata(&file_path).ok();
+            let modified = file_meta.as_ref().and_then(|m| {
+                m.modified().ok().map(|t| {
+                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                })
+            });
+            let created = file_meta.as_ref().and_then(|m| {
+                m.created().ok().map(|t| {
+                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                })
+            });
+
+            Some(SessionIndexEntry {
+                source: "codex".to_string(),
+                session_id,
+                file_path: file_path.to_string_lossy().to_string(),
+                first_prompt: scan.first_prompt,
+                message_count: scan.message_count,
+                created,
+                modified,
+                git_branch,
+                project_path: None,
+                is_sidechain: None,
+                cwd: Some(cwd),
+                model_provider,
+                cli_version,
+                alias: None,
+                tags: None,
+            })
+        })
+        .collect();
+
     entries.sort_by(|a, b| b.modified.cmp(&a.modified));
+    set_cached_sessions(entries.clone());
     Ok(entries)
 }
 
