@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.1] - 2026-03-25
+
+### Performance
+
+- **会话列表加载大幅提速**：将 `get_sessions` 内部的 5 次独立文件读取（`extract_first_prompt` / `extract_custom_title` / `extract_session_metadata` / `count_messages` / `count_messages_result`）合并为单次 pass（`scan_session_file_once`），287 个 session 的项目加载耗时约减少 80%
+
+### Fixed
+
+- **禁止读取操作触发文件系统写操作**：`get_sessions` 不再自动将无效 session 移入回收站；清理操作必须由用户手动触发，符合最小惊讶原则，消除潜在数据丢失风险
+- **修复正在运行的 Claude Code 会话被误删**：`cleanup_all_orphan_dirs` 现在跳过最近 5 分钟内修改的目录，避免 CC 刚创建但尚未写入消息的 session 文件或 subagent 目录被误判为无效
+- **修复 Corrupt 误判**：进程被强制终止（SIGKILL）后，JSONL 文件最后一行通常为截断的 JSON；现在只有非末行解析失败才判定为 Corrupt，末行截断静默忽略
+- **修复侧边栏 session 计数偏大**：`count_jsonl_files`（用于项目列表页的 session 数量显示）改为快速字符串扫描确认文件含有至少一条 user/assistant 消息行，与 `get_sessions` 的过滤逻辑保持一致
+
+---
+
 ## [2.7.0] - 2026-03-25
 
 ### Added

@@ -393,6 +393,176 @@ fn convert_content(content: &ContentValue) -> Vec<DisplayContentBlock> {
     }
 }
 
+// ── Single-pass session file scanner ──
+
+/// Result of a single-pass scan of a JSONL session file.
+#[derive(Debug)]
+pub struct SessionFileScan {
+    pub first_prompt: Option<String>,
+    pub custom_title: Option<String>,
+    pub git_branch: Option<String>,
+    pub project_path: Option<String>,
+    pub message_count: u32,
+    pub has_messages: bool,
+    /// `true` only when a **non-last** line fails JSON parsing.
+    /// A truncated final line (common after SIGKILL) is silently ignored.
+    pub is_corrupt: bool,
+}
+
+/// Scan a JSONL session file in a single pass, extracting all metadata needed
+/// for session list display.
+///
+/// Returns `None` only if the file cannot be opened.
+pub fn scan_session_file_once(path: &Path) -> Option<SessionFileScan> {
+    let file = File::open(path).ok()?;
+    let reader = BufReader::new(file);
+
+    let mut scan = SessionFileScan {
+        first_prompt: None,
+        custom_title: None,
+        git_branch: None,
+        project_path: None,
+        message_count: 0,
+        has_messages: false,
+        is_corrupt: false,
+    };
+
+    let mut metadata_done = false;
+
+    // Sliding-window approach: hold `prev` so we always know if the line
+    // being processed is the last one (to avoid marking truncated tails as Corrupt).
+    let mut prev: Option<String> = None;
+
+    let process = |trimmed: &str, is_last: bool, scan: &mut SessionFileScan, metadata_done: &mut bool| {
+        if trimmed.is_empty() {
+            return;
+        }
+
+        let want_meta = !*metadata_done;
+        let want_user = trimmed.contains("\"type\":\"user\"");
+        let want_assistant = trimmed.contains("\"type\":\"assistant\"");
+        let want_title = trimmed.contains("\"type\":\"custom-title\"");
+
+        if !want_meta && !want_user && !want_assistant && !want_title {
+            return;
+        }
+
+        let value: serde_json::Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => {
+                if !is_last {
+                    scan.is_corrupt = true;
+                }
+                return;
+            }
+        };
+
+        let record_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        if want_meta {
+            if value.get("sessionId").and_then(|v| v.as_str()).is_some() {
+                *metadata_done = true;
+            }
+            if scan.git_branch.is_none() {
+                scan.git_branch = value
+                    .get("gitBranch")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+            }
+            if scan.project_path.is_none() {
+                scan.project_path = value
+                    .get("cwd")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+            }
+        }
+
+        match record_type {
+            "user" => {
+                scan.message_count += 1;
+                scan.has_messages = true;
+                if scan.first_prompt.is_none() {
+                    if let Some(msg) = value.get("message") {
+                        if msg.get("role").and_then(|r| r.as_str()) == Some("user") {
+                            if let Some(text) =
+                                extract_first_text_from_json_content(msg.get("content"))
+                            {
+                                scan.first_prompt = Some(truncate_string(&text, 200));
+                            }
+                        }
+                    }
+                }
+            }
+            "assistant" => {
+                scan.message_count += 1;
+                scan.has_messages = true;
+            }
+            "custom-title" => {
+                let title = value
+                    .get("customTitle")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if title.is_empty() {
+                    scan.custom_title = None;
+                } else {
+                    scan.custom_title = Some(title);
+                }
+            }
+            _ => {}
+        }
+    };
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim().to_string();
+
+        // Flush previous line as "not last"
+        if let Some(p) = prev.take() {
+            process(&p, false, &mut scan, &mut metadata_done);
+        }
+
+        if !trimmed.is_empty() {
+            prev = Some(trimmed);
+        }
+    }
+
+    // Flush the final line as "last" (truncated JSON is not corruption)
+    if let Some(p) = prev {
+        process(&p, true, &mut scan, &mut metadata_done);
+    }
+
+    Some(scan)
+}
+
+/// Extract the first non-empty text string from a JSON content field.
+/// Handles both plain string content and content block arrays.
+fn extract_first_text_from_json_content(content: Option<&serde_json::Value>) -> Option<String> {
+    let content = content?;
+    match content {
+        serde_json::Value::String(s) if !s.trim().is_empty() => Some(s.clone()),
+        serde_json::Value::Array(arr) => {
+            for item in arr {
+                if item.get("type").and_then(|t| t.as_str()) == Some("text") {
+                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                        if !text.trim().is_empty() {
+                            return Some(text.to_string());
+                        }
+                    }
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn truncate_string(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()

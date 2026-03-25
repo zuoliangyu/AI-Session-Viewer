@@ -214,14 +214,11 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
         return Err(format!("Project directory not found: {}", encoded_name));
     }
 
-    // Step 1：磁盘扫描，分类 valid / invalid
-    let (mut valid_sessions, invalid_items) = scan_project_dir(&project_dir);
+    // Step 1：磁盘扫描，单次 pass 读取所有有效 session
+    let mut valid_sessions = scan_project_dir(&project_dir);
 
     // Step 2：index 元数据补充（可选，失败时静默跳过）
     enrich_with_index(&project_dir, &mut valid_sessions);
-
-    // Step 3：移动无效 item（静默，不影响返回值）
-    cleanup_invalid_sessions(&project_dir, invalid_items);
 
     valid_sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
     Ok(valid_sessions)
@@ -293,37 +290,18 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
     files
 }
 
-#[derive(Debug)]
-enum InvalidReason {
-    Empty,
-    NoMessages,
-    Corrupt,
-    OrphanDir,
-}
-
-#[derive(Debug)]
-struct InvalidItem {
-    path: PathBuf,
-    reason: InvalidReason,
-}
-
 // ── internal helpers ──
 
-/// Step 1：磁盘扫描 — 将顶层 .jsonl 文件分类为 valid / invalid，
-/// 同时检测孤儿 UUID 子目录（有目录但无对应 .jsonl）。
-fn scan_project_dir(
-    project_dir: &Path,
-) -> (Vec<SessionIndexEntry>, Vec<InvalidItem>) {
+/// 磁盘扫描：读取项目目录下顶层 .jsonl 文件，单次 pass 提取所有元数据。
+/// 空文件、无消息文件、无法打开的文件静默跳过，不做任何写操作。
+fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
     let mut valid_sessions: Vec<SessionIndexEntry> = Vec::new();
-    let mut invalid_items: Vec<InvalidItem> = Vec::new();
-    let mut valid_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let entries = match fs::read_dir(project_dir) {
         Ok(e) => e,
-        Err(_) => return (valid_sessions, invalid_items),
+        Err(_) => return valid_sessions,
     };
 
-    // 第一遍：处理顶层 .jsonl 文件
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -342,98 +320,58 @@ fn scan_project_dir(
             continue;
         }
 
-        // 检查文件大小
-        let file_size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-        if file_size == 0 {
-            invalid_items.push(InvalidItem { path, reason: InvalidReason::Empty });
+        // 空文件跳过（无需读取内容）
+        if fs::metadata(&path).map(|m| m.len()).unwrap_or(0) == 0 {
             continue;
         }
 
-        // 尝试计数消息（返回 0 或解析失败）
-        let msg_count_result = count_messages_result(&path);
-        match msg_count_result {
-            Err(_) => {
-                invalid_items.push(InvalidItem { path, reason: InvalidReason::Corrupt });
-            }
-            Ok(0) => {
-                invalid_items.push(InvalidItem { path, reason: InvalidReason::NoMessages });
-            }
-            Ok(_count) => {
-                if let Some(entry) = scan_single_session(&path, &session_id) {
-                    valid_ids.insert(session_id);
-                    valid_sessions.push(entry);
-                }
-            }
-        }
-    }
-
-    // 第二遍：检测孤儿 UUID 子目录
-    if let Ok(entries2) = fs::read_dir(project_dir) {
-        for entry in entries2.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let dir_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-            if dir_name.is_empty() {
-                continue;
-            }
-            // 只处理 UUID 格式目录（36 字符含连字符）
-            if dir_name.len() == 36
-                && dir_name.chars().filter(|&c| c == '-').count() == 4
-                && !valid_ids.contains(&dir_name)
-            {
-                invalid_items.push(InvalidItem {
-                    path,
-                    reason: InvalidReason::OrphanDir,
-                });
-            }
-        }
-    }
-
-    (valid_sessions, invalid_items)
-}
-
-/// Step 3：将无效 session 移入全局回收站。
-/// 内部错误不向上传播，eprintln! 静默记录。
-fn cleanup_invalid_sessions(project_dir: &Path, invalid_items: Vec<InvalidItem>) {
-    if invalid_items.is_empty() {
-        return;
-    }
-
-    // 尝试从 sessions-index.json 获取 project_id（目录名）
-    let project_id = project_dir
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("")
-        .to_string();
-
-    for item in invalid_items {
-        let reason = match item.reason {
-            InvalidReason::Empty => "Empty",
-            InvalidReason::NoMessages => "NoMessages",
-            InvalidReason::Corrupt => "Corrupt",
-            InvalidReason::OrphanDir => "OrphanDir",
+        // 单次 pass：提取所有元数据 + 判断是否有效
+        let Some(scan) = claude_parser::scan_session_file_once(&path) else {
+            continue;
         };
 
-        let item_type = if item.path.is_dir() { "orphanDir" } else { "session" };
-
-        if let Err(e) = crate::recyclebin::move_to_recyclebin(
-            &item.path,
-            item_type,
-            reason,
-            "claude",
-            &project_id,
-            None,
-            None,
-        ) {
-            eprintln!("[cleanup] Failed to move {:?} to recyclebin: {}", item.path, e);
+        // 无消息或文件损坏则跳过（不移动文件，只过滤显示）
+        if !scan.has_messages || scan.is_corrupt {
+            continue;
         }
+
+        let file_meta = fs::metadata(&path).ok();
+        let modified = file_meta.as_ref().and_then(|m| {
+            m.modified().ok().map(|t| {
+                let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            })
+        });
+        let created = file_meta.as_ref().and_then(|m| {
+            m.created().ok().map(|t| {
+                let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_default()
+            })
+        });
+        valid_sessions.push(SessionIndexEntry {
+            source: "claude".to_string(),
+            session_id,
+            file_path: path.to_string_lossy().to_string(),
+            first_prompt: scan.first_prompt,
+            message_count: scan.message_count,
+            created,
+            modified,
+            git_branch: scan.git_branch,
+            project_path: scan.project_path,
+            is_sidechain: Some(false),
+            cwd: None,
+            model_provider: None,
+            cli_version: None,
+            alias: scan.custom_title,
+            tags: None,
+        });
     }
+
+    valid_sessions
 }
 
 /// Step 2：用 sessions-index.json 的元数据补充 valid_sessions。
@@ -485,55 +423,6 @@ fn enrich_with_index(project_dir: &Path, sessions: &mut [SessionIndexEntry]) {
             session.project_path = original_path.clone();
         }
     }
-}
-
-fn scan_single_session(path: &std::path::Path, session_id: &str) -> Option<SessionIndexEntry> {
-    let first_prompt = claude_parser::extract_first_prompt(path);
-    let alias = claude_parser::extract_custom_title(path);
-    let metadata = claude_parser::extract_session_metadata(path);
-    let (_, git_branch, project_path) = metadata.unwrap_or((String::new(), None, None));
-    let message_count = count_messages(path);
-
-    let file_meta = fs::metadata(path).ok();
-    let modified = file_meta.as_ref().and_then(|m| {
-        m.modified().ok().map(|t| {
-            let d = t
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()
-        })
-    });
-
-    let created = file_meta.as_ref().and_then(|m| {
-        m.created().ok().map(|t| {
-            let d = t
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default();
-            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default()
-        })
-    });
-
-    Some(SessionIndexEntry {
-        source: "claude".to_string(),
-        session_id: session_id.to_string(),
-        file_path: path.to_string_lossy().to_string(),
-        first_prompt,
-        message_count,
-        created,
-        modified,
-        git_branch,
-        project_path,
-        is_sidechain: Some(false),
-        cwd: None,
-        model_provider: None,
-        cli_version: None,
-        alias,
-        tags: None,
-    })
 }
 
 /// 删除项目目录，并根据 level 执行额外清理。
@@ -727,50 +616,6 @@ fn clean_bookmarks_for_project(project_id: &str) -> usize {
     removed
 }
 
-fn count_messages(path: &std::path::Path) -> u32 {
-    use std::io::{BufRead, BufReader};
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return 0,
-    };
-    let reader = BufReader::new(file);
-    let mut count: u32 = 0;
-    for line in reader.lines().map_while(Result::ok) {
-        let trimmed = line.trim();
-        if trimmed.contains("\"type\":\"user\"") || trimmed.contains("\"type\":\"assistant\"") {
-            count += 1;
-        }
-    }
-    count
-}
-
-fn count_messages_result(path: &Path) -> Result<u32, String> {
-    use std::io::{BufRead, BufReader};
-    let file = fs::File::open(path).map_err(|e| e.to_string())?;
-    let reader = BufReader::new(file);
-    let mut count: u32 = 0;
-    for line_result in reader.lines() {
-        let line = line_result.map_err(|e| e.to_string())?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        match serde_json::from_str::<serde_json::Value>(trimmed) {
-            Ok(v) => {
-                if let Some(t) = v.get("type").and_then(|t| t.as_str()) {
-                    if t == "user" || t == "assistant" {
-                        count += 1;
-                    }
-                }
-            }
-            Err(_) => {
-                return Err("JSON parse error".to_string());
-            }
-        }
-    }
-    Ok(count)
-}
-
 /// 扫描所有项目目录，将孤儿 UUID 子目录批量移入回收站。
 /// 返回成功移入的数量。
 pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
@@ -824,10 +669,16 @@ pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
                     Some(n) => n.to_string(),
                     None => continue,
                 };
-                // UUID 格式：36 字符，含 4 个连字符
+                // UUID 格式：36 字符，含 4 个连字符；跳过最近 5 分钟内修改的（可能是 CC subagent 正在使用）
+                let recently_modified = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .and_then(|t| std::time::SystemTime::now().duration_since(t).map_err(|e| std::io::Error::other(e.to_string())))
+                    .map(|d| d.as_secs() < 300)
+                    .unwrap_or(true);
                 if dir_name.len() == 36
                     && dir_name.chars().filter(|&c| c == '-').count() == 4
                     && !valid_ids.contains(&dir_name)
+                    && !recently_modified
                 {
                     match crate::recyclebin::move_to_recyclebin(
                         &path,
@@ -849,8 +700,8 @@ pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
     Ok(moved)
 }
 
-/// Count valid (non-empty) .jsonl files at the TOP LEVEL of dir only.
-/// Does NOT descend into subdirectories (e.g. invalid/).
+/// Count .jsonl files at the TOP LEVEL of dir that contain at least one user/assistant message.
+/// Does NOT descend into subdirectories.
 fn count_jsonl_files(dir: &Path) -> usize {
     fs::read_dir(dir)
         .map(|rd| {
@@ -860,8 +711,27 @@ fn count_jsonl_files(dir: &Path) -> usize {
                     p.is_file()
                         && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
                         && e.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                        && has_message_lines(&p)
                 })
                 .count()
         })
         .unwrap_or(0)
+}
+
+/// Fast check: does the file contain at least one user or assistant message line?
+/// Uses string matching (no full JSON parse) for performance.
+fn has_message_lines(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader};
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let reader = BufReader::new(file);
+    for line in reader.lines().map_while(Result::ok) {
+        let t = line.trim().to_string();
+        if t.contains("\"type\":\"user\"") || t.contains("\"type\":\"assistant\"") {
+            return true;
+        }
+    }
+    false
 }
