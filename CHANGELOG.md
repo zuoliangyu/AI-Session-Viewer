@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-03-25
+
+### Added
+
+- **回收站**：删除会话/清理无效会话/清理空工程目录时，改为移入软删除回收站（`~/.claude-code-viewer/recyclebin/`），可从侧边栏"回收站"页面查看、恢复或永久删除，支持一键清空回收站
+- **Codex CLI 支持**：在对话、设置页面新增对 Codex CLI 的完整支持，包含 API Key / Base URL 配置、模型列表、CLI 路径检测
+
+### Changed
+
+- **Windows 路径解码改进**：`path_encoder` 新增 `resolve_segments_partial` 逐级模糊匹配，无法完整解析时返回有意义的部分路径而非原始编码字符串；修复 `X--Users-...` 双横线前缀解析逻辑
+
+### Fixed
+
+- **Homebrew nvm 检测**：登录 Shell 回退新增显式 source `~/.zshrc` / `~/.bashrc`，解决 Homebrew 安装的 nvm 因初始化写在 `.zshrc` 而非 `.zprofile` 导致 Codex/Claude 二进制检测失败的问题；新增 `/opt/homebrew/var/nvm` 和 `/usr/local/var/nvm` 作为备用 `NVM_DIR` 扫描路径（macOS）
+
+---
+
 ## [2.6.4] - 2026-03-24
 
 ### Added
