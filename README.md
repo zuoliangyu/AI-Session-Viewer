@@ -26,12 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.7.3
+## Latest in v2.7.4
 
-- Fixes the dead project-list cache path: `get_projects()` now returns cached projects before forcing a refresh.
-- Reduces cache read amplification by reusing the in-memory Claude list cache during a request flow.
-- Merges duplicate `sessions-index.json` reads in `delete_project()` and writes the list cache with `tmp + rename` atomic persistence.
-- Uses valid session files for uncached project counts so the first `sessionCount` matches the session list more closely.
+- Corrects the project release version to `2.7.4` as the intended published release.
+- Refreshes the README release callout so the top-level docs match the current version.
+- Adds a matching `2.7.4` entry to the changelog for this documentation and version sync release.
 
 ## 截图
 

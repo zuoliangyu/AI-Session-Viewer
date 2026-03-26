@@ -1,9 +1,12 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::http::StatusCode;
 use axum::response::Response;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
+
+use crate::{require_auth_with_query, AppToken};
 
 /// Minimum interval between sending file change events.
 /// Docker volume mounts can produce frequent inotify events,
@@ -87,8 +90,17 @@ pub fn start_file_watcher() -> FsChangeTx {
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     axum::extract::State(tx): axum::extract::State<FsChangeTx>,
-) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, tx))
+    axum::extract::Extension(app_token): axum::extract::Extension<AppToken>,
+    headers: axum::http::HeaderMap,
+    axum::extract::Query(query): axum::extract::Query<WsAuthQuery>,
+) -> Result<Response, StatusCode> {
+    require_auth_with_query(&headers, query.token.as_deref(), &app_token)?;
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, tx)))
+}
+
+#[derive(serde::Deserialize)]
+pub struct WsAuthQuery {
+    pub token: Option<String>,
 }
 
 async fn handle_socket(mut socket: WebSocket, tx: FsChangeTx) {

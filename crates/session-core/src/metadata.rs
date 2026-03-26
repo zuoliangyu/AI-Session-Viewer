@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 
 use crate::parser::path_encoder::get_projects_dir;
 use crate::provider::codex;
@@ -35,8 +35,7 @@ impl Default for MetadataFile {
 fn metadata_path(source: &str, project_id: &str) -> Option<PathBuf> {
     match source {
         "claude" => {
-            let projects_dir = get_projects_dir()?;
-            Some(projects_dir.join(project_id).join(".session-viewer-meta.json"))
+            resolve_claude_project_dir(project_id).map(|dir| dir.join(".session-viewer-meta.json"))
         }
         "codex" => {
             let codex_home = codex::get_sessions_dir()?.parent()?.to_path_buf();
@@ -44,6 +43,36 @@ fn metadata_path(source: &str, project_id: &str) -> Option<PathBuf> {
         }
         _ => None,
     }
+}
+
+fn is_single_normal_component(value: &str) -> bool {
+    let mut components = Path::new(value).components();
+    matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
+}
+
+fn resolve_claude_project_dir(project_id: &str) -> Option<PathBuf> {
+    if !is_single_normal_component(project_id) {
+        return None;
+    }
+
+    let projects_dir = get_projects_dir()?;
+    let canonical_base = fs::canonicalize(&projects_dir).ok()?;
+    let project_dir = projects_dir.join(project_id);
+    if !project_dir.exists() {
+        return None;
+    }
+
+    let canonical_dir = fs::canonicalize(project_dir).ok()?;
+    if !canonical_dir.is_dir() {
+        return None;
+    }
+    let relative = canonical_dir.strip_prefix(&canonical_base).ok()?;
+
+    if relative.components().count() != 1 {
+        return None;
+    }
+
+    Some(canonical_dir)
 }
 
 /// Load metadata file; returns default if not found

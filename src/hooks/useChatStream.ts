@@ -1,7 +1,10 @@
 import { useEffect, useRef } from "react";
 import { useChatStore } from "../stores/chatStore";
+import { subscribeToChatWebSocketMessages } from "../services/webApi";
 
 declare const __IS_TAURI__: boolean;
+
+let webChatSubscriptionInitialized = false;
 
 /** Filter out non-error stderr lines (progress/info output from CLI). */
 function isActualError(line: string): boolean {
@@ -18,22 +21,66 @@ function isActualError(line: string): boolean {
   return true;
 }
 
+function handleWebChatMessage(rawMessage: string): void {
+  const { addStreamLine, setStreaming, setError } = useChatStore.getState();
+
+  try {
+    const data = JSON.parse(rawMessage);
+    const type = typeof data?.type === "string" ? data.type : "";
+    const payload =
+      typeof data?.data === "string"
+        ? data.data
+        : typeof data?.payload === "string"
+          ? data.payload
+          : "";
+
+    if (type === "output" || type === "chunk") {
+      if (payload) {
+        addStreamLine(payload);
+      }
+    } else if (type === "error" || type === "auth_required") {
+      if (type === "auth_required") {
+        setStreaming(false);
+        window.dispatchEvent(new CustomEvent("asv-auth-required"));
+      }
+      if (payload && isActualError(payload)) {
+        setError(payload);
+      }
+    } else if (type === "complete" || type === "done") {
+      setStreaming(false);
+    }
+  } catch {
+    // non-JSON message, ignore
+  }
+}
+
+function ensureWebChatSubscription(): void {
+  if (__IS_TAURI__ || webChatSubscriptionInitialized) {
+    return;
+  }
+
+  subscribeToChatWebSocketMessages(handleWebChatMessage);
+  webChatSubscriptionInitialized = true;
+}
+
+ensureWebChatSubscription();
+
 /**
  * Hook to listen for chat stream events.
  * In Tauri mode: listens to Tauri events.
  * In Web mode: listens to WebSocket messages.
  */
 export function useChatStream() {
-  const sessionId = useChatStore((s) => s.sessionId);
-  const addStreamLine = useChatStore((s) => s.addStreamLine);
-  const setStreaming = useChatStore((s) => s.setStreaming);
-  const setError = useChatStore((s) => s.setError);
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!sessionId) return;
-
     if (__IS_TAURI__) {
+      const addStreamLine = useChatStore.getState().addStreamLine;
+      const setStreaming = useChatStore.getState().setStreaming;
+      const setError = useChatStore.getState().setError;
+      const sessionId = useChatStore.getState().sessionId;
+      if (!sessionId) return;
+
       // Tauri event listeners
       let cancelled = false;
 
@@ -89,48 +136,8 @@ export function useChatStream() {
         }
       };
     } else {
-      // Web mode: listen to WebSocket messages
-      let cancelled = false;
-
-      const setupWebSocket = async () => {
-        const { getChatWebSocket } = await import("../services/webApi");
-        const ws = getChatWebSocket(); // 保存快照，避免单例替换导致 removeEventListener 失效
-
-        if (cancelled) return; // async 完成后检查是否已 cleanup
-
-        const handleMessage = (event: MessageEvent) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === "output") {
-              addStreamLine(data.data);
-            } else if (data.type === "error") {
-              if (data.data && isActualError(data.data)) {
-                setError(data.data);
-              }
-            } else if (data.type === "complete") {
-              setStreaming(false);
-            }
-          } catch {
-            // non-JSON message, ignore
-          }
-        };
-
-        ws.addEventListener("message", handleMessage);
-
-        cleanupRef.current = () => {
-          ws.removeEventListener("message", handleMessage); // 对同一快照操作
-        };
-      };
-
-      setupWebSocket();
-
-      return () => {
-        cancelled = true;
-        if (cleanupRef.current) {
-          cleanupRef.current();
-          cleanupRef.current = null;
-        }
-      };
+      ensureWebChatSubscription();
+      return;
     }
-  }, [sessionId, addStreamLine, setStreaming, setError]);
+  }, []);
 }

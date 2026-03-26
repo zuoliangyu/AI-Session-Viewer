@@ -14,6 +14,7 @@ export function useFileWatcher() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const closingRef = useRef(false);
   const { refreshInBackground } = useAppStore();
 
   const handleChange = useCallback(() => {
@@ -37,31 +38,51 @@ export function useFileWatcher() {
       };
     }
 
+    closingRef.current = false;
+
     // Web mode: connect to WebSocket
     const connect = () => {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl = `${protocol}//${window.location.host}/ws`;
+      import("../services/webApi")
+        .then(async ({ connectFileWatcherWebSocket }) => {
+          if (closingRef.current) {
+            return;
+          }
 
-      const token = localStorage.getItem("asv_token");
-      const url = token ? `${wsUrl}?token=${encodeURIComponent(token)}` : wsUrl;
+          const ws = await connectFileWatcherWebSocket();
+          if (closingRef.current) {
+            ws.close();
+            return;
+          }
+          wsRef.current = ws;
 
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
+          ws.onmessage = handleChange;
 
-      ws.onmessage = handleChange;
+          ws.onclose = () => {
+            if (closingRef.current) {
+              return;
+            }
+            reconnectRef.current = setTimeout(connect, 5000);
+          };
 
-      ws.onclose = () => {
-        reconnectRef.current = setTimeout(connect, 5000);
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
+          ws.onerror = () => {
+            ws.close();
+          };
+        })
+        .catch((error: unknown) => {
+          if (closingRef.current) {
+            return;
+          }
+          if (error instanceof Error && error.message === "Authentication required") {
+            return;
+          }
+          reconnectRef.current = setTimeout(connect, 5000);
+        });
     };
 
     connect();
 
     return () => {
+      closingRef.current = true;
       clearTimeout(reconnectRef.current);
       clearTimeout(debounceRef.current);
       wsRef.current?.close();

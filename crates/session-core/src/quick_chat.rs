@@ -2,7 +2,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-use crate::cli_config;
+use crate::{cli, cli_config};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChatMsg {
@@ -16,19 +16,30 @@ pub struct ChatMsg {
 /// The `model` parameter must be a full API model ID (e.g. "claude-sonnet-4-6"),
 /// not a CLI alias (e.g. "sonnet").
 pub async fn stream_chat(
-    _source: &str,
+    source: &str,
     messages: Vec<ChatMsg>,
     model: &str,
     on_chunk: impl Fn(&str),
 ) -> Result<(), String> {
-    let (api_key, base_url) = cli_config::get_credentials("claude");
+    let source = cli::normalize_source(source)?;
+    if source != "claude" {
+        return Err(format!(
+            "Quick chat API streaming is only supported for Claude right now (got {}).",
+            source
+        ));
+    }
+
+    let (api_key, base_url) = cli_config::get_credentials(source);
     if api_key.is_empty() {
         return Err(
             "No API key found for Claude. Please configure your CLI or set the ANTHROPIC_API_KEY environment variable.".to_string()
         );
     }
 
-    eprintln!("[quick_chat] model={}, base_url={}", model, base_url);
+    eprintln!(
+        "[quick_chat] source={}, model={}, base_url={}",
+        source, model, base_url
+    );
 
     let url = format!("{}/v1/messages", base_url.trim_end_matches('/'));
     let client = Client::builder()
@@ -91,6 +102,19 @@ pub async fn stream_chat(
             Err(_) => continue,
         };
 
+        if let Some(error_msg) = json
+            .get("error")
+            .and_then(|error| {
+                error
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| error.as_str())
+            })
+            .or_else(|| json.get("message").and_then(|v| v.as_str()))
+        {
+            return Err(error_msg.to_string());
+        }
+
         // Anthropic SSE: content_block_delta with delta.text
         if let Some(event_type) = json.get("type").and_then(|v| v.as_str()) {
             if event_type == "content_block_delta" {
@@ -103,6 +127,8 @@ pub async fn stream_chat(
                         on_chunk(text);
                     }
                 }
+            } else if event_type == "error" {
+                return Err(format!("Anthropic stream error: {}", data));
             }
         }
     }

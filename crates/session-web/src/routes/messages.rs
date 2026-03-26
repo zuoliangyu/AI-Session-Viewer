@@ -1,10 +1,11 @@
 use axum::extract::Query;
-use axum::response::Json;
 use axum::http::StatusCode;
+use axum::response::Json;
 use serde::Deserialize;
 use session_core::models::message::PaginatedMessages;
 use session_core::provider::{claude, codex};
-use std::path::Path;
+
+use crate::resolve_session_file_path;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,19 +28,18 @@ pub async fn get_messages(
     Query(params): Query<MessagesQuery>,
 ) -> Result<Json<PaginatedMessages>, (StatusCode, String)> {
     let source = params.source;
-    let file_path = params.file_path;
+    let resolved_path = resolve_session_file_path(&source, &params.file_path)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let page = params.page;
     let page_size = params.page_size;
     let from_end = params.from_end;
 
     let result = tokio::task::spawn_blocking(move || {
-        let path = Path::new(&file_path);
-        if !path.exists() {
-            return Err(format!("Session file not found: {}", file_path));
-        }
         match source.as_str() {
-            "claude" => claude::parse_session_messages(path, page, page_size, from_end),
-            "codex" => codex::parse_session_messages(path, page, page_size, from_end),
+            "claude" => {
+                claude::parse_session_messages(&resolved_path, page, page_size, from_end)
+            }
+            "codex" => codex::parse_session_messages(&resolved_path, page, page_size, from_end),
             _ => Err(format!("Unknown source: {}", source)),
         }
     })

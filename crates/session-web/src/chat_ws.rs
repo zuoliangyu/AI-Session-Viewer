@@ -2,6 +2,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use serde::Deserialize;
 use std::process::Stdio;
+use std::path::{Path, PathBuf};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -23,6 +24,74 @@ struct ChatRequest {
 
 pub async fn chat_ws_handler(ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(handle_chat_socket)
+}
+
+fn canonicalize_existing_dir(path: &str) -> Result<PathBuf, String> {
+    if path.trim().is_empty() {
+        return Err("Project path is required".to_string());
+    }
+
+    let canonical = PathBuf::from(path)
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve project path: {}", e))?;
+
+    if !canonical.is_dir() {
+        return Err("Project path must be a directory".to_string());
+    }
+
+    Ok(canonical)
+}
+
+fn allowed_project_roots(source: &str) -> Result<Vec<PathBuf>, String> {
+    let projects = if source == "codex" {
+        session_core::provider::codex::get_projects()
+    } else {
+        session_core::provider::claude::get_projects()
+    }?;
+
+    let mut roots = Vec::new();
+    for project in projects {
+        let display_path = project.display_path;
+        if display_path.trim().is_empty() {
+            continue;
+        }
+
+        let path = PathBuf::from(&display_path);
+        if !path.exists() || !path.is_dir() {
+            continue;
+        }
+
+        if let Ok(canonical) = path.canonicalize() {
+            roots.push(canonical);
+        }
+    }
+
+    roots.sort();
+    roots.dedup();
+
+    if roots.is_empty() {
+        Err(format!("No accessible {} project directories are available", source))
+    } else {
+        Ok(roots)
+    }
+}
+
+fn path_is_within_any_root(path: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|root| path.starts_with(root))
+}
+
+fn resolve_project_dir(source: &str, project_path: &str) -> Result<PathBuf, String> {
+    let requested = canonicalize_existing_dir(project_path)?;
+    let allowed_roots = allowed_project_roots(source)?;
+
+    if path_is_within_any_root(&requested, &allowed_roots) {
+        Ok(requested)
+    } else {
+        Err(format!(
+            "Project path is outside the allowed {} project directories",
+            source
+        ))
+    }
 }
 
 async fn handle_chat_socket(mut socket: WebSocket) {
@@ -60,7 +129,19 @@ async fn handle_chat_socket(mut socket: WebSocket) {
 
                         match request.action.as_str() {
                             "start" | "continue" => {
-                                let source = request.source.unwrap_or_else(|| "claude".to_string());
+                                let raw_source =
+                                    request.source.unwrap_or_else(|| "claude".to_string());
+                                let source = match cli::normalize_source(&raw_source) {
+                                    Ok(source) => source.to_string(),
+                                    Err(e) => {
+                                        let err_msg = serde_json::json!({
+                                            "type": "error",
+                                            "data": e
+                                        }).to_string();
+                                        let _ = socket.send(Message::Text(err_msg.into())).await;
+                                        continue;
+                                    }
+                                };
                                 let project_path = request.project_path.unwrap_or_default();
                                 let prompt = request.prompt.unwrap_or_default();
                                 let model = request.model.unwrap_or_default();
@@ -140,35 +221,54 @@ async fn run_cli_process(
     project_path: &str,
     prompt: &str,
     model: &str,
-    _skip_permissions: bool,
+    skip_permissions: bool,
     resume_session_id: Option<&str>,
     custom_cli_path: &str,
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let cli_path = if custom_cli_path.is_empty() {
-        cli::find_cli(source)?
-    } else {
-        custom_cli_path.to_string()
-    };
+    let source = cli::normalize_source(source)?;
+    let project_dir = resolve_project_dir(source, project_path)?;
+    if !custom_cli_path.trim().is_empty() {
+        tracing::warn!("Ignoring client-supplied cli_path for web chat");
+    }
+    let cli_path = cli::find_cli(source)?;
 
     let mut cmd = Command::new(&cli_path);
 
-    // Build Claude CLI arguments
-    let _ = source; // always claude
-    if let Some(sid) = resume_session_id {
-        cmd.arg("--resume").arg(sid);
+    if source == "codex" {
+        // Codex web chat runs in a non-interactive context, so use the JSON
+        // streaming mode plus full-auto execution to avoid permission prompts.
+        cmd.arg("exec");
+        if let Some(sid) = resume_session_id {
+            cmd.arg("resume").arg(sid);
+        }
+        cmd.arg(prompt);
+        cmd.arg("--json");
+        cmd.arg("--full-auto");
+        if !model.is_empty() {
+            cmd.arg("--model").arg(model);
+        }
+        // Codex normally expects a git repo; allow validated project folders.
+        cmd.arg("--skip-git-repo-check");
+    } else {
+        if let Some(sid) = resume_session_id {
+            cmd.arg("--resume").arg(sid);
+        }
+        cmd.arg("-p").arg(prompt);
+        if !model.is_empty() {
+            // Claude CLI expects CLI model IDs rather than the "-latest" alias.
+            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+            cmd.arg("--model").arg(cli_model);
+        }
+        cmd.arg("--output-format").arg("stream-json");
+        cmd.arg("--include-partial-messages");
+        cmd.arg("--verbose");
+        // Web mode has no interactive terminal for permission prompts,
+        // so always skip permissions to prevent the CLI from hanging.
+        let _ = skip_permissions;
+        cmd.arg("--dangerously-skip-permissions");
     }
-    cmd.arg("-p").arg(prompt);
-    if !model.is_empty() {
-        cmd.arg("--model").arg(model);
-    }
-    cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--include-partial-messages");
-    cmd.arg("--verbose");
-    // Web mode has no interactive terminal for permission prompts,
-    // so always skip permissions to prevent the CLI from hanging
-    cmd.arg("--dangerously-skip-permissions");
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
     // waiting for permission confirmation or other interactive prompts
@@ -176,9 +276,7 @@ async fn run_cli_process(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    if !project_path.is_empty() {
-        cmd.current_dir(project_path);
-    }
+    cmd.current_dir(project_dir);
 
     let mut child = cmd
         .spawn()

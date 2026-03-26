@@ -7,26 +7,42 @@ use std::process::Command;
 pub struct CliInstallation {
     pub path: String,
     pub version: Option<String>,
-    pub cli_type: String, // "claude"
+    pub cli_type: String, // "claude" | "codex"
+}
+
+/// Normalize a source name to the supported CLI types.
+pub fn normalize_source(source: &str) -> Result<&'static str, String> {
+    let trimmed = source.trim();
+    if trimmed.eq_ignore_ascii_case("claude") {
+        Ok("claude")
+    } else if trimmed.eq_ignore_ascii_case("codex") {
+        Ok("codex")
+    } else {
+        Err(format!("Unsupported source: {}", source))
+    }
 }
 
 /// Find a CLI binary path by source name ("claude" or "codex").
 pub fn find_cli(cli_type: &str) -> Result<String, String> {
-    if cli_type == "codex" {
-        return find_codex()
-            .ok_or_else(|| "Codex CLI not found. Run: npm install -g @openai/codex".to_string());
-    }
-
-    // Claude: try system lookup first, then known paths
-    if let Some(path) = which_binary("claude") {
-        return Ok(path);
-    }
-    for candidate in claude_known_paths() {
-        if candidate.exists() {
-            return Ok(candidate.to_string_lossy().to_string());
+    match normalize_source(cli_type)? {
+        "codex" => {
+            find_codex()
+                .ok_or_else(|| "Codex CLI not found. Run: npm install -g @openai/codex".to_string())
         }
+        "claude" => {
+            // Claude: try system lookup first, then known paths
+            if let Some(path) = which_binary("claude") {
+                return Ok(path);
+            }
+            for candidate in claude_known_paths() {
+                if candidate.exists() {
+                    return Ok(candidate.to_string_lossy().to_string());
+                }
+            }
+            Err("Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code".to_string())
+        }
+        _ => unreachable!(),
     }
-    Err("Claude CLI not found. Run: npm install -g @anthropic-ai/claude-code".to_string())
 }
 
 /// Find the Codex CLI binary path (npm/nvm only).

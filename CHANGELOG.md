@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.4] - 2026-03-26
+
+### Changed
+
+- Corrected the project release version to `2.7.4` in `package.json`.
+- Synced the release version metadata used by the workspace versioning workflow.
+
+### Documentation
+
+- Updated the README release summary to reflect `v2.7.4`.
+- Added this changelog entry to document the `2.7.4` release.
+
+---
+
 ## [2.7.3] - 2026-03-26
 
 ### Fixed
