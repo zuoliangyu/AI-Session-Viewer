@@ -9,6 +9,7 @@ import { ChatPage } from "./components/chat/ChatPage";
 import { QuickChatPage } from "./components/quick-chat/QuickChatPage";
 import { BookmarksPage } from "./components/bookmark/BookmarksPage";
 import { RecyclebinPage } from "./components/recyclebin/RecyclebinPage";
+import { InvalidItemsPage } from "./components/cleanup";
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
         <Route path="/search" element={<SearchPage />} />
         <Route path="/stats" element={<StatsPage />} />
         <Route path="/bookmarks" element={<BookmarksPage />} />
+        <Route path="/cleanup" element={<InvalidItemsPage />} />
         <Route path="/recyclebin" element={<RecyclebinPage />} />
         <Route path="/chat" element={<ChatPage />} />
         <Route path="/chat/:sessionId" element={<ChatPage />} />

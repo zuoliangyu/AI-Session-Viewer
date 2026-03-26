@@ -26,11 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.7.4
+## Latest in v2.7.5
 
-- Corrects the project release version to `2.7.4` as the intended published release.
-- Refreshes the README release callout so the top-level docs match the current version.
-- Adds a matching `2.7.4` entry to the changelog for this documentation and version sync release.
+- 新增「无效项管理」页面，按项目集中查看路径失效项目和 `messageCount === 0` 的空会话。
+- 支持批量选择并清理无效项；桌面端会话删除进入回收站，Web 端删除为永久删除，`codex` 数据源暂仅支持清理无效会话。
+- 同步发布 `v2.7.5` 版本号、README 与 CHANGELOG，确保本次 cleanup 改动一并纳入发布。
 
 ## 截图
 
@@ -301,6 +301,13 @@ environment:
 - 自动读取本地 Claude CLI 配置文件中的 API Key（无需手动输入）
 - SSE 流式输出，Markdown 实时渲染
 - 无需选择工作目录，适合快速提问
+
+### 无效项管理
+
+- 侧边栏新增「无效项管理」页面，按项目分组扫描异常数据
+- 当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0
+- 支持批量勾选后统一清理；桌面端会话删除移入回收站，Web 端删除为永久删除
+- `codex` 数据源当前仅支持清理无效会话，不支持删除无效项目索引
 
 ### 实时刷新
 

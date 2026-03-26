@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.5] - 2026-03-26
+
+### Added
+
+- 新增侧边栏「无效项管理」入口和 `/cleanup` 页面，按项目集中展示路径失效项目与空会话。
+
+### Changed
+
+- cleanup 页面支持批量选择后统一清理；桌面端会话删除进入回收站，Web 端删除为永久删除，`codex` 数据源暂不支持删除无效项目索引。
+- 同步工作区发布版本到 `2.7.5`，覆盖 `package.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest，以及 `Cargo.lock` 中的 workspace 包版本记录。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.7.5` 摘要，并补充「无效项管理」功能说明。
+- 新增本节记录 `2.7.5` 发布内容与版本同步范围。
+
+---
+
 ## [2.7.4] - 2026-03-26
 
 ### Changed

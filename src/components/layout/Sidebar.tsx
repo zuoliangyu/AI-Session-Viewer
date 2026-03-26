@@ -39,6 +39,7 @@ import {
   Loader2,
   AlertCircle,
   Star,
+  FolderX,
 } from "lucide-react";
 
 declare const __IS_TAURI__: boolean;
@@ -194,6 +195,17 @@ export function Sidebar() {
                 {bookmarks.filter((b) => b.source === source).length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => navigate("/cleanup")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+              isActive("/cleanup")
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            }`}
+          >
+            <FolderX className="w-4 h-4" />
+            无效项管理
           </button>
           <button
             onClick={() => navigate("/recyclebin")}
@@ -393,7 +405,7 @@ export function Sidebar() {
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                       <li>顶部 Tab 切换数据源（Claude / Codex）</li>
                       <li>项目列表点击进入对应项目的会话列表</li>
-                      <li>快捷入口：全局搜索、使用统计</li>
+                      <li>快捷入口：全局搜索、使用统计、无效项管理、回收站</li>
                     </ul>
                   </section>
                   <section>
