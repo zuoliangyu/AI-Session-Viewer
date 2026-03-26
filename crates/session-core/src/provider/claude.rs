@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
+use parking_lot::Mutex;
 use rayon::prelude::*;
 
 use crate::models::message::{DisplayMessage, PaginatedMessages};
@@ -37,7 +39,7 @@ struct ProjectMeta {
 
 const CACHE_VERSION: u32 = 2;
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct ClaudeCacheFile {
     version: u32,
@@ -65,7 +67,7 @@ fn cache_path() -> Option<PathBuf> {
     Some(dir.join("claude-list-cache.json"))
 }
 
-fn load_cache() -> ClaudeCacheFile {
+fn read_cache_from_disk() -> ClaudeCacheFile {
     let path = match cache_path() {
         Some(path) => path,
         None => return ClaudeCacheFile::default(),
@@ -88,46 +90,88 @@ fn load_cache() -> ClaudeCacheFile {
     cache
 }
 
+fn cache_state() -> &'static Mutex<ClaudeCacheFile> {
+    static CACHE_STATE: OnceLock<Mutex<ClaudeCacheFile>> = OnceLock::new();
+    CACHE_STATE.get_or_init(|| Mutex::new(read_cache_from_disk()))
+}
+
+fn load_cache() -> ClaudeCacheFile {
+    cache_state().lock().clone()
+}
+
 fn save_cache(cache: &ClaudeCacheFile) {
     if let Some(path) = cache_path() {
         if let Ok(json) = serde_json::to_string(cache) {
-            let _ = fs::write(path, json);
+            let tmp_path = path.with_extension("json.tmp");
+            if fs::write(&tmp_path, json).is_ok() {
+                let _ = fs::rename(&tmp_path, &path);
+            }
         }
     }
 }
 
+fn cached_projects() -> Option<Vec<ProjectEntry>> {
+    cache_state()
+        .lock()
+        .projects
+        .as_ref()
+        .map(|projects| projects.entries.clone())
+}
+
 fn store_projects_cache(entries: &[ProjectEntry]) {
-    let mut cache = load_cache();
-    cache.version = CACHE_VERSION;
-    cache.projects = Some(CachedProjects {
-        entries: entries.to_vec(),
-    });
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.version = CACHE_VERSION;
+        cache.projects = Some(CachedProjects {
+            entries: entries.to_vec(),
+        });
+        cache.clone()
+    };
     save_cache(&cache);
 }
 
 fn cached_sessions(project_id: &str) -> Option<Vec<SessionIndexEntry>> {
-    load_cache()
+    cache_state()
+        .lock()
         .sessions_by_project
         .get(project_id)
         .map(|sessions| sessions.entries.clone())
 }
 
 fn store_sessions_cache(project_id: &str, entries: &[SessionIndexEntry]) {
-    let mut cache = load_cache();
-    cache.version = CACHE_VERSION;
-    cache.sessions_by_project.insert(
-        project_id.to_string(),
-        CachedSessions {
-            entries: entries.to_vec(),
-        },
-    );
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.version = CACHE_VERSION;
+        cache.sessions_by_project.insert(
+            project_id.to_string(),
+            CachedSessions {
+                entries: entries.to_vec(),
+            },
+        );
+        cache.clone()
+    };
     save_cache(&cache);
 }
 
 pub fn invalidate_cache() {
+    *cache_state().lock() = ClaudeCacheFile::default();
     if let Some(path) = cache_path() {
         let _ = fs::remove_file(path);
     }
+}
+
+fn project_path_from_index(index: &SessionsIndex) -> Option<String> {
+    index
+        .original_path
+        .clone()
+        .or_else(|| index.entries.iter().find_map(|entry| entry.project_path.clone()))
+}
+
+fn read_sessions_index(project_dir: &Path) -> Option<SessionsIndex> {
+    let index_path = project_dir.join("sessions-index.json");
+    fs::read_to_string(&index_path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<SessionsIndex>(&content).ok())
 }
 
 /// 读取项目别名。文件不存在或 alias 字段缺失时返回 Ok(None)，不报错。
@@ -248,18 +292,11 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
         .filter_map(|path| {
             let encoded_name = path.file_name().and_then(|n| n.to_str())?.to_string();
 
-            let index_path = path.join("sessions-index.json");
-            let parsed_index = fs::read_to_string(&index_path)
-                .ok()
-                .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok());
+            let parsed_index = read_sessions_index(&path);
 
             let (display_path, path_exists) = parsed_index
                 .as_ref()
-                .and_then(|idx| {
-                    idx.original_path.clone().or_else(|| {
-                        idx.entries.iter().find_map(|e| e.project_path.clone())
-                    })
-                })
+                .and_then(project_path_from_index)
                 .map(|p| {
                     let exists = std::path::Path::new(&p).exists();
                     (p, exists)
@@ -279,7 +316,10 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
                 .sessions_by_project
                 .get(&encoded_name)
                 .map(|cached| cached.entries.len())
-                .unwrap_or(fast_count);
+                .unwrap_or_else(|| count_valid_jsonl_files(&path));
+            if session_count == 0 {
+                return None;
+            }
 
             let last_modified = fs::metadata(&path)
                 .and_then(|m| m.modified())
@@ -319,6 +359,10 @@ pub fn refresh_projects_cache() -> Result<Vec<ProjectEntry>, String> {
 
 /// Get all Claude projects
 pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
+    if let Some(projects) = cached_projects() {
+        return Ok(projects);
+    }
+
     refresh_projects_cache()
 }
 
@@ -578,20 +622,12 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
     }
 
     // Level 2+：删除目录前先内联读取 real_path（sessions-index.json 在目录内，必须先读）
-    let real_path: Option<String> = if level == DeleteLevel::WithCcConfig
-        || level == DeleteLevel::WithHistory
-    {
-        let index_path = canonical_dir.join("sessions-index.json");
-        let path_from_index = fs::read_to_string(&index_path)
-            .ok()
-            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
-            .and_then(|idx| {
-                idx.original_path
-                    .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
-            });
-        let resolved = path_from_index
-            .unwrap_or_else(|| decode_project_path_validated(project_id).display_path);
-        Some(resolved)
+    let project_path = read_sessions_index(&canonical_dir)
+        .as_ref()
+        .and_then(project_path_from_index)
+        .unwrap_or_else(|| decode_project_path_validated(project_id).display_path);
+    let real_path = if level == DeleteLevel::WithCcConfig || level == DeleteLevel::WithHistory {
+        Some(project_path.clone())
     } else {
         None
     };
@@ -600,20 +636,7 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
     let sessions_deleted = count_valid_jsonl_files(&canonical_dir);
 
     // 将顶层 .jsonl 文件逐个移入回收站
-    let project_name = {
-        let index_path = canonical_dir.join("sessions-index.json");
-        let display_path = fs::read_to_string(&index_path)
-            .ok()
-            .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
-            .and_then(|idx| {
-                idx.original_path
-                    .or_else(|| idx.entries.iter().find_map(|e| e.project_path.clone()))
-            })
-            .unwrap_or_else(|| {
-                decode_project_path_validated(project_id).display_path
-            });
-        short_name_from_path(&display_path)
-    };
+    let project_name = short_name_from_path(&project_path);
 
     if let Ok(dir_entries) = fs::read_dir(&canonical_dir) {
         for entry in dir_entries.flatten() {

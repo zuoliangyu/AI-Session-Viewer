@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.3] - 2026-03-26
+
+### Fixed
+
+- Project-list caching now takes effect: `get_projects()` no longer always calls `refresh_projects_cache()` before checking cached entries.
+- Claude list-cache reads are reused in-process so a single request does not repeatedly read and deserialize `claude-list-cache.json`.
+- Uncached project `sessionCount` now falls back to valid session files instead of raw `.jsonl` file counts, reducing first-load count drift.
+- `delete_project()` now reads `sessions-index.json` once and reuses the result for both the real project path and recycle-bin display name.
+- `save_cache()` now writes via `tmp + rename` to reduce the risk of truncated cache files during interrupted writes.
+
+### Documentation
+
+- README now includes a `v2.7.3` summary for the cache, count-consistency, and delete-flow changes.
+
+---
+
 ## [2.7.2] - 2026-03-26
 
 ### Changed

@@ -26,6 +26,13 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
+## Latest in v2.7.3
+
+- Fixes the dead project-list cache path: `get_projects()` now returns cached projects before forcing a refresh.
+- Reduces cache read amplification by reusing the in-memory Claude list cache during a request flow.
+- Merges duplicate `sessions-index.json` reads in `delete_project()` and writes the list cache with `tmp + rename` atomic persistence.
+- Uses valid session files for uncached project counts so the first `sessionCount` matches the session list more closely.
+
 ## 截图
 
 <table>
