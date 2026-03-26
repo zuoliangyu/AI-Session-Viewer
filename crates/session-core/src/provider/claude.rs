@@ -216,8 +216,11 @@ pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), 
     } else {
         let json = serde_json::to_string(&raw)
             .map_err(|e| format!("Failed to serialize project meta: {}", e))?;
-        fs::write(&meta_path, json)
-            .map_err(|e| format!("Failed to write project meta: {}", e))?;
+        let tmp_path = meta_path.with_extension("json.tmp");
+        fs::write(&tmp_path, json)
+            .map_err(|e| format!("Failed to write project meta tmp: {}", e))?;
+        fs::rename(&tmp_path, &meta_path)
+            .map_err(|e| format!("Failed to rename project meta: {}", e))?;
     }
 
     invalidate_cache();

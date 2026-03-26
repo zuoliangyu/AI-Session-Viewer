@@ -14,8 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Fixed
 
-- **修复 Claude/Codex 源切换后会话页卡在“加载中”**：切换数据源时现在会同步重置 loading 状态，并为项目/会话/消息请求增加 source 级 stale check，旧请求返回后不再把新页面状态卡死
+- **修复 Claude/Codex 源切换后会话页卡在”加载中”**：切换数据源时现在会同步重置 loading 状态，并为项目/会话/消息请求增加 source 级 stale check，旧请求返回后不再把新页面状态卡死
 - **启动更新提示改为确认式交互**：桌面端启动后约 1.5 秒自动检查更新，检测到新版本时直接弹出确认框；安装版可立即更新并重启，便携版可直接跳转下载页
+- **文件写入改为原子操作**：`project meta`、`sessions-index.json`（Fork 后 / Terminal 录制写回）三处直接写入均改为 tmp + rename 模式，进程在写入中途被中断时不会产生截断或损坏的 JSON 文件
 
 ### Documentation
 

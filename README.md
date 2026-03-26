@@ -303,6 +303,11 @@ environment:
 - 桌面端每 10 分钟执行一次静默后台刷新，主动更新项目列表缓存和当前工程的精确会话缓存
 - Docker 挂载卷优化：静默后台刷新 + 1 秒防抖，避免频繁 inotify 事件导致界面闪烁
 
+### 数据安全
+
+- **原子写入**：所有 JSON 文件（`project meta`、`sessions-index.json`、回收站 manifest、书签、会话 metadata）均采用 tmp + rename 写入模式，进程异常中断时不会产生损坏或截断的文件
+- **软删除回收站**：删除会话 / 清理空项目时移入 `~/.claude-code-viewer/recyclebin/`，可随时恢复，不会立即永久删除
+
 ## 开发
 
 ### 前置要求

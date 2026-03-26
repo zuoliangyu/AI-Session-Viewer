@@ -246,9 +246,12 @@ fn ensure_session_in_index(session_id: &str, file_path: &str, project_path: &str
         is_sidechain: Some(false),
     });
 
-    // Write back
+    // Write back (atomic: tmp + rename)
     if let Ok(json) = serde_json::to_string_pretty(&index) {
-        let _ = fs::write(&index_path, json);
+        let tmp_path = index_path.with_extension("json.tmp");
+        if fs::write(&tmp_path, &json).is_ok() {
+            let _ = fs::rename(&tmp_path, &index_path);
+        }
     }
 }
 
