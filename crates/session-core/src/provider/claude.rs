@@ -395,6 +395,25 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
     refresh_sessions_cache(encoded_name)
 }
 
+/// Get invalid Claude sessions for a project.
+///
+/// Invalid sessions are files that exist but do not contain any user-visible
+/// messages. This keeps the normal session list filtered while still allowing
+/// cleanup UI to discover and delete them.
+pub fn get_invalid_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String> {
+    let projects_dir = get_projects_dir().ok_or("Could not find Claude projects directory")?;
+    let project_dir = projects_dir.join(encoded_name);
+
+    if !project_dir.exists() {
+        return Err(format!("Project directory not found: {}", encoded_name));
+    }
+
+    let mut invalid_sessions = scan_project_dir_with_mode(&project_dir, SessionScanMode::Invalid);
+    enrich_with_index(&project_dir, &mut invalid_sessions);
+    invalid_sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(invalid_sessions)
+}
+
 
 /// Parse messages from a Claude JSONL file
 pub fn parse_session_messages(
@@ -463,14 +482,24 @@ pub fn collect_all_jsonl_files() -> Vec<(String, String, PathBuf)> {
 
 // ── internal helpers ──
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SessionScanMode {
+    Valid,
+    Invalid,
+}
+
 /// 磁盘扫描：读取项目目录下顶层 .jsonl 文件，单次 pass 提取所有元数据。
-/// 空文件、无消息文件、无法打开的文件静默跳过，不做任何写操作。
+/// Valid 模式返回正常会话；Invalid 模式返回无消息的异常会话。
 fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
-    let mut valid_sessions: Vec<SessionIndexEntry> = Vec::new();
+    scan_project_dir_with_mode(project_dir, SessionScanMode::Valid)
+}
+
+fn scan_project_dir_with_mode(project_dir: &Path, mode: SessionScanMode) -> Vec<SessionIndexEntry> {
+    let mut sessions: Vec<SessionIndexEntry> = Vec::new();
 
     let entries = match fs::read_dir(project_dir) {
         Ok(e) => e,
-        Err(_) => return valid_sessions,
+        Err(_) => return sessions,
     };
 
     for entry in entries.flatten() {
@@ -491,8 +520,43 @@ fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
             continue;
         }
 
-        // 空文件跳过（无需读取内容）
-        if fs::metadata(&path).map(|m| m.len()).unwrap_or(0) == 0 {
+        let file_meta = fs::metadata(&path).ok();
+        let file_size = file_meta.as_ref().map(|m| m.len()).unwrap_or(0);
+
+        if file_size == 0 {
+            if mode == SessionScanMode::Invalid {
+                sessions.push(SessionIndexEntry {
+                    source: "claude".to_string(),
+                    session_id,
+                    file_path: path.to_string_lossy().to_string(),
+                    first_prompt: None,
+                    message_count: 0,
+                    created: file_meta.as_ref().and_then(|m| {
+                        m.created().ok().map(|t| {
+                            let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                                .map(|dt| dt.to_rfc3339())
+                                .unwrap_or_default()
+                        })
+                    }),
+                    modified: file_meta.as_ref().and_then(|m| {
+                        m.modified().ok().map(|t| {
+                            let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                            chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                                .map(|dt| dt.to_rfc3339())
+                                .unwrap_or_default()
+                        })
+                    }),
+                    git_branch: None,
+                    project_path: None,
+                    is_sidechain: Some(false),
+                    cwd: None,
+                    model_provider: None,
+                    cli_version: None,
+                    alias: None,
+                    tags: None,
+                });
+            }
             continue;
         }
 
@@ -501,12 +565,14 @@ fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
             continue;
         };
 
-        // 无消息或文件损坏则跳过（不移动文件，只过滤显示）
-        if !scan.has_messages || scan.is_corrupt {
+        let include = match mode {
+            SessionScanMode::Valid => scan.has_messages && !scan.is_corrupt,
+            SessionScanMode::Invalid => !scan.has_messages,
+        };
+        if !include {
             continue;
         }
 
-        let file_meta = fs::metadata(&path).ok();
         let modified = file_meta.as_ref().and_then(|m| {
             m.modified().ok().map(|t| {
                 let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
@@ -523,7 +589,7 @@ fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
                     .unwrap_or_default()
             })
         });
-        valid_sessions.push(SessionIndexEntry {
+        sessions.push(SessionIndexEntry {
             source: "claude".to_string(),
             session_id,
             file_path: path.to_string_lossy().to_string(),
@@ -542,7 +608,7 @@ fn scan_project_dir(project_dir: &Path) -> Vec<SessionIndexEntry> {
         });
     }
 
-    valid_sessions
+    sessions
 }
 
 /// Step 2：用 sessions-index.json 的元数据补充 valid_sessions。

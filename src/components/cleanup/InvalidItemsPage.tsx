@@ -144,8 +144,8 @@ export function InvalidItemsPage() {
         projects,
         4,
         async (project) => {
-          const sessions = await api.getSessions(source, project.id);
-          return { project, sessions };
+          const invalidSessions = await api.getInvalidSessions(source, project.id);
+          return { project, invalidSessions };
         }
       );
 
@@ -158,9 +158,7 @@ export function InvalidItemsPage() {
             return {
               project,
               invalidProject: project.pathExists === false,
-              invalidSessions: result.value.sessions.filter(
-                (session) => session.messageCount === 0
-              ),
+              invalidSessions: result.value.invalidSessions,
             };
           }
 

@@ -333,6 +333,7 @@ async fn main() {
         .route("/api/projects", delete(routes::projects::delete_project))
         .route("/api/projects/alias", put(routes::projects::set_project_alias))
         .route("/api/sessions", get(routes::sessions::get_sessions))
+        .route("/api/sessions/invalid", get(routes::sessions::get_invalid_sessions))
         .route("/api/sessions", delete(routes::sessions::delete_session))
         .route(
             "/api/sessions/meta",

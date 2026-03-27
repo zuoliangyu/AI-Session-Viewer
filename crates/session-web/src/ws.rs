@@ -14,7 +14,7 @@ use crate::{require_auth_with_query, AppToken};
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(1000);
 
 use session_core::parser::path_encoder::get_projects_dir;
-use session_core::provider::codex;
+use session_core::provider::{claude, codex};
 
 /// Shared broadcast sender for file change events
 pub type FsChangeTx = Arc<broadcast::Sender<Vec<String>>>;
@@ -66,6 +66,9 @@ pub fn start_file_watcher() -> FsChangeTx {
                     });
 
                     if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
+                        claude::invalidate_cache();
+                        codex::invalidate_sessions_cache();
+
                         let paths: Vec<String> = event
                             .paths
                             .iter()

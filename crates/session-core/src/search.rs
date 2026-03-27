@@ -1,9 +1,10 @@
 use rayon::prelude::*;
 use serde::Serialize;
 use std::fs;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::metadata;
-use crate::models::message::DisplayContentBlock;
+use crate::models::message::{DisplayContentBlock, DisplayMessage};
 use crate::provider::{claude, codex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,17 @@ pub struct SearchResult {
     pub file_path: String,
     pub total_message_count: u32,
     pub matched_message_id: Option<String>,
+}
+
+#[derive(Clone)]
+struct SearchSessionContext {
+    source: String,
+    project_id: String,
+    project_name: String,
+    session_id: String,
+    alias: Option<String>,
+    tags: Option<Vec<String>>,
+    file_path: String,
 }
 
 /// Safely truncate a string to approximately `max_chars` characters
@@ -95,6 +107,150 @@ fn block_text(block: &DisplayContentBlock) -> &str {
     }
 }
 
+fn push_limited_result(
+    results: &mut Vec<SearchResult>,
+    counter: &AtomicUsize,
+    max_results: usize,
+    result: SearchResult,
+) -> bool {
+    if counter.fetch_add(1, Ordering::Relaxed) >= max_results {
+        return false;
+    }
+    results.push(result);
+    true
+}
+
+fn search_messages_for_session(
+    ctx: &SearchSessionContext,
+    messages: &[DisplayMessage],
+    query_lower: &str,
+    scope: SearchScope,
+    counter: &AtomicUsize,
+    max_results: usize,
+) -> Vec<SearchResult> {
+    let total_message_count = messages.len() as u32;
+    let mut results = Vec::new();
+    let mut session_name_matched = false;
+    let mut message_match_count = 0usize;
+    let mut first_prompt = None;
+
+    if scope.includes_session() {
+        if let Some(alias) = &ctx.alias {
+            if alias.to_lowercase().contains(query_lower) {
+                session_name_matched = true;
+                if !push_limited_result(
+                    &mut results,
+                    counter,
+                    max_results,
+                    SearchResult {
+                        source: ctx.source.clone(),
+                        project_id: ctx.project_id.clone(),
+                        project_name: ctx.project_name.clone(),
+                        session_id: ctx.session_id.clone(),
+                        first_prompt: None,
+                        alias: ctx.alias.clone(),
+                        tags: ctx.tags.clone(),
+                        matched_text: alias.clone(),
+                        role: "session".to_string(),
+                        timestamp: None,
+                        file_path: ctx.file_path.clone(),
+                        total_message_count,
+                        matched_message_id: None,
+                    },
+                ) {
+                    return results;
+                }
+            }
+        }
+    }
+
+    for msg in messages {
+        if counter.load(Ordering::Relaxed) >= max_results {
+            break;
+        }
+
+        if msg.role == "user" && first_prompt.is_none() {
+            for block in &msg.content {
+                if let DisplayContentBlock::Text { text } = block {
+                    first_prompt = Some(safe_truncate(text, 100));
+                    if scope.includes_session()
+                        && !session_name_matched
+                        && text.to_lowercase().contains(query_lower)
+                    {
+                        session_name_matched = true;
+                        if !push_limited_result(
+                            &mut results,
+                            counter,
+                            max_results,
+                            SearchResult {
+                                source: ctx.source.clone(),
+                                project_id: ctx.project_id.clone(),
+                                project_name: ctx.project_name.clone(),
+                                session_id: ctx.session_id.clone(),
+                                first_prompt: first_prompt.clone(),
+                                alias: ctx.alias.clone(),
+                                tags: ctx.tags.clone(),
+                                matched_text: safe_truncate(text, 100),
+                                role: "session".to_string(),
+                                timestamp: msg.timestamp.clone(),
+                                file_path: ctx.file_path.clone(),
+                                total_message_count,
+                                matched_message_id: msg.uuid.clone(),
+                            },
+                        ) {
+                            return results;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
+        if !scope.includes_content() {
+            continue;
+        }
+
+        for block in &msg.content {
+            if counter.load(Ordering::Relaxed) >= max_results {
+                return results;
+            }
+
+            let text = block_text(block);
+            if text.to_lowercase().contains(query_lower) {
+                if !push_limited_result(
+                    &mut results,
+                    counter,
+                    max_results,
+                    SearchResult {
+                        source: ctx.source.clone(),
+                        project_id: ctx.project_id.clone(),
+                        project_name: ctx.project_name.clone(),
+                        session_id: ctx.session_id.clone(),
+                        first_prompt: first_prompt.clone(),
+                        alias: ctx.alias.clone(),
+                        tags: ctx.tags.clone(),
+                        matched_text: extract_context(text, query_lower, 50),
+                        role: msg.role.clone(),
+                        timestamp: msg.timestamp.clone(),
+                        file_path: ctx.file_path.clone(),
+                        total_message_count,
+                        matched_message_id: msg.uuid.clone(),
+                    },
+                ) {
+                    return results;
+                }
+
+                message_match_count += 1;
+                if message_match_count >= 5 {
+                    return results;
+                }
+            }
+        }
+    }
+
+    results
+}
+
 pub fn global_search(
     source: &str,
     query: &str,
@@ -113,7 +269,12 @@ pub fn global_search(
 }
 
 fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
+    if max_results == 0 {
+        return Vec::new();
+    }
+
     let jsonl_files = claude::collect_all_jsonl_files();
+    let result_count = AtomicUsize::new(0);
 
     // Pre-load metadata per project for alias lookup
     let mut meta_cache: std::collections::HashMap<String, metadata::MetadataFile> =
@@ -127,17 +288,19 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
     let results: Vec<SearchResult> = jsonl_files
         .par_iter()
         .flat_map(|(encoded_name, project_name, file_path)| {
+            if result_count.load(Ordering::Relaxed) >= max_results {
+                return Vec::new();
+            }
+
             let session_id = file_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_string();
 
-            let mut file_results: Vec<SearchResult> = Vec::new();
-
             let content = match fs::read_to_string(file_path) {
                 Ok(c) => c,
-                Err(_) => return file_results,
+                Err(_) => return Vec::new(),
             };
 
             // Lookup alias and tags from metadata
@@ -155,107 +318,30 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
                 .unwrap_or(false);
 
             if !content_has_query && !alias_has_query {
-                return file_results;
+                return Vec::new();
             }
 
             if let Ok(messages) = claude::parse_all_messages(file_path) {
-                let total_message_count = messages.len() as u32;
-                let mut session_name_matched = false;
-                let mut message_match_count = 0usize;
-
-                // Check alias for session-name match
-                if scope.includes_session() {
-                    if let Some(a) = &alias {
-                        if a.to_lowercase().contains(query_lower) {
-                            session_name_matched = true;
-                            file_results.push(SearchResult {
-                                source: "claude".to_string(),
-                                project_id: encoded_name.clone(),
-                                project_name: project_name.clone(),
-                                session_id: session_id.clone(),
-                                first_prompt: None,
-                                alias: alias.clone(),
-                                tags: tags.clone(),
-                                matched_text: a.clone(),
-                                role: "session".to_string(),
-                                timestamp: None,
-                                file_path: file_path.to_string_lossy().to_string(),
-                                total_message_count,
-                                matched_message_id: None,
-                            });
-                        }
-                    }
-                }
-
-                let mut first_prompt = None;
-                for msg in &messages {
-                    if msg.role == "user" && first_prompt.is_none() {
-                        for block in &msg.content {
-                            if let DisplayContentBlock::Text { text } = block {
-                                first_prompt = Some(safe_truncate(text, 100));
-                                // Check first_prompt for session-name match (only once, and only if alias didn't already match)
-                                if scope.includes_session()
-                                    && !session_name_matched
-                                    && text.to_lowercase().contains(query_lower)
-                                {
-                                    session_name_matched = true;
-                                    file_results.push(SearchResult {
-                                        source: "claude".to_string(),
-                                        project_id: encoded_name.clone(),
-                                        project_name: project_name.clone(),
-                                        session_id: session_id.clone(),
-                                        first_prompt: first_prompt.clone(),
-                                        alias: alias.clone(),
-                                        tags: tags.clone(),
-                                        matched_text: safe_truncate(text, 100),
-                                        role: "session".to_string(),
-                                        timestamp: msg.timestamp.clone(),
-                                        file_path: file_path.to_string_lossy().to_string(),
-                                        total_message_count,
-                                        matched_message_id: msg.uuid.clone(),
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    if !scope.includes_content() {
-                        continue;
-                    }
-
-                    for block in &msg.content {
-                        let text = block_text(block);
-
-                        if text.to_lowercase().contains(query_lower) {
-                            let matched_text = extract_context(text, query_lower, 50);
-
-                            file_results.push(SearchResult {
-                                source: "claude".to_string(),
-                                project_id: encoded_name.clone(),
-                                project_name: project_name.clone(),
-                                session_id: session_id.clone(),
-                                first_prompt: first_prompt.clone(),
-                                alias: alias.clone(),
-                                tags: tags.clone(),
-                                matched_text,
-                                role: msg.role.clone(),
-                                timestamp: msg.timestamp.clone(),
-                                file_path: file_path.to_string_lossy().to_string(),
-                                total_message_count,
-                                matched_message_id: msg.uuid.clone(),
-                            });
-
-                            message_match_count += 1;
-                            if message_match_count >= 5 {
-                                return file_results;
-                            }
-                        }
-                    }
-                }
+                let ctx = SearchSessionContext {
+                    source: "claude".to_string(),
+                    project_id: encoded_name.clone(),
+                    project_name: project_name.clone(),
+                    session_id,
+                    alias,
+                    tags,
+                    file_path: file_path.to_string_lossy().to_string(),
+                };
+                return search_messages_for_session(
+                    &ctx,
+                    &messages,
+                    query_lower,
+                    scope,
+                    &result_count,
+                    max_results,
+                );
             }
 
-            file_results
+            Vec::new()
         })
         .collect();
 
@@ -265,7 +351,12 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
 }
 
 fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
+    if max_results == 0 {
+        return Vec::new();
+    }
+
     let files = codex::scan_all_session_files();
+    let result_count = AtomicUsize::new(0);
 
     // Pre-load codex metadata (single file for all sessions)
     let codex_meta = metadata::load_metadata("codex", "");
@@ -273,11 +364,13 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
     let results: Vec<SearchResult> = files
         .par_iter()
         .flat_map(|file_path| {
-            let mut file_results: Vec<SearchResult> = Vec::new();
+            if result_count.load(Ordering::Relaxed) >= max_results {
+                return Vec::new();
+            }
 
             let content = match fs::read_to_string(file_path) {
                 Ok(c) => c,
-                Err(_) => return file_results,
+                Err(_) => return Vec::new(),
             };
 
             let meta = codex::extract_session_meta(file_path);
@@ -310,107 +403,30 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
                 .unwrap_or(false);
 
             if !content_has_query && !alias_has_query {
-                return file_results;
+                return Vec::new();
             }
 
             if let Ok(messages) = codex::parse_all_messages(file_path) {
-                let total_message_count = messages.len() as u32;
-                let mut session_name_matched = false;
-                let mut message_match_count = 0usize;
-
-                // Check alias for session-name match
-                if scope.includes_session() {
-                    if let Some(a) = &alias {
-                        if a.to_lowercase().contains(query_lower) {
-                            session_name_matched = true;
-                            file_results.push(SearchResult {
-                                source: "codex".to_string(),
-                                project_id: cwd.clone(),
-                                project_name: short_name.clone(),
-                                session_id: session_id.clone(),
-                                first_prompt: None,
-                                alias: alias.clone(),
-                                tags: tags.clone(),
-                                matched_text: a.clone(),
-                                role: "session".to_string(),
-                                timestamp: None,
-                                file_path: file_path.to_string_lossy().to_string(),
-                                total_message_count,
-                                matched_message_id: None,
-                            });
-                        }
-                    }
-                }
-
-                let mut first_prompt = None;
-                for msg in &messages {
-                    if msg.role == "user" && first_prompt.is_none() {
-                        for block in &msg.content {
-                            if let DisplayContentBlock::Text { text } = block {
-                                first_prompt = Some(safe_truncate(text, 100));
-                                // Check first_prompt for session-name match (only once, and only if alias didn't already match)
-                                if scope.includes_session()
-                                    && !session_name_matched
-                                    && text.to_lowercase().contains(query_lower)
-                                {
-                                    session_name_matched = true;
-                                    file_results.push(SearchResult {
-                                        source: "codex".to_string(),
-                                        project_id: cwd.clone(),
-                                        project_name: short_name.clone(),
-                                        session_id: session_id.clone(),
-                                        first_prompt: first_prompt.clone(),
-                                        alias: alias.clone(),
-                                        tags: tags.clone(),
-                                        matched_text: safe_truncate(text, 100),
-                                        role: "session".to_string(),
-                                        timestamp: msg.timestamp.clone(),
-                                        file_path: file_path.to_string_lossy().to_string(),
-                                        total_message_count,
-                                        matched_message_id: msg.uuid.clone(),
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
-
-                    if !scope.includes_content() {
-                        continue;
-                    }
-
-                    for block in &msg.content {
-                        let text = block_text(block);
-
-                        if text.to_lowercase().contains(query_lower) {
-                            let matched_text = extract_context(text, query_lower, 50);
-
-                            file_results.push(SearchResult {
-                                source: "codex".to_string(),
-                                project_id: cwd.clone(),
-                                project_name: short_name.clone(),
-                                session_id: session_id.clone(),
-                                first_prompt: first_prompt.clone(),
-                                alias: alias.clone(),
-                                tags: tags.clone(),
-                                matched_text,
-                                role: msg.role.clone(),
-                                timestamp: msg.timestamp.clone(),
-                                file_path: file_path.to_string_lossy().to_string(),
-                                total_message_count,
-                                matched_message_id: msg.uuid.clone(),
-                            });
-
-                            message_match_count += 1;
-                            if message_match_count >= 5 {
-                                return file_results;
-                            }
-                        }
-                    }
-                }
+                let ctx = SearchSessionContext {
+                    source: "codex".to_string(),
+                    project_id: cwd,
+                    project_name: short_name,
+                    session_id,
+                    alias,
+                    tags,
+                    file_path: file_path.to_string_lossy().to_string(),
+                };
+                return search_messages_for_session(
+                    &ctx,
+                    &messages,
+                    query_lower,
+                    scope,
+                    &result_count,
+                    max_results,
+                );
             }
 
-            file_results
+            Vec::new()
         })
         .collect();
 

@@ -15,6 +15,28 @@ pub struct SessionsQuery {
     pub project_id: String,
 }
 
+fn merge_session_metadata(
+    source: &str,
+    project_id: &str,
+    sessions: &mut [SessionIndexEntry],
+) {
+    let meta = metadata::load_metadata(source, project_id);
+    for session in sessions {
+        if let Some(sm) = meta.sessions.get(&session.session_id) {
+            if source == "claude" {
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            } else {
+                session.alias = sm.alias.clone();
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            }
+        }
+    }
+}
+
 pub async fn get_sessions(
     Query(params): Query<SessionsQuery>,
 ) -> Result<Json<Vec<SessionIndexEntry>>, (StatusCode, String)> {
@@ -35,22 +57,38 @@ pub async fn get_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        // Merge tags from metadata; alias comes from JSONL (Claude) or metadata (Codex)
-        let meta = metadata::load_metadata(&source, &project_id);
-        for session in &mut sessions {
-            if let Some(sm) = meta.sessions.get(&session.session_id) {
-                if source == "claude" {
-                    if !sm.tags.is_empty() {
-                        session.tags = Some(sm.tags.clone());
-                    }
-                } else {
-                    session.alias = sm.alias.clone();
-                    if !sm.tags.is_empty() {
-                        session.tags = Some(sm.tags.clone());
-                    }
-                }
-            }
-        }
+        merge_session_metadata(&source, &project_id, &mut sessions);
+
+        Ok(sessions)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(result))
+}
+
+pub async fn get_invalid_sessions(
+    Query(params): Query<SessionsQuery>,
+) -> Result<Json<Vec<SessionIndexEntry>>, (StatusCode, String)> {
+    let source = params.source;
+    let project_id = params.project_id;
+    let source_kind = SessionSource::parse(&source)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    if source_kind == SessionSource::Claude {
+        resolve_claude_project_dir(&project_id)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    }
+
+    let result = tokio::task::spawn_blocking(move || {
+        let mut sessions = match source.as_str() {
+            "claude" => claude::get_invalid_sessions(&project_id)?,
+            "codex" => codex::get_invalid_sessions(&project_id)?,
+            _ => return Err(format!("Unknown source: {}", source)),
+        };
+
+        merge_session_metadata(&source, &project_id, &mut sessions);
 
         Ok(sessions)
     })

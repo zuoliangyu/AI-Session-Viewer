@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.8] - 2026-03-27
+
+### Fixed
+
+- Web 模式文件监听现在会和 Tauri 模式一样在广播变更前失效 Claude / Codex 列表缓存，避免前端收到刷新事件后仍读到旧的 session 数据。
+- 无效会话清理改为走专用接口：Claude 现在会显式返回无消息/空文件会话，清理页与项目页的「清理空会话」入口重新能够发现并删除异常会话。
+- 移除未使用且绕过认证探测的 `getChatWebSocket()` 入口，Web 端聊天连接统一复用带认证校验的连接流程。
+
+### Changed
+
+- 搜索逻辑提取公共匹配流程，减少 Claude / Codex 两套实现的重复代码。
+- 并行搜索在达到 `max_results` 后会尽早停止累积结果，减少大型会话库下不必要的内存占用。
+- 同步工作区发布版本到 `2.7.8`，覆盖 `package.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest，以及 `Cargo.lock` 中的 workspace 包版本记录。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.7.8` 摘要，概述 Web 缓存修复、无效会话清理恢复和搜索优化。
+- 新增本节记录 `2.7.8` 发布内容与版本同步范围。
+
+---
+
 ## [2.7.7] - 2026-03-27
 
 ### Fixed

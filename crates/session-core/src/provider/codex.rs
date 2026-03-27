@@ -519,6 +519,13 @@ pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
     refresh_sessions_cache(cwd)
 }
 
+pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
+    Ok(get_sessions(cwd)?
+        .into_iter()
+        .filter(|entry| entry.message_count == 0)
+        .collect())
+}
+
 // ── Message parsing ──
 
 pub fn parse_session_messages(

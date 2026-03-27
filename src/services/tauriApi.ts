@@ -34,6 +34,13 @@ export async function refreshSessionsCache(
   return invoke<SessionIndexEntry[]>("refresh_sessions_cache", { source, projectId });
 }
 
+export async function getInvalidSessions(
+  source: string,
+  projectId: string
+): Promise<SessionIndexEntry[]> {
+  return invoke<SessionIndexEntry[]>("get_invalid_sessions", { source, projectId });
+}
+
 export async function getMessages(
   source: string,
   filePath: string,

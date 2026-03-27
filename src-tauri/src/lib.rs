@@ -20,6 +20,7 @@ pub fn run() {
             commands::projects::set_project_alias,
             commands::sessions::get_sessions,
             commands::sessions::refresh_sessions_cache,
+            commands::sessions::get_invalid_sessions,
             commands::sessions::delete_session,
             commands::sessions::update_session_meta,
             commands::sessions::get_all_tags,

@@ -236,6 +236,13 @@ export async function refreshSessionsCache(
   return getSessions(source, projectId);
 }
 
+export async function getInvalidSessions(
+  source: string,
+  projectId: string
+): Promise<SessionIndexEntry[]> {
+  return apiFetch("/api/sessions/invalid", { source, projectId });
+}
+
 export async function getMessages(
   source: string,
   filePath: string,
@@ -586,16 +593,6 @@ async function openChatWebSocket(): Promise<WebSocket> {
     chatWsOpenPromise = null;
     throw error;
   }
-}
-
-export function getChatWebSocket(): WebSocket {
-  if (chatWs && chatWs.readyState === WebSocket.OPEN) {
-    return chatWs;
-  }
-
-  chatWs = new WebSocket(buildAuthenticatedWebSocketUrl("/ws/chat"));
-  attachChatWebSocketListeners(chatWs);
-  return chatWs;
 }
 
 export function subscribeToChatWebSocketMessages(listener: (rawMessage: string) => void): () => void {

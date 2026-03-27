@@ -3,6 +3,24 @@ use session_core::models::session::SessionIndexEntry;
 use session_core::provider::{claude, codex};
 use session_core::recyclebin;
 
+fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
+    let meta = metadata::load_metadata(source, project_id);
+    for session in sessions {
+        if let Some(sm) = meta.sessions.get(&session.session_id) {
+            if source == "claude" {
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            } else {
+                session.alias = sm.alias.clone();
+                if !sm.tags.is_empty() {
+                    session.tags = Some(sm.tags.clone());
+                }
+            }
+        }
+    }
+}
+
 #[tauri::command]
 pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionIndexEntry>, String> {
     let mut sessions = match source.as_str() {
@@ -11,24 +29,7 @@ pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionInd
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
-    // Merge tags from metadata; alias comes from JSONL (Claude) or metadata (Codex)
-    let meta = metadata::load_metadata(&source, &project_id);
-    for session in &mut sessions {
-        if let Some(sm) = meta.sessions.get(&session.session_id) {
-            if source == "claude" {
-                // For Claude: alias is in JSONL (loaded in provider), only merge tags
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            } else {
-                // For Codex: keep alias+tags from metadata
-                session.alias = sm.alias.clone();
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            }
-        }
-    }
+    merge_session_metadata(&source, &project_id, &mut sessions);
 
     Ok(sessions)
 }
@@ -44,21 +45,23 @@ pub fn refresh_sessions_cache(
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
-    let meta = metadata::load_metadata(&source, &project_id);
-    for session in &mut sessions {
-        if let Some(sm) = meta.sessions.get(&session.session_id) {
-            if source == "claude" {
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            } else {
-                session.alias = sm.alias.clone();
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            }
-        }
-    }
+    merge_session_metadata(&source, &project_id, &mut sessions);
+
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub fn get_invalid_sessions(
+    source: String,
+    project_id: String,
+) -> Result<Vec<SessionIndexEntry>, String> {
+    let mut sessions = match source.as_str() {
+        "claude" => claude::get_invalid_sessions(&project_id)?,
+        "codex" => codex::get_invalid_sessions(&project_id)?,
+        _ => return Err(format!("Unknown source: {}", source)),
+    };
+
+    merge_session_metadata(&source, &project_id, &mut sessions);
 
     Ok(sessions)
 }

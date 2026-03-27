@@ -17,6 +17,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { api } from "../../services/api";
 import { SessionMetaEditor } from "./SessionMetaEditor";
+import type { SessionIndexEntry } from "../../types";
 
 declare const __IS_TAURI__: boolean;
 
@@ -49,12 +50,45 @@ export function SessionsPage() {
   const [showCleanDialog, setShowCleanDialog] = useState(false);
   const [cleanSelected, setCleanSelected] = useState<Set<string>>(new Set());
   const [cleaning, setCleaning] = useState(false);
+  const [invalidSessions, setInvalidSessions] = useState<SessionIndexEntry[]>([]);
 
-  const emptySessions = sessions.filter((s) => s.messageCount === 0);
+  const emptySessions = invalidSessions;
+
+  const loadInvalidSessions = async (
+    nextProjectId: string,
+    nextSource: string
+  ) => {
+    if (!nextProjectId) {
+      setInvalidSessions([]);
+      return;
+    }
+
+    try {
+      const invalid = await api.getInvalidSessions(nextSource, nextProjectId);
+      if (
+        useAppStore.getState().source !== nextSource ||
+        useAppStore.getState().selectedProject !== nextProjectId
+      ) {
+        return;
+      }
+      setInvalidSessions(invalid);
+    } catch (err) {
+      console.error("Failed to load invalid sessions:", err);
+      if (
+        useAppStore.getState().source === nextSource &&
+        useAppStore.getState().selectedProject === nextProjectId
+      ) {
+        setInvalidSessions([]);
+      }
+    }
+  };
 
   useEffect(() => {
     if (projectId) {
       selectProject(projectId);
+      void loadInvalidSessions(projectId, source);
+    } else {
+      setInvalidSessions([]);
     }
   }, [projectId, source]);
 
@@ -485,6 +519,7 @@ export function SessionsPage() {
                         targets.map((s) => deleteSession(s.filePath, s.sessionId))
                       );
                       await selectProject(projectId);
+                      await loadInvalidSessions(projectId, source);
                     } catch (err) {
                       console.error("Failed to clean sessions:", err);
                     } finally {
