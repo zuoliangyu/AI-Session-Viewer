@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatStore } from "../../stores/chatStore";
@@ -6,10 +6,13 @@ import { useAppStore } from "../../stores/appStore";
 import { useChatStream } from "../../hooks/useChatStream";
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
-import { StreamingMessage } from "./StreamingMessage";
+import { StreamingMessage, getLinkedToolUseIds } from "./StreamingMessage";
 import { FolderSelector } from "./FolderSelector";
 import { MessageSquarePlus, AlertCircle, Bot } from "lucide-react";
 import type { ChatMessage } from "../../types/chat";
+import { ExpandAllProvider } from "../common/ExpandAllContext";
+import { useReplyNotification } from "../../hooks/useReplyNotification";
+import { normalizeToolName } from "./tool-viewers/ToolViewers";
 
 /** Enable virtual scrolling when there are more turns than this */
 const VIRTUAL_THRESHOLD = 30;
@@ -18,6 +21,81 @@ interface Turn {
   turnIndex: number;
   messages: ChatMessage[];
   tokens: number;
+}
+
+function getNormalizedCommandInput(input: string): string {
+  try {
+    const parsed = JSON.parse(input) as { command?: unknown };
+    if (typeof parsed?.command === "string") {
+      return parsed.command.trim();
+    }
+  } catch {
+    // Some command events already provide plain text input.
+  }
+
+  return input.trim();
+}
+
+function getDedupableAssistantSignature(
+  message: ChatMessage,
+  toolResultMap: Map<string, { content: string; isError: boolean }>
+): string | null {
+  if (message.role !== "assistant" || message.content.length === 0) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  for (const block of message.content) {
+    if (block.type === "tool_use") {
+      if (normalizeToolName(block.name) !== "Bash") {
+        return null;
+      }
+
+      const linkedResult = toolResultMap.get(block.id);
+      parts.push([
+        "tool",
+        "bash",
+        getNormalizedCommandInput(block.input),
+        linkedResult?.isError ? "1" : "0",
+        linkedResult?.content ?? "",
+      ].join(":"));
+      continue;
+    }
+
+    if (block.type === "tool_result") {
+      parts.push([
+        "result",
+        block.toolUseId,
+        block.isError ? "1" : "0",
+        block.content,
+      ].join(":"));
+      continue;
+    }
+
+    return null;
+  }
+
+  return parts.length > 0 ? parts.join("\n") : null;
+}
+
+function dedupeTurnMessages(
+  messages: ChatMessage[],
+  toolResultMap: Map<string, { content: string; isError: boolean }>
+): ChatMessage[] {
+  const deduped: ChatMessage[] = [];
+  let previousSignature: string | null = null;
+
+  for (const message of messages) {
+    const signature = getDedupableAssistantSignature(message, toolResultMap);
+    if (signature && signature === previousSignature) {
+      continue;
+    }
+
+    deduped.push(message);
+    previousSignature = signature;
+  }
+
+  return deduped;
 }
 
 export function ChatPage() {
@@ -40,12 +118,14 @@ export function ChatPage() {
     continueExistingChat,
     cancelChat,
     setProjectPath,
-    setModel,
     setSource,
   } = useChatStore();
+  const [expandVersion, setExpandVersion] = useState(0);
+  const [allExpanded, setAllExpanded] = useState(true);
 
   const appSource = useAppStore((s) => s.source);
   const cliLabel = appSource === "codex" ? "Codex" : "Claude";
+  const activeSessionId = sessionId || urlSessionId || null;
 
   // Sync source from appStore into chatStore
   useEffect(() => { setSource(appSource); }, [appSource, setSource]);
@@ -61,28 +141,25 @@ export function ChatPage() {
 
   const handleSend = useCallback((prompt: string) => {
     if (!projectPath) return;
-    if (sessionId || urlSessionId) {
-      continueExistingChat(sessionId || urlSessionId!, projectPath, prompt, model);
+    if (activeSessionId) {
+      continueExistingChat(activeSessionId, projectPath, prompt, model);
     } else {
       startNewChat(projectPath, prompt, model);
     }
-  }, [projectPath, sessionId, urlSessionId, model, continueExistingChat, startNewChat]);
+  }, [activeSessionId, projectPath, model, continueExistingChat, startNewChat]);
 
   const cliAvailable = availableClis.some((c) => c.cliType === appSource);
 
-  // Build tool linking maps
-  const { toolResultMap, linkedToolUseIds } = useMemo(() => {
+  const toolResultMap = useMemo(() => {
     const resultMap = new Map<string, { content: string; isError: boolean }>();
-    const linkedIds = new Set<string>();
     for (const msg of messages) {
       for (const block of msg.content) {
         if (block.type === "tool_result") {
           resultMap.set(block.toolUseId, { content: block.content, isError: block.isError });
-          linkedIds.add(block.toolUseId);
         }
       }
     }
-    return { toolResultMap: resultMap, linkedToolUseIds: linkedIds };
+    return resultMap;
   }, [messages]);
 
   // Build conversation turns
@@ -109,6 +186,20 @@ export function ChatPage() {
     return result;
   }, [messages]);
 
+  const linkedToolUseIds = useMemo(() => {
+    const linkedIds = new Set<string>();
+
+    for (const turn of turns) {
+      for (const message of dedupeTurnMessages(turn.messages, toolResultMap)) {
+        for (const toolUseId of getLinkedToolUseIds(message, toolResultMap)) {
+          linkedIds.add(toolUseId);
+        }
+      }
+    }
+
+    return linkedIds;
+  }, [toolResultMap, turns]);
+
   const useVirtual = turns.length > VIRTUAL_THRESHOLD;
 
   // Auto-scroll to bottom on new messages
@@ -119,12 +210,55 @@ export function ChatPage() {
     el.scrollTop = el.scrollHeight;
   }, [messages.length, isStreaming]);
 
+  const latestAssistantMessage = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant") {
+        const text = messages[i].content.find((block) => block.type === "text");
+        return {
+          key: `${messages[i].id}:${messages[i].timestamp}`,
+          preview: text && "text" in text ? text.text.slice(0, 80) : "有新回复",
+        };
+      }
+    }
+    return null;
+  }, [messages]);
+
+  useReplyNotification(
+    latestAssistantMessage?.key ?? null,
+    `${cliLabel} 有新回复`,
+    latestAssistantMessage?.preview || "点击查看最新对话"
+  );
+
+  const handleSubmitAnswers = useCallback(async (answers: string) => {
+    const trimmedAnswers = answers.trim();
+    if (!trimmedAnswers || !projectPath || !activeSessionId) return;
+
+    if (isStreaming) {
+      await cancelChat();
+      setTimeout(() => {
+        continueExistingChat(activeSessionId, projectPath, trimmedAnswers, model);
+      }, 150);
+      return;
+    }
+    continueExistingChat(activeSessionId, projectPath, trimmedAnswers, model);
+  }, [activeSessionId, cancelChat, continueExistingChat, isStreaming, model, projectPath]);
+
   return (
     <div className="flex flex-col h-full">
-      <ChatHeader />
+      <ChatHeader
+        onExpandAll={() => {
+          setAllExpanded(true);
+          setExpandVersion((v) => v + 1);
+        }}
+        onCollapseAll={() => {
+          setAllExpanded(false);
+          setExpandVersion((v) => v + 1);
+        }}
+      />
 
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {!isActive && messages.length === 0 ? (
+        <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
+          {!isActive && messages.length === 0 ? (
           <EmptyState
             projectPath={projectPath}
             onProjectPathChange={setProjectPath}
@@ -139,6 +273,7 @@ export function ChatPage() {
             isStreaming={isStreaming}
             error={error}
             scrollContainer={scrollContainerRef}
+            onSubmitAnswers={handleSubmitAnswers}
           />
         ) : (
           <div className="max-w-4xl mx-auto px-4 py-4">
@@ -148,11 +283,13 @@ export function ChatPage() {
                 turn={turn}
                 toolResultMap={toolResultMap}
                 linkedToolUseIds={linkedToolUseIds}
+                onSubmitAnswers={handleSubmitAnswers}
               />
             ))}
             <StreamingAndError isStreaming={isStreaming} error={error} />
           </div>
         )}
+        </ExpandAllProvider>
       </div>
 
       <div className="max-w-4xl mx-auto w-full">
@@ -176,6 +313,7 @@ function VirtualizedTurns({
   isStreaming,
   error,
   scrollContainer,
+  onSubmitAnswers,
 }: {
   turns: Turn[];
   toolResultMap: Map<string, { content: string; isError: boolean }>;
@@ -183,6 +321,7 @@ function VirtualizedTurns({
   isStreaming: boolean;
   error: string | null;
   scrollContainer: React.RefObject<HTMLDivElement | null>;
+  onSubmitAnswers: (answers: string) => void;
 }) {
   // +1 for the streaming/error footer row
   const count = turns.length + 1;
@@ -236,6 +375,7 @@ function VirtualizedTurns({
                 turn={turn}
                 toolResultMap={toolResultMap}
                 linkedToolUseIds={linkedToolUseIds}
+                onSubmitAnswers={onSubmitAnswers}
               />
             </div>
           );
@@ -251,11 +391,18 @@ function TurnBlock({
   turn,
   toolResultMap,
   linkedToolUseIds,
+  onSubmitAnswers,
 }: {
   turn: Turn;
   toolResultMap: Map<string, { content: string; isError: boolean }>;
   linkedToolUseIds: Set<string>;
+  onSubmitAnswers: (answers: string) => void;
 }) {
+  const displayMessages = useMemo(
+    () => dedupeTurnMessages(turn.messages, toolResultMap),
+    [toolResultMap, turn.messages]
+  );
+
   return (
     <div>
       {turn.turnIndex > 0 && (
@@ -269,12 +416,14 @@ function TurnBlock({
         </div>
       )}
       <div className="space-y-1">
-        {turn.messages.map((msg) => (
+        {displayMessages.map((msg) => (
           <StreamingMessage
             key={msg.id}
             message={msg}
             toolResultMap={toolResultMap}
             linkedToolUseIds={linkedToolUseIds}
+            onSubmitAnswers={onSubmitAnswers}
+            interactiveQuestions
           />
         ))}
       </div>

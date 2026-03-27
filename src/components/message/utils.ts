@@ -2,10 +2,21 @@ import { format } from "date-fns";
 
 export function formatTime(timestamp: string): string {
   try {
-    return format(new Date(timestamp), "HH:mm:ss");
+    return format(new Date(timestamp), "yyyy-MM-dd HH:mm:ss");
   } catch {
     return timestamp;
   }
+}
+
+export function stripControlChars(text: string): string {
+  if (!text) return text ?? "";
+  return (
+    text
+      .replace(/\r\n?/g, "\n")
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, "")
+      .replace(/[\u200b-\u200d\u2060\ufeff]/g, "")
+  );
 }
 
 /**
@@ -35,6 +46,11 @@ export function stripXmlTags(text: string): string {
       .replace(/\n{3,}/g, "\n\n")
       .trim()
   );
+}
+
+export function cleanMessageText(text: string): string {
+  if (!text) return text ?? "";
+  return stripXmlTags(stripControlChars(stripAnsi(text)));
 }
 
 /**

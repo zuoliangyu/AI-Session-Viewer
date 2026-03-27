@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { ChatMessage, ChatContentBlock } from "../../types/chat";
 import {
   Bot,
@@ -11,8 +10,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { ToolViewer } from "./tool-viewers/ToolViewers";
-import { wrapAsciiArt } from "../message/utils";
+import { ToolViewer, normalizeToolName } from "./tool-viewers/ToolViewers";
+import { cleanMessageText, wrapAsciiArt } from "../message/utils";
+import { useExpandAllControl } from "../common/ExpandAllContext";
 
 interface Props {
   message: ChatMessage;
@@ -20,8 +20,10 @@ interface Props {
   showModel?: boolean;
   /** Map from tool_use id → matching tool_result (for linked rendering) */
   toolResultMap?: Map<string, { content: string; isError: boolean }>;
-  /** Set of tool_result IDs already rendered via linked tool_use (to skip) */
+  /** Set of tool_result IDs already rendered via a visible linked tool_use (to skip) */
   linkedToolUseIds?: Set<string>;
+  onSubmitAnswers?: (answers: string) => void;
+  interactiveQuestions?: boolean;
 }
 
 /**
@@ -35,6 +37,8 @@ export function StreamingMessage({
   showModel,
   toolResultMap,
   linkedToolUseIds,
+  onSubmitAnswers,
+  interactiveQuestions,
 }: Props) {
   if (message.role === "system") {
     return <SystemMsg message={message} />;
@@ -50,13 +54,127 @@ export function StreamingMessage({
   }
   // assistant + tool
   return (
-    <AssistantMsg
-      message={message}
-      showTimestamp={showTimestamp}
-      showModel={showModel}
-      toolResultMap={toolResultMap}
-    />
-  );
+      <AssistantMsg
+        message={message}
+        showTimestamp={showTimestamp}
+        showModel={showModel}
+        toolResultMap={toolResultMap}
+        onSubmitAnswers={onSubmitAnswers}
+        interactiveQuestions={interactiveQuestions}
+      />
+    );
+}
+
+type ToolResultData = { content: string; isError: boolean };
+
+function isBashToolName(name: string): boolean {
+  return normalizeToolName(name) === "Bash";
+}
+
+function getToolDisplayInput(block: Extract<ChatContentBlock, { type: "tool_use" }>): string {
+  if (!isBashToolName(block.name)) {
+    return block.input.trim();
+  }
+
+  try {
+    const parsed = JSON.parse(block.input) as { command?: unknown };
+    if (typeof parsed?.command === "string") {
+      return parsed.command.trim();
+    }
+  } catch {
+    // Some command events already pass plain text input.
+  }
+
+  return block.input.trim();
+}
+
+function getToolDisplayState(
+  blocks: ChatContentBlock[],
+  toolResultMap?: Map<string, ToolResultData>
+) {
+  const deduped: ChatContentBlock[] = [];
+  const linkedIds = new Set<string>();
+
+  for (const block of blocks) {
+    if (block.type !== "tool_use") {
+      deduped.push(block);
+      continue;
+    }
+
+    const previous = deduped[deduped.length - 1];
+    if (previous?.type !== "tool_use") {
+      deduped.push(block);
+      continue;
+    }
+
+    if (!isBashToolName(block.name) || !isBashToolName(previous.name)) {
+      deduped.push(block);
+      continue;
+    }
+
+    const currentInput = getToolDisplayInput(block);
+    const previousInput = getToolDisplayInput(previous);
+    if (currentInput !== previousInput) {
+      deduped.push(block);
+      continue;
+    }
+
+    const currentResult = toolResultMap?.get(block.id);
+    const previousResult = toolResultMap?.get(previous.id);
+    const currentHasResult = currentResult !== undefined;
+    const previousHasResult = previousResult !== undefined;
+    const sameResult =
+      currentResult?.content === previousResult?.content &&
+      currentResult?.isError === previousResult?.isError;
+
+    if (sameResult) {
+      if (previousHasResult) {
+        linkedIds.add(previous.id);
+      }
+      if (currentHasResult) {
+        linkedIds.add(block.id);
+      }
+      continue;
+    }
+
+    if (!currentHasResult && !previousHasResult) {
+      continue;
+    }
+
+    if (!currentHasResult && previousHasResult) {
+      linkedIds.add(previous.id);
+      continue;
+    }
+
+    if (currentHasResult && !previousHasResult) {
+      deduped[deduped.length - 1] = block;
+      linkedIds.add(block.id);
+      continue;
+    }
+
+    deduped.push(block);
+  }
+
+  if (toolResultMap) {
+    for (const block of deduped) {
+      if (block.type === "tool_use" && toolResultMap.has(block.id)) {
+        linkedIds.add(block.id);
+      }
+    }
+  }
+
+  return { blocks: deduped, linkedToolUseIds: linkedIds };
+}
+
+export function getLinkedToolUseIds(
+  message: ChatMessage,
+  toolResultMap?: Map<string, ToolResultData>
+): string[] {
+  if (message.role !== "assistant" || !toolResultMap) {
+    return [];
+  }
+
+  return Array.from(getToolDisplayState(message.content, toolResultMap).linkedToolUseIds);
 }
 
 /* ── System (result / info) ─────────────────────────────── */
@@ -97,7 +215,7 @@ function UserMsg({
             return (
               <div key={i} className="bg-primary/10 rounded-2xl px-4 py-2.5 text-sm leading-relaxed">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {wrapAsciiArt(block.text)}
+                  {wrapAsciiArt(cleanMessageText(block.text))}
                 </ReactMarkdown>
               </div>
             );
@@ -137,12 +255,17 @@ function AssistantMsg({
   showTimestamp,
   showModel,
   toolResultMap,
+  onSubmitAnswers,
+  interactiveQuestions,
 }: {
   message: ChatMessage;
   showTimestamp?: boolean;
   showModel?: boolean;
-  toolResultMap?: Map<string, { content: string; isError: boolean }>;
+  toolResultMap?: Map<string, ToolResultData>;
+  onSubmitAnswers?: (answers: string) => void;
+  interactiveQuestions?: boolean;
 }) {
+  const { blocks: displayBlocks } = getToolDisplayState(message.content, toolResultMap);
 
   return (
     <div className="flex gap-3">
@@ -181,8 +304,14 @@ function AssistantMsg({
             </span>
           )}
         </div>
-        {message.content.map((block, i) => (
-          <ContentBlockRenderer key={i} block={block} toolResultMap={toolResultMap} />
+        {displayBlocks.map((block, i) => (
+          <ContentBlockRenderer
+            key={i}
+            block={block}
+            toolResultMap={toolResultMap}
+            onSubmitAnswers={onSubmitAnswers}
+            interactiveQuestions={interactiveQuestions}
+          />
         ))}
       </div>
     </div>
@@ -194,9 +323,13 @@ function AssistantMsg({
 function ContentBlockRenderer({
   block,
   toolResultMap,
+  onSubmitAnswers,
+  interactiveQuestions,
 }: {
   block: ChatContentBlock;
-  toolResultMap?: Map<string, { content: string; isError: boolean }>;
+  toolResultMap?: Map<string, ToolResultData>;
+  onSubmitAnswers?: (answers: string) => void;
+  interactiveQuestions?: boolean;
 }) {
   if (block.type === "text") {
     return <TextBlock text={block.text} />;
@@ -208,7 +341,15 @@ function ContentBlockRenderer({
 
   if (block.type === "tool_use") {
     const result = toolResultMap?.get(block.id) ?? null;
-    return <ToolViewer name={block.name} input={block.input} result={result} />;
+    return (
+      <ToolViewer
+        name={normalizeToolName(block.name)}
+        input={block.input}
+        result={result}
+        onSubmitAnswers={onSubmitAnswers}
+        interactive={interactiveQuestions}
+      />
+    );
   }
 
   if (block.type === "tool_result") {
@@ -297,7 +438,7 @@ function TextBlock({ text }: { text: string }) {
           },
         }}
       >
-        {wrapAsciiArt(text)}
+        {wrapAsciiArt(cleanMessageText(text))}
       </ReactMarkdown>
     </div>
   );
@@ -306,7 +447,7 @@ function TextBlock({ text }: { text: string }) {
 /* ── Thinking block ── */
 
 function ThinkingBlock({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
+  const { expanded, setExpanded } = useExpandAllControl(true);
   return (
     <div className="mt-2 mb-2">
       <button
@@ -329,7 +470,7 @@ function ThinkingBlock({ text }: { text: string }) {
 /* ── Fallback tool result (for edge cases) ── */
 
 function FallbackToolResult({ content, isError }: { content: string; isError: boolean }) {
-  const [expanded, setExpanded] = useState(false);
+  const { expanded, setExpanded } = useExpandAllControl(false);
   const isLong = content.length > 300;
 
   if (!isLong) {
@@ -373,7 +514,15 @@ function FallbackToolResult({ content, isError }: { content: string; isError: bo
 function formatTime(timestamp: string): string {
   try {
     const d = new Date(timestamp);
-    return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return d.toLocaleString("zh-CN", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
   } catch {
     return timestamp;
   }

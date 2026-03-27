@@ -19,6 +19,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { DiffView } from "./DiffView";
 import { MarkdownContent } from "../../message/MarkdownContent";
+import { useExpandAllControl } from "../../common/ExpandAllContext";
 
 /* ── Types ─────────────────────────────────────────── */
 
@@ -30,6 +31,8 @@ interface ToolViewerProps {
   name: string;
   input: string; // JSON string
   result?: { content: string; isError: boolean } | null;
+  onSubmitAnswers?: (answers: string) => void;
+  interactive?: boolean;
 }
 
 /* ── Helpers ───────────────────────────────────────── */
@@ -64,6 +67,115 @@ function getFileName(path: string): string {
   return path.split(/[\\/]/).pop() || path;
 }
 
+function getToolNameKey(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+export function normalizeToolName(name: string): string {
+  switch (getToolNameKey(name)) {
+    case "read":
+      return "Read";
+    case "edit":
+      return "Edit";
+    case "write":
+      return "Write";
+    case "bash":
+    case "shell":
+      return "Bash";
+    case "grep":
+      return "Grep";
+    case "glob":
+      return "Glob";
+    case "webfetch":
+      return "WebFetch";
+    case "websearch":
+      return "WebSearch";
+    case "askuserquestion":
+    case "mcptoolsaskuserquestion":
+      return "AskUserQuestion";
+    default:
+      return name.trim();
+  }
+}
+
+function getCommandInput(parsed: ToolInput | null, rawInput: string): string {
+  if (typeof parsed?.command === "string") {
+    return parsed.command;
+  }
+  return rawInput.trim();
+}
+
+function parseAnswerRecord(content?: string): Record<string, unknown> {
+  if (!content) return {};
+
+  try {
+    const parsed = JSON.parse(content) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const answers =
+        record.answers && typeof record.answers === "object"
+          ? record.answers
+          : record;
+      if (answers && typeof answers === "object" && !Array.isArray(answers)) {
+        return answers as Record<string, unknown>;
+      }
+    }
+  } catch {
+    // Ignore invalid JSON and fall back to plain text rendering.
+  }
+
+  return {};
+}
+
+function normalizeAnswerValue(value: unknown, multiSelect: boolean): string | string[] {
+  const splitText = (text: string) =>
+    text
+      .split(/[,\n、；;]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const collectStrings = (input: unknown): string[] => {
+    if (Array.isArray(input)) {
+      return input.flatMap((item) => collectStrings(item));
+    }
+    if (typeof input === "string") {
+      return splitText(input);
+    }
+    if (input && typeof input === "object") {
+      const record = input as Record<string, unknown>;
+      for (const key of ["selectedOptions", "options", "values", "value", "answer", "text", "label"]) {
+        if (key in record) {
+          const values = collectStrings(record[key]);
+          if (values.length > 0) return values;
+        }
+      }
+    }
+    return [];
+  };
+
+  if (multiSelect) {
+    return collectStrings(value);
+  }
+
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return collectStrings(value).join("、");
+  }
+  if (value && typeof value === "object") {
+    const values = collectStrings(value);
+    if (values.length > 0) {
+      return values.join("、");
+    }
+  }
+  return "";
+}
+
+function hasAnswerValue(value: string | string[]): boolean {
+  return Array.isArray(value) ? value.length > 0 : value.trim().length > 0;
+}
+
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
@@ -85,8 +197,9 @@ function CopyButton({ text }: { text: string }) {
 /* ── Tool icon helper ─────────────────────────────── */
 
 function toolIcon(name: string) {
+  const normalizedName = normalizeToolName(name);
   const cls = "w-3.5 h-3.5";
-  switch (name) {
+  switch (normalizedName) {
     case "Read": return <FileText className={cls} />;
     case "Edit": return <Pencil className={cls} />;
     case "Write": return <FilePlus className={cls} />;
@@ -94,7 +207,7 @@ function toolIcon(name: string) {
     case "Grep": return <Search className={cls} />;
     case "Glob": return <FolderSearch className={cls} />;
     case "WebFetch": case "WebSearch": return <Globe className={cls} />;
-    case "AskUserQuestion": case "mcp__tools__ask-user-question": return <HelpCircle className={cls} />;
+    case "AskUserQuestion": return <HelpCircle className={cls} />;
     default: return null;
   }
 }
@@ -102,43 +215,45 @@ function toolIcon(name: string) {
 /* ── Tool summary helper ──────────────────────────── */
 
 function toolSummary(name: string, parsed: ToolInput | null): string {
-  if (!parsed) return "";
-  switch (name) {
+  const normalizedName = normalizeToolName(name);
+  if (!parsed && normalizedName !== "Bash") return "";
+  const data = parsed ?? {};
+
+  switch (normalizedName) {
     case "Read": {
-      const fp = String(parsed.file_path || "");
-      const offset = parsed.offset ? ` L${parsed.offset}` : "";
-      const limit = parsed.limit ? `-${Number(parsed.offset || 1) + Number(parsed.limit)}` : "";
+      const fp = String(data.file_path || "");
+      const offset = data.offset ? ` L${data.offset}` : "";
+      const limit = data.limit ? `-${Number(data.offset || 1) + Number(data.limit)}` : "";
       return fp ? `${getFileName(fp)}${offset}${limit}` : "";
     }
     case "Edit": {
-      const fp = String(parsed.file_path || "");
-      const old = String(parsed.old_string || "");
-      const nw = String(parsed.new_string || "");
+      const fp = String(data.file_path || "");
+      const old = String(data.old_string || "");
+      const nw = String(data.new_string || "");
       const oldLines = old.split("\n").length;
       const newLines = nw.split("\n").length;
       return fp ? `${getFileName(fp)} ${oldLines} → ${newLines} 行` : "";
     }
     case "Write": {
-      const fp = String(parsed.file_path || "");
-      const content = String(parsed.content || "");
+      const fp = String(data.file_path || "");
+      const content = String(data.content || "");
       const lines = content.split("\n").length;
       return fp ? `${getFileName(fp)} ${lines} 行` : "";
     }
     case "Bash": {
-      return String(parsed.command || "");
+      return String(data.description || "");
     }
     case "Grep": {
-      const pat = String(parsed.pattern || "");
-      const path = parsed.path ? ` in ${getFileName(String(parsed.path))}` : "";
+      const pat = String(data.pattern || "");
+      const path = data.path ? ` in ${getFileName(String(data.path))}` : "";
       return `"${pat}"${path}`;
     }
     case "Glob": {
-      const pat = String(parsed.pattern || "");
+      const pat = String(data.pattern || "");
       return pat;
     }
-    case "AskUserQuestion":
-    case "mcp__tools__ask-user-question": {
-      const questions = parsed.questions as Array<{ question?: string }> | undefined;
+    case "AskUserQuestion": {
+      const questions = data.questions as Array<{ question?: string }> | undefined;
       if (questions && questions.length > 0) {
         return `${questions.length} 个问题`;
       }
@@ -151,11 +266,19 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
 
 /* ── Main ToolViewer ──────────────────────────────── */
 
-export function ToolViewer({ name, input, result }: ToolViewerProps) {
-  const [expanded, setExpanded] = useState(true);
+export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }: ToolViewerProps) {
+  const { expanded, setExpanded } = useExpandAllControl(true);
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
+  const normalizedName = useMemo(() => normalizeToolName(name), [name]);
   const parsed = useMemo(() => tryParseJson(input), [input]);
-  const summary = useMemo(() => toolSummary(name, parsed), [name, parsed]);
+  const rawViewLanguage = parsed ? "json" : normalizedName === "Bash" ? "bash" : "text";
+  const rawViewTitle = parsed ? "原始 JSON" : "原始输入";
+  const summary = useMemo(() => {
+    if (normalizedName === "Bash" && !parsed) {
+      return getCommandInput(parsed, input);
+    }
+    return toolSummary(normalizedName, parsed);
+  }, [normalizedName, parsed, input]);
   const hasError = result?.isError ?? false;
 
   return (
@@ -177,8 +300,8 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
           onClick={() => setExpanded(!expanded)}
           className="flex-1 flex items-center gap-2 px-3 py-2 min-w-0"
         >
-          {toolIcon(name) || <div className="w-3.5 h-3.5" />}
-          <span className="font-mono font-medium">{name}</span>
+          {toolIcon(normalizedName) || <div className="w-3.5 h-3.5" />}
+          <span className="font-mono font-medium">{normalizedName}</span>
           {summary && (
             <span className="text-muted-foreground truncate max-w-[20rem]">
               {summary}
@@ -203,7 +326,7 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
               ? "text-blue-400"
               : "text-muted-foreground hover:text-foreground"
           }`}
-          title={!expanded ? "展开并显示原始 JSON" : viewMode === "code" ? "切换到预览模式" : "切换到原始 JSON"}
+          title={!expanded ? `展开并显示${rawViewTitle}` : viewMode === "code" ? "切换到预览模式" : `切换到${rawViewTitle}`}
         >
           <Code2 className="w-3.5 h-3.5" />
         </button>
@@ -231,7 +354,7 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
               </div>
               <SyntaxHighlighter
                 style={oneDark}
-                language="json"
+                language={rawViewLanguage}
                 wrapLongLines={true}
                 customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
               >
@@ -241,7 +364,14 @@ export function ToolViewer({ name, input, result }: ToolViewerProps) {
               </SyntaxHighlighter>
             </div>
           ) : (
-            <ToolContent name={name} parsed={parsed} rawInput={input} result={result} />
+            <ToolContent
+              name={normalizedName}
+              parsed={parsed}
+              rawInput={input}
+              result={result}
+              onSubmitAnswers={onSubmitAnswers}
+              interactive={interactive}
+            />
           )}
         </div>
       )}
@@ -256,11 +386,15 @@ function ToolContent({
   parsed,
   rawInput,
   result,
+  onSubmitAnswers,
+  interactive,
 }: {
   name: string;
   parsed: ToolInput | null;
   rawInput: string;
   result?: { content: string; isError: boolean } | null;
+  onSubmitAnswers?: (answers: string) => void;
+  interactive?: boolean;
 }) {
   switch (name) {
     case "Read":
@@ -270,13 +404,19 @@ function ToolContent({
     case "Write":
       return <WriteContent parsed={parsed} result={result} />;
     case "Bash":
-      return <BashContent parsed={parsed} result={result} />;
+      return <BashContent parsed={parsed} rawInput={rawInput} result={result} />;
     case "Grep":
     case "Glob":
       return <SearchContent name={name} parsed={parsed} result={result} />;
     case "AskUserQuestion":
-    case "mcp__tools__ask-user-question":
-      return <AskUserQuestionContent parsed={parsed} result={result} />;
+      return (
+        <AskUserQuestionContent
+          parsed={parsed}
+          result={result}
+          onSubmitAnswers={onSubmitAnswers}
+          interactive={interactive}
+        />
+      );
     default:
       return <DefaultContent parsed={parsed} rawInput={rawInput} result={result} />;
   }
@@ -420,12 +560,14 @@ function WriteContent({
 
 function BashContent({
   parsed,
+  rawInput,
   result,
 }: {
   parsed: ToolInput | null;
+  rawInput: string;
   result?: { content: string; isError: boolean } | null;
 }) {
-  const command = String(parsed?.command || "");
+  const command = getCommandInput(parsed, rawInput);
   const description = String(parsed?.description || "");
   const output = result?.content || "";
 
@@ -647,26 +789,21 @@ interface AskQuestion {
 function AskUserQuestionContent({
   parsed,
   result,
+  onSubmitAnswers,
+  interactive,
 }: {
   parsed: ToolInput | null;
   result?: { content: string; isError: boolean } | null;
+  onSubmitAnswers?: (answers: string) => void;
+  interactive?: boolean;
 }) {
   if (result?.isError) {
     return <ErrorBlock content={result.content} />;
   }
 
   const questions = (parsed?.questions as AskQuestion[] | undefined) ?? [];
-
-  // Try to parse user answers from result
-  let answers: Record<string, string> = {};
-  if (result?.content) {
-    try {
-      const parsed = JSON.parse(result.content);
-      if (parsed?.answers) answers = parsed.answers;
-    } catch {
-      // result is plain text, try to extract key=value pairs
-    }
-  }
+  const [draftAnswers, setDraftAnswers] = useState<Record<string, string | string[]>>({});
+  const answers = parseAnswerRecord(result?.content);
 
   if (questions.length === 0) {
     return (
@@ -679,7 +816,16 @@ function AskUserQuestionContent({
   return (
     <div className="divide-y divide-border/50">
       {questions.map((q, qi) => {
-        const answer = answers[q.question];
+        const confirmedAnswer = normalizeAnswerValue(answers[q.question], Boolean(q.multiSelect));
+        const draft = draftAnswers[q.question];
+        const effectiveAnswer = draft ?? confirmedAnswer;
+        const selectedValues = q.multiSelect
+          ? (Array.isArray(effectiveAnswer) ? effectiveAnswer : [])
+          : [];
+        const answerText = Array.isArray(confirmedAnswer) ? confirmedAnswer.join("、") : confirmedAnswer;
+        const unmatchedAnswers = q.multiSelect
+          ? selectedValues.filter((value) => !q.options?.some((option) => option.label === value))
+          : [];
         return (
           <div key={qi} className="px-3 py-2.5">
             {/* Header chip */}
@@ -695,15 +841,37 @@ function AskUserQuestionContent({
             {q.options && q.options.length > 0 && (
               <div className="space-y-1">
                 {q.options.map((opt, oi) => {
-                  const isSelected = answer === opt.label;
+                  const isSelected = q.multiSelect
+                    ? selectedValues.includes(opt.label)
+                    : effectiveAnswer === opt.label;
                   return (
-                    <div
+                    <button
                       key={oi}
+                      type="button"
+                      disabled={!interactive || !!result?.content}
+                      onClick={() => {
+                        if (!interactive || result?.content) return;
+                        setDraftAnswers((prev) => {
+                          const next = { ...prev };
+                          if (q.multiSelect) {
+                            const currentSource = prev[q.question] ?? confirmedAnswer;
+                            const current = Array.isArray(currentSource) ? [...currentSource] : [];
+                            if (current.includes(opt.label)) {
+                              next[q.question] = current.filter((item) => item !== opt.label);
+                            } else {
+                              next[q.question] = [...current, opt.label];
+                            }
+                          } else {
+                            next[q.question] = opt.label;
+                          }
+                          return next;
+                        });
+                      }}
                       className={`flex items-start gap-2 px-2.5 py-1.5 rounded-md text-xs ${
                         isSelected
                           ? "bg-primary/10 border border-primary/30"
                           : "bg-muted/30"
-                      }`}
+                      } ${interactive && !result?.content ? "w-full text-left hover:bg-accent transition-colors" : "w-full text-left cursor-default"}`}
                     >
                       <span className={`shrink-0 mt-0.5 ${isSelected ? "text-primary" : "text-muted-foreground"}`}>
                         {q.multiSelect ? (isSelected ? "☑" : "☐") : (isSelected ? "●" : "○")}
@@ -716,21 +884,72 @@ function AskUserQuestionContent({
                           <p className="text-muted-foreground mt-0.5">{opt.description}</p>
                         )}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
             )}
+            {interactive && !result?.content && (
+              <textarea
+                value={
+                  Array.isArray(draft)
+                    ? draft.join("、")
+                    : typeof draft === "string"
+                      ? draft
+                      : Array.isArray(confirmedAnswer)
+                        ? confirmedAnswer.join("、")
+                        : ""
+                }
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setDraftAnswers((prev) => ({
+                    ...prev,
+                    [q.question]: q.multiSelect
+                      ? value.split(/[,\n、；;]/).map((item) => item.trim()).filter(Boolean)
+                      : value,
+                  }));
+                }}
+                placeholder="可直接输入回答，或点击上方选项"
+                className="mt-2 w-full min-h-[72px] rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            )}
             {/* Show answer if present and not matching any option */}
-            {answer && !q.options?.some((o) => o.label === answer) && (
+            {answerText && !q.multiSelect && !q.options?.some((o) => o.label === answerText) && (
               <div className="mt-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
                 <span className="text-primary font-medium">回答：</span>
-                <span className="text-foreground ml-1">{answer}</span>
+                <span className="text-foreground ml-1">{answerText}</span>
+              </div>
+            )}
+            {q.multiSelect && unmatchedAnswers.length > 0 && (
+              <div className="mt-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
+                <span className="text-primary font-medium">补充回答：</span>
+                <span className="text-foreground ml-1">{unmatchedAnswers.join("、")}</span>
               </div>
             )}
           </div>
         );
       })}
+      {interactive && !result?.content && onSubmitAnswers && questions.length > 0 && (
+        <div className="px-3 py-3 flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              const lines = questions.map((q) => {
+                const value = draftAnswers[q.question] ?? normalizeAnswerValue(answers[q.question], Boolean(q.multiSelect));
+                if (Array.isArray(value)) {
+                  return `- ${q.question}：${value.join("、") || "未选择"}`;
+                }
+                return `- ${q.question}：${String(value || "").trim() || "未填写"}`;
+              });
+              onSubmitAnswers(`针对上面的补充问题，我的回答如下：\n${lines.join("\n")}`);
+            }}
+            disabled={!questions.some((q) => hasAnswerValue(draftAnswers[q.question] ?? normalizeAnswerValue(answers[q.question], Boolean(q.multiSelect))))}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            提交选择
+          </button>
+        </div>
+      )}
       {/* Show raw result if no structured answers */}
       {result?.content && Object.keys(answers).length === 0 && (
         <div className="px-3 py-2 text-xs text-muted-foreground">

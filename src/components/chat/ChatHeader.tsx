@@ -8,9 +8,17 @@ import {
   Shield,
   ShieldOff,
   Cpu,
+  ChevronsUpDown,
+  Rows3,
 } from "lucide-react";
 
-export function ChatHeader() {
+export function ChatHeader({
+  onExpandAll,
+  onCollapseAll,
+}: {
+  onExpandAll: () => void;
+  onCollapseAll: () => void;
+}) {
   const {
     projectPath,
     messages,
@@ -23,6 +31,7 @@ export function ChatHeader() {
   const appSource = useAppStore((s) => s.source);
   const cliLabel = appSource === "codex" ? "Codex" : "Claude";
   const cliInfo = availableClis.find((c) => c.cliType === appSource);
+  const canToggleExpand = messages.length > 0;
 
   // Aggregate token stats
   const tokenStats = useMemo(() => {
@@ -99,6 +108,7 @@ export function ChatHeader() {
 
       {/* Skip permissions toggle */}
       <button
+        type="button"
         onClick={() => setSkipPermissions(!skipPermissions)}
         disabled={isStreaming}
         className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
@@ -121,6 +131,29 @@ export function ChatHeader() {
           {skipPermissions ? "跳过权限" : "正常权限"}
         </span>
       </button>
+
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={onExpandAll}
+          disabled={!canToggleExpand}
+          className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:hover:text-muted-foreground"
+          title="全部展开"
+        >
+          <Rows3 className="w-3 h-3" />
+          <span className="hidden sm:inline">展开</span>
+        </button>
+        <button
+          type="button"
+          onClick={onCollapseAll}
+          disabled={!canToggleExpand}
+          className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:hover:text-muted-foreground"
+          title="全部折叠"
+        >
+          <ChevronsUpDown className="w-3 h-3" />
+          <span className="hidden sm:inline">折叠</span>
+        </button>
+      </div>
 
       {/* Streaming indicator */}
       {isStreaming && (

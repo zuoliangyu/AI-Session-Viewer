@@ -11,6 +11,8 @@ pub struct SearchQuery {
     pub query: String,
     #[serde(default = "default_max_results")]
     pub max_results: usize,
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 fn default_max_results() -> usize {
@@ -23,9 +25,15 @@ pub async fn global_search(
     let source = params.source;
     let query = params.query;
     let max_results = params.max_results;
+    let scope = params.scope.unwrap_or_else(|| "all".to_string());
 
     let result = tokio::task::spawn_blocking(move || {
-        session_core::search::global_search(&source, &query, max_results)
+        session_core::search::global_search(
+            &source,
+            &query,
+            max_results,
+            session_core::search::SearchScope::from_query(&scope),
+        )
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

@@ -334,18 +334,30 @@ export function SessionsPage() {
                         session.filePath
                       )
                     }
-                    onContextMenu={(e) => handleCopyCommand(e, session.sessionId)}
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
-                    title={__IS_TAURI__ ? "在终端中恢复此会话（右键复制命令）" : "复制恢复命令"}
+                    title={__IS_TAURI__ ? "在终端中恢复此会话" : "复制恢复命令"}
                   >
-                    {copiedId === session.sessionId ? (
-                      <>已复制</>
-                    ) : __IS_TAURI__ ? (
+                    {__IS_TAURI__ ? (
                       <><Play className="w-3 h-3" />Resume</>
                     ) : (
-                      <><Copy className="w-3 h-3" />复制命令</>
+                      <>
+                        {copiedId === session.sessionId ? "已复制" : <><Copy className="w-3 h-3" />复制命令</>}
+                      </>
                     )}
                   </button>
+                  {__IS_TAURI__ && (
+                    <button
+                      onClick={(e) => handleCopyCommand(e, session.sessionId)}
+                      className="px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-md hover:bg-accent hover:text-foreground flex items-center gap-1"
+                      title="复制恢复命令"
+                    >
+                      {copiedId === session.sessionId ? (
+                        <>已复制</>
+                      ) : (
+                        <><Copy className="w-3 h-3" />复制命令</>
+                      )}
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

@@ -2,11 +2,16 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { wrapAsciiArt } from "./utils";
+import { cleanMessageText, wrapAsciiArt } from "./utils";
 
-export function MarkdownContent({ content }: { content: string }) {
+interface MarkdownContentProps {
+  content: string;
+  className?: string;
+}
+
+export function MarkdownContent({ content, className }: MarkdownContentProps) {
   return (
-    <div className="p-3 prose prose-sm max-w-none text-xs leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+    <div className={className ?? "p-3 prose prose-sm max-w-none text-xs leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -65,7 +70,7 @@ export function MarkdownContent({ content }: { content: string }) {
           },
         }}
       >
-        {wrapAsciiArt(content)}
+        {wrapAsciiArt(cleanMessageText(content))}
       </ReactMarkdown>
     </div>
   );

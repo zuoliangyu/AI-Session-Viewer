@@ -6,6 +6,31 @@ use crate::metadata;
 use crate::models::message::DisplayContentBlock;
 use crate::provider::{claude, codex};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchScope {
+    All,
+    Session,
+    Content,
+}
+
+impl SearchScope {
+    pub fn from_query(value: &str) -> Self {
+        match value {
+            "session" => Self::Session,
+            "content" => Self::Content,
+            _ => Self::All,
+        }
+    }
+
+    fn includes_session(self) -> bool {
+        matches!(self, Self::All | Self::Session)
+    }
+
+    fn includes_content(self) -> bool {
+        matches!(self, Self::All | Self::Content)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResult {
@@ -74,19 +99,20 @@ pub fn global_search(
     source: &str,
     query: &str,
     max_results: usize,
+    scope: SearchScope,
 ) -> Result<Vec<SearchResult>, String> {
     let query_lower = query.to_lowercase();
 
     let results: Vec<SearchResult> = match source {
-        "claude" => search_claude(&query_lower, max_results),
-        "codex" => search_codex(&query_lower, max_results),
+        "claude" => search_claude(&query_lower, max_results, scope),
+        "codex" => search_codex(&query_lower, max_results, scope),
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
     Ok(results)
 }
 
-fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
+fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
     let jsonl_files = claude::collect_all_jsonl_files();
 
     // Pre-load metadata per project for alias lookup
@@ -114,10 +140,6 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 Err(_) => return file_results,
             };
 
-            if !content.to_lowercase().contains(query_lower) {
-                return file_results;
-            }
-
             // Lookup alias and tags from metadata
             let session_meta = meta_cache
                 .get(encoded_name)
@@ -126,6 +148,15 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
+            let content_has_query = content.to_lowercase().contains(query_lower);
+            let alias_has_query = alias
+                .as_ref()
+                .map(|a| a.to_lowercase().contains(query_lower))
+                .unwrap_or(false);
+
+            if !content_has_query && !alias_has_query {
+                return file_results;
+            }
 
             if let Ok(messages) = claude::parse_all_messages(file_path) {
                 let total_message_count = messages.len() as u32;
@@ -133,24 +164,26 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 let mut message_match_count = 0usize;
 
                 // Check alias for session-name match
-                if let Some(a) = &alias {
-                    if a.to_lowercase().contains(query_lower) {
-                        session_name_matched = true;
-                        file_results.push(SearchResult {
-                            source: "claude".to_string(),
-                            project_id: encoded_name.clone(),
-                            project_name: project_name.clone(),
-                            session_id: session_id.clone(),
-                            first_prompt: None,
-                            alias: alias.clone(),
-                            tags: tags.clone(),
-                            matched_text: a.clone(),
-                            role: "session".to_string(),
-                            timestamp: None,
-                            file_path: file_path.to_string_lossy().to_string(),
-                            total_message_count,
-                            matched_message_id: None,
-                        });
+                if scope.includes_session() {
+                    if let Some(a) = &alias {
+                        if a.to_lowercase().contains(query_lower) {
+                            session_name_matched = true;
+                            file_results.push(SearchResult {
+                                source: "claude".to_string(),
+                                project_id: encoded_name.clone(),
+                                project_name: project_name.clone(),
+                                session_id: session_id.clone(),
+                                first_prompt: None,
+                                alias: alias.clone(),
+                                tags: tags.clone(),
+                                matched_text: a.clone(),
+                                role: "session".to_string(),
+                                timestamp: None,
+                                file_path: file_path.to_string_lossy().to_string(),
+                                total_message_count,
+                                matched_message_id: None,
+                            });
+                        }
                     }
                 }
 
@@ -161,7 +194,10 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                             if let DisplayContentBlock::Text { text } = block {
                                 first_prompt = Some(safe_truncate(text, 100));
                                 // Check first_prompt for session-name match (only once, and only if alias didn't already match)
-                                if !session_name_matched && text.to_lowercase().contains(query_lower) {
+                                if scope.includes_session()
+                                    && !session_name_matched
+                                    && text.to_lowercase().contains(query_lower)
+                                {
                                     session_name_matched = true;
                                     file_results.push(SearchResult {
                                         source: "claude".to_string(),
@@ -182,6 +218,10 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 break;
                             }
                         }
+                    }
+
+                    if !scope.includes_content() {
+                        continue;
                     }
 
                     for block in &msg.content {
@@ -224,7 +264,7 @@ fn search_claude(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
     results
 }
 
-fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
+fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
     let files = codex::scan_all_session_files();
 
     // Pre-load codex metadata (single file for all sessions)
@@ -239,10 +279,6 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 Ok(c) => c,
                 Err(_) => return file_results,
             };
-
-            if !content.to_lowercase().contains(query_lower) {
-                return file_results;
-            }
 
             let meta = codex::extract_session_meta(file_path);
             let (session_id, cwd) = match &meta {
@@ -267,6 +303,15 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
+            let content_has_query = content.to_lowercase().contains(query_lower);
+            let alias_has_query = alias
+                .as_ref()
+                .map(|a| a.to_lowercase().contains(query_lower))
+                .unwrap_or(false);
+
+            if !content_has_query && !alias_has_query {
+                return file_results;
+            }
 
             if let Ok(messages) = codex::parse_all_messages(file_path) {
                 let total_message_count = messages.len() as u32;
@@ -274,24 +319,26 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                 let mut message_match_count = 0usize;
 
                 // Check alias for session-name match
-                if let Some(a) = &alias {
-                    if a.to_lowercase().contains(query_lower) {
-                        session_name_matched = true;
-                        file_results.push(SearchResult {
-                            source: "codex".to_string(),
-                            project_id: cwd.clone(),
-                            project_name: short_name.clone(),
-                            session_id: session_id.clone(),
-                            first_prompt: None,
-                            alias: alias.clone(),
-                            tags: tags.clone(),
-                            matched_text: a.clone(),
-                            role: "session".to_string(),
-                            timestamp: None,
-                            file_path: file_path.to_string_lossy().to_string(),
-                            total_message_count,
-                            matched_message_id: None,
-                        });
+                if scope.includes_session() {
+                    if let Some(a) = &alias {
+                        if a.to_lowercase().contains(query_lower) {
+                            session_name_matched = true;
+                            file_results.push(SearchResult {
+                                source: "codex".to_string(),
+                                project_id: cwd.clone(),
+                                project_name: short_name.clone(),
+                                session_id: session_id.clone(),
+                                first_prompt: None,
+                                alias: alias.clone(),
+                                tags: tags.clone(),
+                                matched_text: a.clone(),
+                                role: "session".to_string(),
+                                timestamp: None,
+                                file_path: file_path.to_string_lossy().to_string(),
+                                total_message_count,
+                                matched_message_id: None,
+                            });
+                        }
                     }
                 }
 
@@ -302,7 +349,10 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                             if let DisplayContentBlock::Text { text } = block {
                                 first_prompt = Some(safe_truncate(text, 100));
                                 // Check first_prompt for session-name match (only once, and only if alias didn't already match)
-                                if !session_name_matched && text.to_lowercase().contains(query_lower) {
+                                if scope.includes_session()
+                                    && !session_name_matched
+                                    && text.to_lowercase().contains(query_lower)
+                                {
                                     session_name_matched = true;
                                     file_results.push(SearchResult {
                                         source: "codex".to_string(),
@@ -323,6 +373,10 @@ fn search_codex(query_lower: &str, max_results: usize) -> Vec<SearchResult> {
                                 break;
                             }
                         }
+                    }
+
+                    if !scope.includes_content() {
+                        continue;
                     }
 
                     for block in &msg.content {

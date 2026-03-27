@@ -419,8 +419,8 @@ export function Sidebar() {
                     <h3 className="font-medium mb-1.5">会话列表</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
                       <li>点击卡片查看消息详情</li>
-                      <li>悬停显示操作：🏷编辑标签、▶Resume、🗑删除</li>
-                      <li>Resume 按钮右键可复制命令</li>
+                      <li>悬停显示操作：🏷编辑标签、▶Resume、复制命令、🗑删除</li>
+                      <li>桌面端可直接点 Resume，或点“复制命令”到剪贴板</li>
                       <li>标签筛选快速定位会话</li>
                     </ul>
                   </section>

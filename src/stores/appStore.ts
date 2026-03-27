@@ -45,6 +45,7 @@ interface AppState {
 
   // Search
   searchQuery: string;
+  searchScope: "all" | "content" | "session";
   searchResults: SearchResult[];
   searchLoading: boolean;
 
@@ -79,6 +80,7 @@ interface AppState {
   setProjectAlias: (projectId: string, alias: string | null) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
+  setSearchScope: (scope: "all" | "content" | "session") => void;
   loadStats: () => Promise<void>;
   clearSelection: () => void;
   /** Silently refresh projects and current session list without loading states */
@@ -119,6 +121,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedFilePath: null,
       searchResults: [],
       searchQuery: "",
+      searchScope: "all",
       searchLoading: false,
       tokenSummary: null,
       statsLoading: false,
@@ -164,6 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   messagesHasMore: false,
 
   searchQuery: "",
+  searchScope: "all",
   searchResults: [],
   searchLoading: false,
 
@@ -354,17 +358,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   search: async (query: string) => {
+    const scope = get().searchScope;
     set({ searchQuery: query, searchLoading: true });
     if (!query.trim()) {
       set({ searchResults: [], searchLoading: false });
       return;
     }
     try {
-      const results = await api.globalSearch(get().source, query, 50);
+      const results = await api.globalSearch(get().source, query, 50, scope);
       set({ searchResults: results, searchLoading: false });
     } catch (e) {
       console.error("Failed to search:", e);
       set({ searchLoading: false });
+    }
+  },
+
+  setSearchScope: (scope) => {
+    set({ searchScope: scope });
+    const query = get().searchQuery;
+    if (query.trim()) {
+      void get().search(query);
     }
   },
 

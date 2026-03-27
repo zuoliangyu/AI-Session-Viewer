@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.6] - 2026-03-27
+
+### Added
+
+- 消息页新增多 session 分屏浏览，支持在左右分屏与上下分屏之间切换；横向分屏时可直接拖动画布滚动浏览并排会话。
+- `AskUserQuestion` 工具结果支持在界面内直接填写答案并提交，页面失焦时新增网页标题与系统通知回复提醒。
+
+### Changed
+
+- 会话与流式消息渲染新增批量展开/折叠控制，并对 Bash 工具调用结果做去重，降低重复命令刷屏。
+- 全局搜索新增 `all / session / content` 范围过滤，搜索结果页与会话页联动标签筛选，并补充复制会话名、时间显示切换等消息浏览细节优化。
+- 同步工作区发布版本到 `2.7.6`，覆盖 `package.json`、`src-tauri/tauri.conf.json` 以及 3 个 Cargo manifest。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.7.6` 摘要，概述多分屏、交互提问、提醒、搜索与消息体验改进。
+- 新增本节记录 `2.7.6` 发布内容与版本同步范围。
+
+---
+
 ## [2.7.5] - 2026-03-26
 
 ### Added

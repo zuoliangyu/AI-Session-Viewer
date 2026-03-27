@@ -3,6 +3,7 @@ import type { DisplayMessage } from "../../types";
 import { Terminal, ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
 import { formatTime, stripAnsi } from "./utils";
 import { MarkdownContent } from "./MarkdownContent";
+import { useExpandAllControl } from "../common/ExpandAllContext";
 
 interface Props {
   message: DisplayMessage;
@@ -21,7 +22,7 @@ function OutputBlock({
   isError?: boolean;
 }) {
   const isLong = content.length > COLLAPSE_THRESHOLD;
-  const [expanded, setExpanded] = useState(!isLong);
+  const { expanded, setExpanded } = useExpandAllControl(!isLong);
   const [viewMode, setViewMode] = useState<"source" | "md">("source");
 
   return (

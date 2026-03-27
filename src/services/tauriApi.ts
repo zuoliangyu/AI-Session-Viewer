@@ -53,9 +53,10 @@ export async function getMessages(
 export async function globalSearch(
   source: string,
   query: string,
-  maxResults: number = 50
+  maxResults: number = 50,
+  scope: string = "all",
 ): Promise<SearchResult[]> {
-  return invoke<SearchResult[]>("global_search", { source, query, maxResults });
+  return invoke<SearchResult[]>("global_search", { source, query, maxResults, scope });
 }
 
 export async function getStats(source: string): Promise<TokenUsageSummary> {

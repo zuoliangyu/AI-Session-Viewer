@@ -255,9 +255,10 @@ export async function getMessages(
 export async function globalSearch(
   source: string,
   query: string,
-  maxResults: number = 50
+  maxResults: number = 50,
+  scope: string = "all",
 ): Promise<SearchResult[]> {
-  return apiFetch("/api/search", { source, query, maxResults: String(maxResults) });
+  return apiFetch("/api/search", { source, query, maxResults: String(maxResults), scope });
 }
 
 export async function getStats(source: string): Promise<TokenUsageSummary> {
