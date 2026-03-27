@@ -76,7 +76,6 @@ export function useReplyNotification(messageKey: string | null, title: string, b
       const notification = new Notification(title, {
         body,
         tag: "asv-reply",
-        renotify: true,
       });
       notification.onclick = () => {
         window.focus();

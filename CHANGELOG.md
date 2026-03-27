@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.7] - 2026-03-27
+
+### Fixed
+
+- `useReplyNotification.ts` 移除 `NotificationOptions` 不兼容的 `renotify` 相关用法，回复提醒在不同浏览器环境下更稳定。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.7.7` 摘要，说明回复提醒兼容修复与稳定性改进。
+
+---
+
 ## [2.7.6] - 2026-03-27
 
 ### Added
