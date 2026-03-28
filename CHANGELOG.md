@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.9] - 2026-03-28
+
+### Fixed
+
+- 修复 Tauri 聊天流在新会话和 `/chat/:sessionId` 续聊场景下的事件监听时序问题；新会话会先分配 `sessionId` 并在会话切换后重绑监听，避免桌面端收不到 `chat-output:*`、`chat-error:*`、`chat-complete:*`。
+- 修复侧边栏「CLI 对话」入口仅跳转不清理 chat store 的问题，进入 `/chat` 时现在会显式清空旧会话状态，避免“新建聊天”误续写上一条会话。
+- 修复 Codex 数据源默认模型未接入自动选型链路的问题，模型列表加载时会正确读取 Codex CLI 配置中的 `defaultModel`。
+
+### Changed
+
+- Chat 页面路由初始化改为优先以 URL 会话 ID 驱动，消息页与聊天页共用的流监听接口支持显式指定目标会话 ID。
+- Web 前端改为按页面懒加载，并补充 markdown、图表、React 运行时等 vendor 分包策略，降低首屏主 bundle 压力。
+- 同步工作区发布版本到 `2.7.9`，覆盖 `package.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest，以及 `Cargo.lock` 中的 workspace 包版本记录。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.7.9` 摘要，概述聊天链路修复、Codex 默认模型修复和 Web 首屏分包优化。
+- 新增仓库级 `AGENTS.md` 开发指引，并在 README 中补充 Linux 环境下 `glib/gobject/gio/libsoup` 缺失时的预检说明。
+
+---
+
 ## [2.7.8] - 2026-03-27
 
 ### Fixed

@@ -70,7 +70,9 @@ ensureWebChatSubscription();
  * In Tauri mode: listens to Tauri events.
  * In Web mode: listens to WebSocket messages.
  */
-export function useChatStream() {
+export function useChatStream(sessionIdOverride?: string | null) {
+  const sessionId = useChatStore((state) => state.sessionId);
+  const targetSessionId = sessionIdOverride ?? sessionId;
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -78,8 +80,7 @@ export function useChatStream() {
       const addStreamLine = useChatStore.getState().addStreamLine;
       const setStreaming = useChatStore.getState().setStreaming;
       const setError = useChatStore.getState().setError;
-      const sessionId = useChatStore.getState().sessionId;
-      if (!sessionId) return;
+      if (!targetSessionId) return;
 
       // Tauri event listeners
       let cancelled = false;
@@ -89,16 +90,20 @@ export function useChatStream() {
         if (cancelled) return; // async 完成后检查是否已 cleanup
 
         const unlistenOutput = await listen<string>(
-          `chat-output:${sessionId}`,
+          `chat-output:${targetSessionId}`,
           (event) => {
             if (!cancelled) {
               addStreamLine(event.payload);
             }
           }
         );
+        if (cancelled) {
+          unlistenOutput();
+          return;
+        }
 
         const unlistenError = await listen<string>(
-          `chat-error:${sessionId}`,
+          `chat-error:${targetSessionId}`,
           (event) => {
             if (!cancelled) {
               // stderr from CLI — only show actual errors, not progress/info lines
@@ -109,15 +114,26 @@ export function useChatStream() {
             }
           }
         );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          return;
+        }
 
         const unlistenComplete = await listen<string>(
-          `chat-complete:${sessionId}`,
+          `chat-complete:${targetSessionId}`,
           () => {
             if (!cancelled) {
               setStreaming(false);
             }
           }
         );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          unlistenComplete();
+          return;
+        }
 
         cleanupRef.current = () => {
           unlistenOutput();
@@ -139,5 +155,5 @@ export function useChatStream() {
       ensureWebChatSubscription();
       return;
     }
-  }, []);
+  }, [targetSessionId]);
 }

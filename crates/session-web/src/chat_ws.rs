@@ -154,7 +154,6 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                 };
 
                                 let session_id = request.session_id
-                                    .filter(|_| request.action == "continue")
                                     .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
                                 // Send session_id to client

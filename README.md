@@ -26,11 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.7.8
+## Latest in v2.7.9
 
-- 修复 Web 模式文件变更后后端缓存未失效的问题，刷新会话列表时能及时看到最新 session 数据。
-- 无效会话清理改为走专用查询接口，清理页与项目页里的空会话检测重新可用。
-- 搜索逻辑提取公共实现，并在并行扫描时按 `maxResults` 提前限流，降低大量结果时的额外内存占用。
+- 修复 Tauri CLI 对话在新会话与 `/chat/:sessionId` 续聊场景下的流事件监听绑定问题，桌面端不会再错过 `chat-output` / `chat-complete`。
+- 修复「新建聊天」可能误续写旧会话的问题，并让 Codex 数据源正确读取 CLI 默认模型作为自动选型候选。
+- Web 版引入路由懒加载与 vendor 分包策略，缩小首屏主 chunk，降低首次加载压力。
 
 ## 截图
 
@@ -385,6 +385,8 @@ docker build -t ai-session-viewer-web .
 cargo clippy --workspace -- -D warnings   # Rust lint
 npx tsc --noEmit                           # TypeScript 类型检查
 ```
+
+> Linux 上如果 `cargo check --workspace` / `cargo clippy --workspace` 报 `glib`、`gobject`、`gio`、`libsoup` 等原生库缺失，通常不是 Rust 代码错误，而是桌面端 Tauri 依赖未安装完整。请先按上面的 Linux 桌面依赖说明补齐环境后再检查；如果你当前只开发 Web 服务器，可先只验证 `session-web` 相关目标。
 
 ## 技术栈
 

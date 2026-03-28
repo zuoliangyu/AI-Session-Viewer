@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useChatStore } from "../../stores/chatStore";
@@ -113,11 +113,14 @@ export function ChatPage() {
     availableClis,
     detectCli,
     fetchCliConfig,
+    fetchCodexCliConfig,
     fetchModelList,
     startNewChat,
     continueExistingChat,
     cancelChat,
+    clearChat,
     setProjectPath,
+    setSessionId,
     setSource,
   } = useChatStore();
   const [expandVersion, setExpandVersion] = useState(0);
@@ -125,19 +128,33 @@ export function ChatPage() {
 
   const appSource = useAppStore((s) => s.source);
   const cliLabel = appSource === "codex" ? "Codex" : "Claude";
-  const activeSessionId = sessionId || urlSessionId || null;
+  const activeSessionId = urlSessionId ?? sessionId ?? null;
 
   // Sync source from appStore into chatStore
   useEffect(() => { setSource(appSource); }, [appSource, setSource]);
 
   // Detect CLI on mount + fetch config & model list
   useEffect(() => { detectCli(); }, [detectCli]);
-  useEffect(() => { if (appSource === "claude") fetchCliConfig(); }, [appSource, fetchCliConfig]);
+  useLayoutEffect(() => {
+    if (urlSessionId) {
+      clearChat();
+      setSessionId(urlSessionId);
+      return;
+    }
+    clearChat();
+  }, [clearChat, setSessionId, urlSessionId]);
+  useEffect(() => {
+    if (appSource === "codex") {
+      fetchCodexCliConfig();
+      return;
+    }
+    fetchCliConfig();
+  }, [appSource, fetchCliConfig, fetchCodexCliConfig]);
   // Re-fetch model list whenever source changes (setSource clears modelList first)
   useEffect(() => { fetchModelList(); }, [appSource, fetchModelList]);
 
   // Listen for stream events
-  useChatStream();
+  useChatStream(activeSessionId);
 
   const handleSend = useCallback((prompt: string) => {
     if (!projectPath) return;

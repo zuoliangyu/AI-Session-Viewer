@@ -1,6 +1,6 @@
 [package]
 name = "session-web"
-version = "2.7.8"
+version = "2.7.9"
 edition = "2021"
 
 [dependencies]

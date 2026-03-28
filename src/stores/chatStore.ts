@@ -99,6 +99,16 @@ function generateUUID(): string {
   );
 }
 
+function waitForNextPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
+}
+
 /** Result of parsing a single stream line */
 type ParseResult =
   | { action: "add"; message: ChatMessage }
@@ -460,6 +470,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const baseUrl = source === "codex" ? codexBaseUrlOverride : claudeBaseUrlOverride;
     set({ modelListLoading: true, modelListError: null });
     try {
+      let activeCliConfig = source === "codex" ? get().codexCliConfig : get().cliConfig;
+      if (!activeCliConfig) {
+        try {
+          const config = await api.getCliConfig(source);
+          activeCliConfig = config;
+          if (source === "codex") {
+            set({ codexCliConfig: config, codexCliConfigError: null });
+          } else {
+            set({ cliConfig: config, cliConfigError: null });
+          }
+        } catch (configError) {
+          const message = configError instanceof Error ? configError.message : String(configError);
+          if (source === "codex") {
+            set({ codexCliConfigError: message });
+          } else {
+            set({ cliConfigError: message });
+          }
+        }
+      }
+
       const models = await api.listModels(source, apiKey, baseUrl);
       const customKey = `chat_customModels_${source}`;
       const customIds: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
@@ -484,7 +514,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const candidates = [
           resolve(state.model),
           resolve(state.defaultModel),
-          resolve(state.cliConfig?.defaultModel || ""),
+          resolve(activeCliConfig?.defaultModel || ""),
         ].filter(Boolean);
         const selected = candidates[0] || (allModels.length > 0 ? allModels[0].id : "");
         if (selected && selected !== state.model) {
@@ -502,9 +532,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   startNewChat: async (projectPath, prompt, model) => {
     const state = get();
+    const pendingSessionId = generateUUID();
     localStorage.setItem("chat_lastUsedModel", model);
     set({
       isActive: true,
+      sessionId: pendingSessionId,
       isStreaming: true,
       projectPath,
       model,
@@ -521,17 +553,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
 
     try {
+      await waitForNextPaint();
       const sessionId = await api.startChat({
         source: get().source,
+        sessionId: pendingSessionId,
         projectPath,
         prompt,
         model,
         skipPermissions: state.skipPermissions,
         cliPath: state.cliPath || undefined,
       });
-      set({ sessionId });
+      if (sessionId !== pendingSessionId) {
+        set({ sessionId });
+      }
     } catch (e) {
       set({
+        sessionId: null,
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
       });

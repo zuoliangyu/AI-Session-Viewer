@@ -14,6 +14,7 @@ export interface CliInstallation {
 
 export interface StartChatParams {
   source: string;
+  sessionId?: string;
   projectPath: string;
   prompt: string;
   model: string;

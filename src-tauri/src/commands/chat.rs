@@ -84,16 +84,18 @@ pub async fn list_models(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn start_chat(
     app: AppHandle,
     source: String,
+    session_id: Option<String>,
     project_path: String,
     prompt: String,
     model: String,
     skip_permissions: bool,
     cli_path: String,
 ) -> Result<String, String> {
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let resolved_cli = if cli_path.is_empty() {
         cli::find_cli(&source)?

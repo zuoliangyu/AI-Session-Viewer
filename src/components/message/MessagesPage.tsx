@@ -202,9 +202,6 @@ export function MessagesPage() {
     model: chatModel,
   } = useChatStore();
 
-  // Listen for chat stream events
-  useChatStream();
-
   const session = sessions.find((s) => s.filePath === filePath);
   const searchHit = searchResults.find((r) => r.filePath === filePath);
   const project = projects.find((p) => p.id === projectId);
@@ -223,6 +220,9 @@ export function MessagesPage() {
     project?.displayPath ||
     (source === "codex" ? searchHit?.projectId : "") ||
     "";
+
+  // Listen for chat stream events
+  useChatStream(resolvedSessionId);
   const cliAvailable = availableClis.some((c) => c.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 

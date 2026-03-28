@@ -51,7 +51,7 @@ export function Sidebar() {
   const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias, recycledItems } =
     useAppStore();
   const { theme, setTheme } = useTheme();
-  const { detectCli, availableClis } = useChatStore();
+  const { detectCli, availableClis, clearChat } = useChatStore();
   const [showSettings, setShowSettings] = useState(false);
   const [settingsTab, setSettingsTab] = useState<"guide" | "chat" | "update" | "about">("guide");
   const [projectActionsMenu, setProjectActionsMenu] = useState<{
@@ -137,7 +137,10 @@ export function Sidebar() {
         {/* Quick links */}
         <div className="mb-4">
           <button
-            onClick={() => navigate("/chat")}
+            onClick={() => {
+              clearChat();
+              navigate("/chat");
+            }}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
               location.pathname.startsWith("/chat")
                 ? "bg-accent text-accent-foreground"

@@ -625,6 +625,7 @@ export async function startChat(params: StartChatParams): Promise<string> {
         JSON.stringify({
           action: "start",
           source: params.source,
+          ...(params.sessionId ? { sessionId: params.sessionId } : {}),
           projectPath: params.projectPath,
           prompt: params.prompt,
           model: params.model,

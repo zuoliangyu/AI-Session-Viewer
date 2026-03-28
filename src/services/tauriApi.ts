@@ -223,6 +223,7 @@ export async function listModels(
 export async function startChat(params: StartChatParams): Promise<string> {
   return invoke<string>("start_chat", {
     source: params.source,
+    ...(params.sessionId ? { sessionId: params.sessionId } : {}),
     projectPath: params.projectPath,
     prompt: params.prompt,
     model: params.model,
