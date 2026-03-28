@@ -621,6 +621,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                         if !content_blocks.is_empty() {
                             messages.push(DisplayMessage {
                                 uuid: None,
+                                parent_uuid: None,
                                 role: role.to_string(),
                                 timestamp: timestamp.clone(),
                                 model: None,
@@ -658,6 +659,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
 
                     messages.push(DisplayMessage {
                         uuid: None,
+                        parent_uuid: None,
                         role: "assistant".to_string(),
                         timestamp: timestamp.clone(),
                         model: None,
@@ -687,6 +689,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
 
                     messages.push(DisplayMessage {
                         uuid: None,
+                        parent_uuid: None,
                         role: "tool".to_string(),
                         timestamp: timestamp.clone(),
                         model: None,
@@ -717,6 +720,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                     if !text.is_empty() {
                         messages.push(DisplayMessage {
                             uuid: None,
+                            parent_uuid: None,
                             role: "assistant".to_string(),
                             timestamp: timestamp.clone(),
                             model: None,

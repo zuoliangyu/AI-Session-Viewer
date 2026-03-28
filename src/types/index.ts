@@ -42,6 +42,7 @@ export type DisplayContentBlock =
 
 export interface DisplayMessage {
   uuid: string | null;
+  parentUuid: string | null;
   role: string;
   timestamp: string | null;
   model: string | null;

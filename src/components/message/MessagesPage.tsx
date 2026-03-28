@@ -2,17 +2,20 @@ import { useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
-import { useChatStream } from "../../hooks/useChatStream";
 import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, Rows2 } from "lucide-react";
 import { MessageThread } from "./MessageThread";
 import { TimelineDots } from "./TimelineDots";
+import { UserQuestionJumpList } from "./UserQuestionJumpList";
 import { ChatInput } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
 import { formatTime } from "./utils";
 import { api } from "../../services/api";
+import { subscribeToChatWebSocketMessages } from "../../services/webApi";
 import { SessionMetaEditor } from "../session/SessionMetaEditor";
+import { ScrollArea } from "../ScrollArea";
 import type { DisplayMessage, SessionIndexEntry } from "../../types";
+import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
 
@@ -141,6 +144,171 @@ function useHorizontalDragScroll(enabled: boolean) {
   };
 }
 
+function getMessagesPaneId(filePath: string) {
+  return `messages:${filePath || "unknown"}`;
+}
+
+function isActualChatError(line: string): boolean {
+  const lower = line.toLowerCase().trim();
+  if (!lower) return false;
+  if (lower.startsWith("[request interrupted")) return false;
+  if (lower.startsWith("warning:")) return false;
+  if (lower.startsWith("info:")) return false;
+  if (lower.startsWith("debug:")) return false;
+  if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic")) return true;
+  return true;
+}
+
+function handlePaneWebChatMessage(
+  paneId: string,
+  targetSessionId: string | null | undefined,
+  rawMessage: string
+): void {
+  const {
+    addStreamLineToPane,
+    getPaneState,
+    setPaneError,
+    setPaneStreaming,
+  } = useChatStore.getState();
+
+  try {
+    const data = JSON.parse(rawMessage);
+    const type = typeof data?.type === "string" ? data.type : "";
+    const payload =
+      typeof data?.data === "string"
+        ? data.data
+        : typeof data?.payload === "string"
+          ? data.payload
+          : "";
+    const eventSessionId =
+      typeof data?.sessionId === "string"
+        ? data.sessionId
+        : typeof data?.session_id === "string"
+          ? data.session_id
+          : null;
+    const pane = getPaneState(paneId);
+    const paneSessionId = pane.sessionId ?? targetSessionId ?? null;
+
+    if (eventSessionId && paneSessionId && eventSessionId !== paneSessionId) {
+      return;
+    }
+
+    if (type === "output" || type === "chunk") {
+      if (payload && pane.isStreaming) {
+        addStreamLineToPane(paneId, payload);
+      }
+      return;
+    }
+
+    if (type === "error" || type === "auth_required") {
+      if (type === "auth_required") {
+        setPaneStreaming(paneId, false);
+        window.dispatchEvent(new CustomEvent("asv-auth-required"));
+      }
+      if (payload && isActualChatError(payload)) {
+        setPaneError(paneId, payload);
+      }
+      return;
+    }
+
+    if (type === "complete" || type === "done") {
+      if (!eventSessionId || !paneSessionId || eventSessionId === paneSessionId) {
+        setPaneStreaming(paneId, false);
+      }
+    }
+  } catch {
+    // ignore non-JSON frames
+  }
+}
+
+function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
+  const paneSessionId = useChatStore(useCallback((state) => state.panes[paneId]?.sessionId ?? null, [paneId]));
+  const targetSessionId = sessionIdOverride ?? paneSessionId;
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!targetSessionId) return;
+
+    if (__IS_TAURI__) {
+      const addStreamLineToPane = useChatStore.getState().addStreamLineToPane;
+      const setPaneStreaming = useChatStore.getState().setPaneStreaming;
+      const setPaneError = useChatStore.getState().setPaneError;
+      let cancelled = false;
+
+      const setupListeners = async () => {
+        const { listen } = await import("@tauri-apps/api/event");
+        if (cancelled) return;
+
+        const unlistenOutput = await listen<string>(
+          `chat-output:${targetSessionId}`,
+          (event) => {
+            if (!cancelled) {
+              addStreamLineToPane(paneId, event.payload);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          return;
+        }
+
+        const unlistenError = await listen<string>(
+          `chat-error:${targetSessionId}`,
+          (event) => {
+            if (!cancelled && event.payload && isActualChatError(event.payload)) {
+              setPaneError(paneId, event.payload);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          return;
+        }
+
+        const unlistenComplete = await listen<string>(
+          `chat-complete:${targetSessionId}`,
+          () => {
+            if (!cancelled) {
+              setPaneStreaming(paneId, false);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          unlistenComplete();
+          return;
+        }
+
+        cleanupRef.current = () => {
+          unlistenOutput();
+          unlistenError();
+          unlistenComplete();
+        };
+      };
+
+      void setupListeners();
+
+      return () => {
+        cancelled = true;
+        if (cleanupRef.current) {
+          cleanupRef.current();
+          cleanupRef.current = null;
+        }
+      };
+    }
+
+    const unsubscribe = subscribeToChatWebSocketMessages((rawMessage) => {
+      handlePaneWebChatMessage(paneId, targetSessionId, rawMessage);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [paneId, targetSessionId]);
+}
+
 export function MessagesPage() {
   const params = useParams();
   const projectId = params.projectId || "";
@@ -175,6 +343,7 @@ export function MessagesPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
+  const [jumpListCollapsed, setJumpListCollapsed] = useState(true);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
   const prevScrollHeightRef = useRef<number>(0);
   const isLoadingOlderRef = useRef(false);
@@ -184,23 +353,22 @@ export function MessagesPage() {
   const [splitFilePaths, setSplitFilePaths] = useState<string[]>([]);
   const [showSplitPicker, setShowSplitPicker] = useState(false);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
+  const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
 
   // Chat store for inline continue-chat
   const {
-    messages: chatMessages,
-    isStreaming: chatStreaming,
-    error: chatError,
     availableClis,
     detectCli,
-    continueExistingChat,
-    cancelChat,
-    clearChat,
-    setProjectPath: setChatProjectPath,
-    setModel: setChatModel,
-    setSource: setChatSource,
+    continueExistingChatInPane,
+    cancelPane,
+    clearPane,
+    setPaneProjectPath,
+    setPaneModel,
+    setPaneSource,
+    setActivePane,
     fetchModelList: fetchChatModelList,
-    model: chatModel,
   } = useChatStore();
+  const mainChatPane = useChatStore(useCallback((state) => state.panes[mainPaneId], [mainPaneId]));
 
   const session = sessions.find((s) => s.filePath === filePath);
   const searchHit = searchResults.find((r) => r.filePath === filePath);
@@ -221,8 +389,7 @@ export function MessagesPage() {
     (source === "codex" ? searchHit?.projectId : "") ||
     "";
 
-  // Listen for chat stream events
-  useChatStream(resolvedSessionId);
+  usePaneChatStream(mainPaneId, mainChatPane?.sessionId ?? resolvedSessionId);
   const cliAvailable = availableClis.some((c) => c.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
@@ -233,9 +400,10 @@ export function MessagesPage() {
 
   // Sync source from appStore into chatStore, then refresh model list
   useEffect(() => {
-    setChatSource(source);
+    setActivePane(mainPaneId);
+    setPaneSource(mainPaneId, source);
     fetchChatModelList();
-  }, [source, setChatSource, fetchChatModelList]);
+  }, [fetchChatModelList, mainPaneId, setActivePane, setPaneSource, source]);
 
   // Extract the model used in this historical session
   const sessionModel = useMemo(() => {
@@ -246,31 +414,37 @@ export function MessagesPage() {
     }
     return null;
   }, [messages]);
+  const chatMessages = mainChatPane?.messages ?? [];
+  const chatStreaming = mainChatPane?.isStreaming ?? false;
+  const chatError = mainChatPane?.error ?? null;
+  const chatModel = mainChatPane?.model ?? sessionModel ?? "";
 
   useEffect(() => {
-    setChatProjectPath(chatProjectPath);
-  }, [chatProjectPath, setChatProjectPath]);
+    setPaneProjectPath(mainPaneId, chatProjectPath);
+  }, [chatProjectPath, mainPaneId, setPaneProjectPath]);
 
   // Set chat model from the historical session's model when entering a session
   const modelInitRef = useRef<string>("");
   useEffect(() => {
-    if (sessionModel && modelInitRef.current !== filePath) {
-      modelInitRef.current = filePath;
-      setChatModel(sessionModel);
+    const modelInitKey = `${source}:${filePath}`;
+    if (sessionModel && modelInitRef.current !== modelInitKey) {
+      modelInitRef.current = modelInitKey;
+      setPaneModel(mainPaneId, sessionModel);
     }
-  }, [filePath, sessionModel, setChatModel]);
+  }, [filePath, mainPaneId, sessionModel, setPaneModel, source]);
 
   // Clear chat state when leaving the page / switching sessions
   useEffect(() => {
     return () => {
-      clearChat();
+      clearPane(mainPaneId);
     };
-  }, [filePath, clearChat]);
+  }, [clearPane, mainPaneId]);
 
   useEffect(() => {
     if (!filePath) return;
     let cancelled = false;
     setInitialScrollDone(false);
+    setJumpListCollapsed(true);
     scrolledTargetRef.current = null;
 
     const load = async () => {
@@ -369,21 +543,20 @@ export function MessagesPage() {
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Timeline dots: extract user message data
+  const displayedMessages = useMemo(() => {
+    if (!matchedOnly || !scrollToMessageId) return messages;
+    const idx = messages.findIndex((msg) => msg.uuid === scrollToMessageId);
+    if (idx === -1) return messages;
+    return buildFocusedMessages(messages, idx);
+  }, [messages, matchedOnly, scrollToMessageId]);
+  // Keep navigation targets aligned with the messages currently rendered in the DOM.
   const userDots = useMemo(() => {
     let userIndex = 0;
-    return messages
+    return displayedMessages
       .map((msg, i) => {
         if (msg.role !== "user") return null;
         const id = msg.uuid || `user-${i}`;
-        const textContent = msg.content
-          .filter((b): b is { type: "text"; text: string } => b.type === "text")
-          .map((b) => b.text)
-          .join(" ")
-          .trim();
-        const preview = textContent
-          ? textContent.slice(0, 50) + (textContent.length > 50 ? "..." : "")
-          : "（用户消息）";
+        const preview = extractUserQuestionPreview(msg);
         return {
           id,
           index: userIndex++,
@@ -392,7 +565,7 @@ export function MessagesPage() {
         };
       })
       .filter(Boolean) as Array<{ id: string; index: number; preview: string; timestamp: string | null }>;
-  }, [messages]);
+  }, [displayedMessages]);
 
   const userMessageIds = useMemo(() => userDots.map((d) => d.id), [userDots]);
   const activeUserMsgId = useActiveUserMessage(containerRef, userMessageIds);
@@ -402,12 +575,6 @@ export function MessagesPage() {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
-  const displayedMessages = useMemo(() => {
-    if (!matchedOnly || !scrollToMessageId) return messages;
-    const idx = messages.findIndex((msg) => msg.uuid === scrollToMessageId);
-    if (idx === -1) return messages;
-    return buildFocusedMessages(messages, idx);
-  }, [messages, matchedOnly, scrollToMessageId]);
   const assistantName = assistantNameFromSource(source);
 
   const latestReply = useMemo(() => {
@@ -493,7 +660,8 @@ export function MessagesPage() {
 
   const handleSendChat = (prompt: string) => {
     if (!resolvedSessionId) return;
-    continueExistingChat(
+    continueExistingChatInPane(
+      mainPaneId,
       resolvedSessionId,
       chatProjectPath,
       prompt,
@@ -504,14 +672,14 @@ export function MessagesPage() {
   const handleSubmitAnswers = useCallback(async (answers: string) => {
     if (!resolvedSessionId || !chatProjectPath) return;
     if (chatStreaming) {
-      await cancelChat();
+      await cancelPane(mainPaneId);
       setTimeout(() => {
-        continueExistingChat(resolvedSessionId, chatProjectPath, answers, chatModel);
+        void continueExistingChatInPane(mainPaneId, resolvedSessionId, chatProjectPath, answers, chatModel);
       }, 150);
       return;
     }
-    continueExistingChat(resolvedSessionId, chatProjectPath, answers, chatModel);
-  }, [cancelChat, chatModel, chatProjectPath, chatStreaming, continueExistingChat, resolvedSessionId]);
+    void continueExistingChatInPane(mainPaneId, resolvedSessionId, chatProjectPath, answers, chatModel);
+  }, [cancelPane, chatModel, chatProjectPath, chatStreaming, continueExistingChatInPane, mainPaneId, resolvedSessionId]);
 
   const availableSplitSessions = sessions.filter(
     (item) => item.filePath !== filePath && !splitFilePaths.includes(item.filePath)
@@ -731,7 +899,7 @@ export function MessagesPage() {
             }`}
           >
             <div
-              className={`flex flex-col rounded-lg border border-border bg-card ${
+              className={`relative flex flex-col rounded-lg border border-border bg-card ${
                 splitFilePaths.length === 0
                   ? "min-w-0 flex-1"
                   : isSplitHorizontal
@@ -739,10 +907,22 @@ export function MessagesPage() {
                     : "min-h-[28rem] max-h-[70vh] min-w-0 shrink-0"
               }`}
             >
-              <div
-                ref={containerRef}
-                onScroll={handleScroll}
-                className="flex-1 overflow-y-auto"
+              {userDots.length > 0 && (
+                <div className="absolute inset-0 z-20 pointer-events-none">
+                  <UserQuestionJumpList
+                    items={userDots}
+                    activeId={activeUserMsgId}
+                    onSelect={handleDotClick}
+                    collapsed={jumpListCollapsed}
+                    onToggleCollapsed={setJumpListCollapsed}
+                  />
+                </div>
+              )}
+              <ScrollArea
+                className="flex-1 min-h-0"
+                viewportRef={containerRef}
+                onViewportScroll={handleScroll}
+                viewportClassName="h-full"
               >
                 {messagesLoading && messages.length > 0 && messagesHasMore && (
                   <div className="flex items-center justify-center py-4 text-muted-foreground">
@@ -806,7 +986,7 @@ export function MessagesPage() {
                   </div>
                 )}
                 <div ref={bottomRef} />
-              </div>
+              </ScrollArea>
             </div>
 
             {splitFilePaths.map((splitPath) => (
@@ -817,6 +997,8 @@ export function MessagesPage() {
                 showTimestamp={showTimestamp}
                 showModel={showModel}
                 session={sessions.find((item) => item.filePath === splitPath) || null}
+                cliAvailable={cliAvailable}
+                fallbackProjectPath={project?.displayPath || ""}
                 splitDirection={splitDirection}
                 onClose={() => setSplitFilePaths((prev) => prev.filter((item) => item !== splitPath))}
               />
@@ -830,7 +1012,7 @@ export function MessagesPage() {
         <div className="shrink-0">
           <ChatInput
             onSend={handleSendChat}
-            onCancel={cancelChat}
+            onCancel={() => cancelPane(mainPaneId)}
             isStreaming={chatStreaming}
             disabled={!chatProjectPath}
           />
@@ -912,6 +1094,8 @@ function SplitSessionPane({
   showTimestamp,
   showModel,
   session,
+  cliAvailable,
+  fallbackProjectPath,
   splitDirection,
   onClose,
 }: {
@@ -920,6 +1104,8 @@ function SplitSessionPane({
   showTimestamp: boolean;
   showModel: boolean;
   session: SessionIndexEntry | null;
+  cliAvailable: boolean;
+  fallbackProjectPath: string;
   splitDirection: SplitDirection;
   onClose: () => void;
 }) {
@@ -934,12 +1120,39 @@ function SplitSessionPane({
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [total, setTotal] = useState(0);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const paneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
+  const {
+    continueExistingChatInPane,
+    cancelPane,
+    clearPane,
+    setPaneProjectPath,
+    setPaneModel,
+    setPaneSource,
+  } = useChatStore();
+  const paneState = useChatStore(useCallback((state) => state.panes[paneId], [paneId]));
 
   const sessionTitle =
     session?.alias ||
     session?.firstPrompt ||
     session?.sessionId ||
     filePath;
+  const resolvedSessionId = session?.sessionId || null;
+  const chatProjectPath = session?.projectPath || session?.cwd || fallbackProjectPath || "";
+  const chatMessages = paneState?.messages ?? [];
+  const chatStreaming = paneState?.isStreaming ?? false;
+  const chatError = paneState?.error ?? null;
+  const sessionModel = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].model) {
+        return messages[i].model!;
+      }
+    }
+    return null;
+  }, [messages]);
+  const chatModel = paneState?.model ?? sessionModel ?? "";
+
+  usePaneChatStream(paneId, paneState?.sessionId ?? resolvedSessionId);
 
   const loadMessages = useCallback(
     async (nextPage: number, mode: "replace" | "prepend") => {
@@ -987,6 +1200,28 @@ function SplitSessionPane({
   }, [loadMessages]);
 
   useEffect(() => {
+    setPaneSource(paneId, source);
+  }, [paneId, setPaneSource, source]);
+
+  useEffect(() => {
+    setPaneProjectPath(paneId, chatProjectPath);
+  }, [chatProjectPath, paneId, setPaneProjectPath]);
+
+  const modelInitRef = useRef("");
+  useEffect(() => {
+    const modelInitKey = `${source}:${filePath}`;
+    if (!sessionModel || modelInitRef.current === modelInitKey) return;
+    modelInitRef.current = modelInitKey;
+    setPaneModel(paneId, sessionModel);
+  }, [filePath, paneId, sessionModel, setPaneModel, source]);
+
+  useEffect(() => {
+    return () => {
+      clearPane(paneId);
+    };
+  }, [clearPane, paneId]);
+
+  useEffect(() => {
     if (!initialScrollDoneRef.current && messages.length > 0 && !loading) {
       requestAnimationFrame(() => {
         if (containerRef.current) {
@@ -1005,6 +1240,14 @@ function SplitSessionPane({
     }
   }, [loading, messages]);
 
+  useEffect(() => {
+    if (chatMessages.length > 0 || chatStreaming) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, [chatMessages, chatStreaming]);
+
   const handleScroll = useCallback(() => {
     if (!containerRef.current || loading || !hasMore) return;
     const { scrollTop, scrollHeight } = containerRef.current;
@@ -1014,6 +1257,23 @@ function SplitSessionPane({
       void loadMessages(page + 1, "prepend");
     }
   }, [hasMore, loadMessages, loading, page]);
+
+  const handleSendChat = useCallback((prompt: string) => {
+    if (!resolvedSessionId || !chatProjectPath) return;
+    void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, prompt, chatModel);
+  }, [chatModel, chatProjectPath, continueExistingChatInPane, paneId, resolvedSessionId]);
+
+  const handleSubmitAnswers = useCallback(async (answers: string) => {
+    if (!resolvedSessionId || !chatProjectPath) return;
+    if (chatStreaming) {
+      await cancelPane(paneId);
+      setTimeout(() => {
+        void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, answers, chatModel);
+      }, 150);
+      return;
+    }
+    void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, answers, chatModel);
+  }, [cancelPane, chatModel, chatProjectPath, chatStreaming, continueExistingChatInPane, paneId, resolvedSessionId]);
 
   return (
     <div
@@ -1027,7 +1287,7 @@ function SplitSessionPane({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{sessionTitle}</p>
           <p className="text-xs text-muted-foreground">
-            只读分屏
+            分屏续聊
             {total > 0 && ` · ${messages.length < total ? `已加载 ${messages.length} / ${total}` : `${total} 条消息`}`}
           </p>
         </div>
@@ -1040,10 +1300,11 @@ function SplitSessionPane({
         </button>
       </div>
 
-      <div
-        ref={containerRef}
-        onScroll={handleScroll}
-        className="flex-1 overflow-y-auto"
+      <ScrollArea
+        className="flex-1 min-h-0"
+        viewportRef={containerRef}
+        onViewportScroll={handleScroll}
+        viewportClassName="h-full"
       >
         {loading && messages.length > 0 && hasMore && (
           <div className="flex items-center justify-center py-4 text-muted-foreground">
@@ -1074,12 +1335,50 @@ function SplitSessionPane({
           />
         )}
 
-        {!loading && !error && messages.length > 0 && (
+        {!loading && !error && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
           <div className="py-4 text-center text-xs text-muted-foreground">
             — 会话结束 —
           </div>
         )}
-      </div>
+
+        {chatMessages.length > 0 && (
+          <ChatMessagesBlock
+            messages={chatMessages}
+            onSubmitAnswers={handleSubmitAnswers}
+          />
+        )}
+        {chatStreaming && (
+          <div className="px-6">
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <div className="flex gap-1">
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+                <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
+              </div>
+            </div>
+          </div>
+        )}
+        {chatError && (
+          <div className="px-6">
+            <div className="flex items-center gap-2 py-2 text-sm text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {chatError}
+            </div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </ScrollArea>
+
+      {resolvedSessionId && cliAvailable && (
+        <div className="shrink-0 border-t border-border">
+          <ChatInput
+            onSend={handleSendChat}
+            onCancel={() => cancelPane(paneId)}
+            isStreaming={chatStreaming}
+            disabled={!chatProjectPath}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1090,7 +1389,7 @@ function ChatMessagesBlock({
   messages,
   onSubmitAnswers,
 }: {
-  messages: import("../../types/chat").ChatMessage[];
+  messages: ChatMessage[];
   onSubmitAnswers: (answers: string) => void;
 }) {
   const { toolResultMap, linkedToolUseIds } = useMemo(() => {
@@ -1131,4 +1430,53 @@ function ChatMessagesBlock({
 
 function assistantNameFromSource(source: MessageSource) {
   return source === "codex" ? "Codex" : "Claude";
+}
+
+function extractUserQuestionPreview(message: DisplayMessage) {
+  const text = message.content
+    .filter((block): block is { type: "text"; text: string } => block.type === "text")
+    .map((block) => block.text)
+    .join("\n");
+
+  const normalized = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !/^(```|~~~)/.test(line))
+    .map((line) =>
+      line
+        .replace(/^#{1,6}\s+/, "")
+        .replace(/^>\s+/, "")
+        .replace(/^[-*+]\s+/, "")
+        .replace(/^\d+\.\s+/, "")
+        .replace(/^\[[ xX]\]\s+/, "")
+        .replace(/\s+/g, " ")
+        .trim()
+    )
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  if (!normalized) {
+    return "（用户消息）";
+  }
+
+  const sentenceEndChars = new Set(["。", "！", "？", "!", "?", "；", ";", "…"]);
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const current = normalized[i];
+    if (sentenceEndChars.has(current)) {
+      return normalized.slice(0, i + 1).trim();
+    }
+
+    if (current === ".") {
+      const prev = normalized[i - 1] ?? "";
+      const next = normalized[i + 1] ?? "";
+      const isDecimalPoint = /\d/.test(prev) && /\d/.test(next);
+      if (!isDecimalPoint && (!next || /\s/.test(next))) {
+        return normalized.slice(0, i + 1).trim();
+      }
+    }
+  }
+
+  return normalized.length > 48 ? `${normalized.slice(0, 48).trim()}...` : normalized;
 }

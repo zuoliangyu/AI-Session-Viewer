@@ -7,9 +7,10 @@ import { MarkdownContent } from "./MarkdownContent";
 interface Props {
   message: DisplayMessage;
   showTimestamp: boolean;
+  threadHint?: string | null;
 }
 
-export function UserMessage({ message, showTimestamp }: Props) {
+export function UserMessage({ message, showTimestamp, threadHint }: Props) {
   const [copied, setCopied] = useState(false);
   const hasTextContent = message.content.some((b) => b.type === "text");
 
@@ -28,6 +29,11 @@ export function UserMessage({ message, showTimestamp }: Props) {
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%]">
+        {threadHint && (
+          <div className="mb-1 text-right text-[11px] text-muted-foreground">
+            {threadHint}
+          </div>
+        )}
         {(showTimestamp && message.timestamp) || hasTextContent ? (
           <div className="flex items-center justify-end gap-2 mb-1">
             {showTimestamp && message.timestamp && (

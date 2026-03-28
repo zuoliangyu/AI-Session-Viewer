@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Bot } from "lucide-react";
-import { useChatStore } from "../../stores/chatStore";
+import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { ModelSelector } from "./ModelSelector";
 
 interface Props {
+  paneId?: string;
   onSend: (prompt: string) => void;
   onCancel: () => void;
   isStreaming: boolean;
@@ -17,12 +18,19 @@ function shortModelName(id: string): string {
     .replace(/^claude-/, "");
 }
 
-export function ChatInput({ onSend, onCancel, isStreaming, disabled }: Props) {
+export function ChatInput({
+  paneId = DEFAULT_CHAT_PANE_ID,
+  onSend,
+  onCancel,
+  isStreaming,
+  disabled,
+}: Props) {
   const [text, setText] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { model, setModel } = useChatStore();
+  const model = useChatStore((state) => state.getPaneState(paneId).model);
+  const setPaneModel = useChatStore((state) => state.setPaneModel);
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) {
@@ -50,7 +58,7 @@ export function ChatInput({ onSend, onCancel, isStreaming, disabled }: Props) {
     if (trimmed.startsWith("/model")) {
       const arg = trimmed.slice(6).trim();
       if (arg) {
-        setModel(arg);
+        setPaneModel(paneId, arg);
       } else {
         setModelSelectorOpen(true);
       }
@@ -141,9 +149,10 @@ export function ChatInput({ onSend, onCancel, isStreaming, disabled }: Props) {
 
       {/* Model Selector modal */}
       <ModelSelector
+        paneId={paneId}
         open={modelSelectorOpen}
         onClose={() => setModelSelectorOpen(false)}
-        onSelect={(m) => setModel(m)}
+        onSelect={(m) => setPaneModel(paneId, m)}
       />
     </>
   );

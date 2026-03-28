@@ -1,6 +1,5 @@
 import { useMemo } from "react";
-import { useChatStore } from "../../stores/chatStore";
-import { useAppStore } from "../../stores/appStore";
+import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import {
   FolderOpen,
   Bot,
@@ -13,24 +12,22 @@ import {
 } from "lucide-react";
 
 export function ChatHeader({
+  paneId = DEFAULT_CHAT_PANE_ID,
   onExpandAll,
   onCollapseAll,
 }: {
+  paneId?: string;
   onExpandAll: () => void;
   onCollapseAll: () => void;
 }) {
-  const {
-    projectPath,
-    messages,
-    isStreaming,
-    availableClis,
-    skipPermissions,
-    setSkipPermissions,
-  } = useChatStore();
+  const pane = useChatStore((state) => state.getPaneState(paneId));
+  const availableClis = useChatStore((state) => state.availableClis);
+  const skipPermissions = useChatStore((state) => state.skipPermissions);
+  const setSkipPermissions = useChatStore((state) => state.setSkipPermissions);
+  const { projectPath, messages, isStreaming, source } = pane;
 
-  const appSource = useAppStore((s) => s.source);
-  const cliLabel = appSource === "codex" ? "Codex" : "Claude";
-  const cliInfo = availableClis.find((c) => c.cliType === appSource);
+  const cliLabel = source === "codex" ? "Codex" : "Claude";
+  const cliInfo = availableClis.find((c) => c.cliType === source);
   const canToggleExpand = messages.length > 0;
 
   // Aggregate token stats

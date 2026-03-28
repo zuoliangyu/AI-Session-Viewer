@@ -70,6 +70,7 @@ pub enum ContentBlock {
 #[serde(rename_all = "camelCase")]
 pub struct DisplayMessage {
     pub uuid: Option<String>,
+    pub parent_uuid: Option<String>,
     pub role: String,
     pub timestamp: Option<String>,
     pub model: Option<String>,

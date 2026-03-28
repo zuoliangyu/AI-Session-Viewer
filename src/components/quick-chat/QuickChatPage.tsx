@@ -21,6 +21,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import type { ModelInfo, QuickChatMessage } from "../../types/chat";
+import { ScrollArea } from "../ScrollArea";
 
 
 export function QuickChatPage() {
@@ -140,7 +141,7 @@ export function QuickChatPage() {
       </div>
 
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto">
+      <ScrollArea className="flex-1 min-h-0" viewportClassName="h-full">
         {messages.length === 0 ? (
           <QuickChatEmpty cliConfig={cliConfig} />
         ) : (
@@ -157,7 +158,7 @@ export function QuickChatPage() {
             <div ref={messagesEndRef} />
           </div>
         )}
-      </div>
+      </ScrollArea>
 
       {/* Input area */}
       <div className="max-w-3xl mx-auto w-full">

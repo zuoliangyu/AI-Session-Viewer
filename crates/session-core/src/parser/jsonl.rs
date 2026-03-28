@@ -74,6 +74,7 @@ pub fn parse_session_messages(
 
             all_messages.push(DisplayMessage {
                 uuid: record.uuid,
+                parent_uuid: record.parent_uuid,
                 role,
                 timestamp: record.timestamp,
                 model: msg.model,
@@ -173,6 +174,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
 
             messages.push(DisplayMessage {
                 uuid: record.uuid,
+                parent_uuid: record.parent_uuid,
                 role,
                 timestamp: record.timestamp,
                 model: msg.model,

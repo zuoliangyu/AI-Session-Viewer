@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useChatStore } from "../../stores/chatStore";
+import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import {
   Search,
   Check,
@@ -13,15 +13,20 @@ import {
 import type { ModelInfo } from "../../types/chat";
 
 interface Props {
+  paneId?: string;
   open: boolean;
   onClose: () => void;
   onSelect: (modelId: string) => void;
 }
 
-export function ModelSelector({ open, onClose, onSelect }: Props) {
+export function ModelSelector({
+  paneId = DEFAULT_CHAT_PANE_ID,
+  open,
+  onClose,
+  onSelect,
+}: Props) {
+  const pane = useChatStore((state) => state.getPaneState(paneId));
   const {
-    model,
-    source,
     modelList,
     modelListLoading,
     modelListError,
@@ -29,6 +34,7 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
     addCustomModel,
     removeCustomModel,
   } = useChatStore();
+  const { model, source } = pane;
 
   const [search, setSearch] = useState("");
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -110,7 +116,7 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
   const handleUseSearchAsCustom = () => {
     const id = search.trim();
     if (id) {
-      addCustomModel(id);
+      addCustomModel(id, source);
       onSelect(id);
       onClose();
     }
@@ -146,7 +152,7 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
   const handleAddModel = () => {
     const id = newModelId.trim();
     if (!id) return;
-    addCustomModel(id);
+    addCustomModel(id, source);
     onSelect(id);
     setNewModelId("");
     setShowAddInput(false);
@@ -327,7 +333,7 @@ export function ModelSelector({ open, onClose, onSelect }: Props) {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            removeCustomModel(m.id);
+                            removeCustomModel(m.id, source);
                           }}
                           className="p-0.5 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
                           title="移除自定义模型"

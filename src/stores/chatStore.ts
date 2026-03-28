@@ -8,13 +8,37 @@ import type {
 } from "../types/chat";
 import { api } from "../services/api";
 
+type ChatSource = "claude" | "codex";
+
+export const DEFAULT_CHAT_PANE_ID = "default";
+
+export interface ChatPaneState {
+  isActive: boolean;
+  sessionId: string | null;
+  projectPath: string;
+  model: string;
+  source: ChatSource;
+  messages: ChatMessage[];
+  rawOutput: string[];
+  isStreaming: boolean;
+  error: string | null;
+}
+
+type ChatPaneStateMap = Record<string, ChatPaneState>;
+type ChatPaneStateUpdater =
+  | Partial<ChatPaneState>
+  | ((pane: ChatPaneState) => ChatPaneState);
+
 interface ChatState {
+  activePaneId: string;
+  panes: ChatPaneStateMap;
+
   // Chat status
   isActive: boolean;
   sessionId: string | null;
   projectPath: string;
   model: string;
-  source: "claude" | "codex";
+  source: ChatSource;
 
   // Messages
   messages: ChatMessage[];
@@ -58,6 +82,31 @@ interface ChatState {
   setCodexApiKeyOverride: (v: string) => void;
   setCodexBaseUrlOverride: (v: string) => void;
   fetchModelList: () => Promise<void>;
+  getPaneState: (paneId?: string) => ChatPaneState;
+  setActivePane: (paneId: string) => void;
+  setPaneState: (paneId: string, updater: ChatPaneStateUpdater) => void;
+  clearPane: (paneId: string) => void;
+  cancelPane: (paneId: string) => Promise<void>;
+  startNewChatInPane: (
+    paneId: string,
+    projectPath: string,
+    prompt: string,
+    model: string
+  ) => Promise<void>;
+  continueExistingChatInPane: (
+    paneId: string,
+    sessionId: string,
+    projectPath: string,
+    prompt: string,
+    model: string
+  ) => Promise<void>;
+  addStreamLineToPane: (paneId: string, line: string) => void;
+  setPaneStreaming: (paneId: string, value: boolean) => void;
+  setPaneSessionId: (paneId: string, id: string | null) => void;
+  setPaneError: (paneId: string, error: string | null) => void;
+  setPaneProjectPath: (paneId: string, path: string) => void;
+  setPaneModel: (paneId: string, model: string) => void;
+  setPaneSource: (paneId: string, source: ChatSource) => void;
   startNewChat: (
     projectPath: string,
     prompt: string,
@@ -82,7 +131,96 @@ interface ChatState {
   setError: (e: string | null) => void;
   setProjectPath: (p: string) => void;
   setModel: (m: string) => void;
-  setSource: (s: "claude" | "codex") => void;
+  setSource: (s: ChatSource) => void;
+}
+
+function createChatPaneState(
+  overrides: Partial<ChatPaneState> = {}
+): ChatPaneState {
+  return {
+    isActive: false,
+    sessionId: null,
+    projectPath: "",
+    model: localStorage.getItem("chat_lastUsedModel") || "",
+    source: "claude",
+    messages: [],
+    rawOutput: [],
+    isStreaming: false,
+    error: null,
+    ...overrides,
+  };
+}
+
+function toLegacyPaneFields(pane: ChatPaneState): Pick<
+  ChatState,
+  | "isActive"
+  | "sessionId"
+  | "projectPath"
+  | "model"
+  | "source"
+  | "messages"
+  | "rawOutput"
+  | "isStreaming"
+  | "error"
+> {
+  return {
+    isActive: pane.isActive,
+    sessionId: pane.sessionId,
+    projectPath: pane.projectPath,
+    model: pane.model,
+    source: pane.source,
+    messages: pane.messages,
+    rawOutput: pane.rawOutput,
+    isStreaming: pane.isStreaming,
+    error: pane.error,
+  };
+}
+
+function getOrCreatePaneState(
+  panes: ChatPaneStateMap,
+  paneId: string,
+  fallback?: Partial<ChatPaneState>
+): ChatPaneState {
+  return panes[paneId] ?? createChatPaneState(fallback);
+}
+
+function getPaneFallbackFromState(
+  state: Pick<ChatState, "model" | "source" | "projectPath">
+): Partial<ChatPaneState> {
+  return {
+    model: state.model,
+    source: state.source,
+    projectPath: state.projectPath,
+  };
+}
+
+function applyPaneStateUpdate(
+  state: ChatState,
+  paneId: string,
+  updater: ChatPaneStateUpdater
+): Partial<ChatState> {
+  const currentPane = getOrCreatePaneState(
+    state.panes,
+    paneId,
+    getPaneFallbackFromState(state)
+  );
+  const nextPane =
+    typeof updater === "function"
+      ? updater(currentPane)
+      : { ...currentPane, ...updater };
+  const panes = {
+    ...state.panes,
+    [paneId]: nextPane,
+  };
+
+  if (paneId === state.activePaneId) {
+    return {
+      panes,
+      ...toLegacyPaneFields(nextPane),
+    };
+  }
+
+  return { panes };
 }
 
 function generateUUID(): string {
@@ -395,39 +533,37 @@ function parseCodexStreamLine(line: string): { action: "session_id"; id: string 
   return null;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  isActive: false,
-  sessionId: null,
-  projectPath: "",
-  model: localStorage.getItem("chat_lastUsedModel") || "",
-  source: "claude",
+export const useChatStore = create<ChatState>((set, get) => {
+  const initialDefaultPane = createChatPaneState();
 
-  messages: [],
-  rawOutput: [],
-  isStreaming: false,
-  error: null,
+  return {
+    activePaneId: DEFAULT_CHAT_PANE_ID,
+    panes: {
+      [DEFAULT_CHAT_PANE_ID]: initialDefaultPane,
+    },
+    ...toLegacyPaneFields(initialDefaultPane),
 
-  availableClis: [],
+    availableClis: [],
 
-  modelList: [],
-  modelListLoading: false,
-  modelListError: null,
+    modelList: [],
+    modelListLoading: false,
+    modelListError: null,
 
-  cliConfig: null,
-  cliConfigLoading: false,
-  cliConfigError: null,
-  codexCliConfig: null,
-  codexCliConfigLoading: false,
-  codexCliConfigError: null,
+    cliConfig: null,
+    cliConfigLoading: false,
+    cliConfigError: null,
+    codexCliConfig: null,
+    codexCliConfigLoading: false,
+    codexCliConfigError: null,
 
-  claudeApiKeyOverride: localStorage.getItem("chat_claudeApiKey") || "",
-  claudeBaseUrlOverride: localStorage.getItem("chat_claudeBaseUrl") || "",
-  codexApiKeyOverride: localStorage.getItem("chat_codexApiKey") || "",
-  codexBaseUrlOverride: localStorage.getItem("chat_codexBaseUrl") || "",
+    claudeApiKeyOverride: localStorage.getItem("chat_claudeApiKey") || "",
+    claudeBaseUrlOverride: localStorage.getItem("chat_claudeBaseUrl") || "",
+    codexApiKeyOverride: localStorage.getItem("chat_codexApiKey") || "",
+    codexBaseUrlOverride: localStorage.getItem("chat_codexBaseUrl") || "",
 
-  skipPermissions: localStorage.getItem("chat_skipPermissions") === "true",
-  defaultModel: localStorage.getItem("chat_defaultModel") || "",
-  cliPath: localStorage.getItem("chat_cliPath") || "",
+    skipPermissions: localStorage.getItem("chat_skipPermissions") === "true",
+    defaultModel: localStorage.getItem("chat_defaultModel") || "",
+    cliPath: localStorage.getItem("chat_cliPath") || "",
 
   detectCli: async () => {
     try {
@@ -462,6 +598,66 @@ export const useChatStore = create<ChatState>((set, get) => ({
         codexCliConfigError: e instanceof Error ? e.message : String(e),
       });
     }
+  },
+
+  getPaneState: (paneId = DEFAULT_CHAT_PANE_ID) => {
+    const state = get();
+    return getOrCreatePaneState(
+      state.panes,
+      paneId,
+      getPaneFallbackFromState(state)
+    );
+  },
+
+  setActivePane: (paneId) => {
+    set((state) => {
+      const nextPane = getOrCreatePaneState(
+        state.panes,
+        paneId,
+        getPaneFallbackFromState(state)
+      );
+      return {
+        activePaneId: paneId,
+        panes: {
+          ...state.panes,
+          [paneId]: nextPane,
+        },
+        ...toLegacyPaneFields(nextPane),
+      };
+    });
+  },
+
+  setPaneState: (paneId, updater) => {
+    set((state) => applyPaneStateUpdate(state, paneId, updater));
+  },
+
+  clearPane: (paneId) => {
+    set((state) => {
+      const currentPane = getOrCreatePaneState(
+        state.panes,
+        paneId,
+        getPaneFallbackFromState(state)
+      );
+      return applyPaneStateUpdate(state, paneId, () =>
+        createChatPaneState({
+          projectPath: currentPane.projectPath,
+          model: currentPane.model || state.defaultModel || state.model,
+          source: currentPane.source,
+        })
+      );
+    });
+  },
+
+  cancelPane: async (paneId) => {
+    const pane = get().getPaneState(paneId);
+    if (pane.sessionId) {
+      try {
+        await api.cancelChat(pane.sessionId);
+      } catch (e) {
+        console.error("Failed to cancel chat:", e);
+      }
+    }
+    get().setPaneStreaming(paneId, false);
   },
 
   fetchModelList: async () => {
@@ -518,8 +714,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ].filter(Boolean);
         const selected = candidates[0] || (allModels.length > 0 ? allModels[0].id : "");
         if (selected && selected !== state.model) {
-          localStorage.setItem("chat_lastUsedModel", selected);
-          set({ model: selected });
+          get().setPaneModel(get().activePaneId, selected);
         }
       }
     } catch (e) {
@@ -530,11 +725,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  startNewChat: async (projectPath, prompt, model) => {
+  startNewChatInPane: async (paneId, projectPath, prompt, model) => {
     const state = get();
+    const pane = state.getPaneState(paneId);
     const pendingSessionId = generateUUID();
     localStorage.setItem("chat_lastUsedModel", model);
-    set({
+    get().setPaneState(paneId, {
       isActive: true,
       sessionId: pendingSessionId,
       isStreaming: true,
@@ -555,7 +751,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     try {
       await waitForNextPaint();
       const sessionId = await api.startChat({
-        source: get().source,
+        source: pane.source,
         sessionId: pendingSessionId,
         projectPath,
         prompt,
@@ -564,10 +760,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
         cliPath: state.cliPath || undefined,
       });
       if (sessionId !== pendingSessionId) {
-        set({ sessionId });
+        get().setPaneSessionId(paneId, sessionId);
       }
     } catch (e) {
-      set({
+      get().setPaneState(paneId, {
         sessionId: null,
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
@@ -575,10 +771,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  continueExistingChat: async (sessionId, projectPath, prompt, model) => {
+  continueExistingChatInPane: async (
+    paneId,
+    sessionId,
+    projectPath,
+    prompt,
+    model
+  ) => {
     const state = get();
+    const pane = state.getPaneState(paneId);
     localStorage.setItem("chat_lastUsedModel", model);
-    set({
+    get().setPaneState(paneId, {
       isActive: true,
       isStreaming: true,
       sessionId,
@@ -586,7 +789,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       model,
       error: null,
       messages: [
-        ...state.messages,
+        ...pane.messages,
         {
           id: generateUUID(),
           role: "user",
@@ -599,7 +802,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       await api.continueChat({
-        source: get().source,
+        source: pane.source,
         sessionId,
         projectPath,
         prompt,
@@ -608,34 +811,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
         cliPath: state.cliPath || undefined,
       });
     } catch (e) {
-      set({
+      get().setPaneState(paneId, {
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
       });
     }
   },
 
+  startNewChat: async (projectPath, prompt, model) => {
+    await get().startNewChatInPane(
+      DEFAULT_CHAT_PANE_ID,
+      projectPath,
+      prompt,
+      model
+    );
+  },
+
+  continueExistingChat: async (sessionId, projectPath, prompt, model) => {
+    await get().continueExistingChatInPane(
+      DEFAULT_CHAT_PANE_ID,
+      sessionId,
+      projectPath,
+      prompt,
+      model
+    );
+  },
+
   cancelChat: async () => {
-    const { sessionId } = get();
-    if (sessionId) {
-      try {
-        await api.cancelChat(sessionId);
-      } catch (e) {
-        console.error("Failed to cancel chat:", e);
-      }
-    }
-    set({ isStreaming: false });
+    await get().cancelPane(DEFAULT_CHAT_PANE_ID);
   },
 
   clearChat: () => {
-    set({
-      isActive: false,
-      sessionId: null,
-      messages: [],
-      rawOutput: [],
-      isStreaming: false,
-      error: null,
-    });
+    get().clearPane(DEFAULT_CHAT_PANE_ID);
   },
 
   setSkipPermissions: (v) => {
@@ -684,19 +891,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  addStreamLine: (line: string) => {
-    const { source } = get();
+  addStreamLineToPane: (paneId, line) => {
+    const pane = get().getPaneState(paneId);
 
-    if (source === "codex") {
+    if (pane.source === "codex") {
       const parsed = parseCodexStreamLine(line);
       if (!parsed) {
-        set((state) => ({ rawOutput: [...state.rawOutput, line] }));
+        get().setPaneState(paneId, (currentPane) => ({
+          ...currentPane,
+          rawOutput: [...currentPane.rawOutput, line],
+        }));
         return;
       }
       if (parsed.action === "session_id") {
-        set({ sessionId: parsed.id });
+        get().setPaneSessionId(paneId, parsed.id);
       } else if (parsed.action === "add") {
-        set((state) => ({ rawOutput: [...state.rawOutput, line], messages: [...state.messages, parsed.message] }));
+        get().setPaneState(paneId, (currentPane) => ({
+          ...currentPane,
+          rawOutput: [...currentPane.rawOutput, line],
+          messages: [...currentPane.messages, parsed.message],
+        }));
       } else if (parsed.action === "done") {
         const usageInfo = parsed.usage;
         if (usageInfo) {
@@ -705,15 +919,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
           if (usageInfo.output_tokens) parts.push(`输出: ${usageInfo.output_tokens.toLocaleString()}`);
           if (usageInfo.cached_input_tokens) parts.push(`缓存命中: ${usageInfo.cached_input_tokens.toLocaleString()}`);
           if (parts.length > 0) {
-            set((state) => ({
+            get().setPaneState(paneId, (currentPane) => ({
+              ...currentPane,
               isStreaming: false,
-              rawOutput: [...state.rawOutput, line],
+              rawOutput: [...currentPane.rawOutput, line],
               messages: [
-                ...state.messages,
+                ...currentPane.messages,
                 {
                   id: generateUUID(),
-                  role: "system" as const,
-                  content: [{ type: "text" as const, text: `完成 [${parts.join(" · ")}]` }],
+                  role: "system",
+                  content: [{ type: "text", text: `完成 [${parts.join(" · ")}]` }],
                   timestamp: new Date().toISOString(),
                 },
               ],
@@ -721,39 +936,43 @@ export const useChatStore = create<ChatState>((set, get) => ({
             return;
           }
         }
-        set((state) => ({ isStreaming: false, rawOutput: [...state.rawOutput, line] }));
+        get().setPaneState(paneId, (currentPane) => ({
+          ...currentPane,
+          isStreaming: false,
+          rawOutput: [...currentPane.rawOutput, line],
+        }));
       }
       return;
     }
 
-    // Claude path
     const parsed = parseClaudeStreamLine(line);
 
     try {
       const data = JSON.parse(line);
-      // Extract session_id from init messages
       if (data.type === "system" && data.subtype === "init" && data.session_id) {
-        set({ sessionId: data.session_id });
+        get().setPaneSessionId(paneId, data.session_id);
       }
-      // Result message means CLI is done — stop streaming
       if (data.type === "result") {
-        const extras: Partial<ChatState> = { isStreaming: false };
+        const extras: Partial<ChatPaneState> = { isStreaming: false };
         if (data.is_error || data.error) {
           extras.error = data.error || data.result || "Unknown error";
         }
-        set(extras as Partial<ChatState>);
+        get().setPaneState(paneId, extras);
       }
     } catch {
       // ignore non-JSON
     }
 
     if (!parsed) {
-      set((state) => ({ rawOutput: [...state.rawOutput, line] }));
+      get().setPaneState(paneId, (currentPane) => ({
+        ...currentPane,
+        rawOutput: [...currentPane.rawOutput, line],
+      }));
       return;
     }
 
-    set((state) => {
-      let newMessages = state.messages;
+    get().setPaneState(paneId, (currentPane) => {
+      let newMessages = currentPane.messages;
 
       if (parsed.action === "add") {
         const lastIdx = newMessages.length - 1;
@@ -800,10 +1019,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       return {
-        rawOutput: [...state.rawOutput, line],
+        ...currentPane,
+        rawOutput: [...currentPane.rawOutput, line],
         messages: newMessages,
       };
     });
+  },
+
+  addStreamLine: (line) => {
+    get().addStreamLineToPane(DEFAULT_CHAT_PANE_ID, line);
   },
 
   setClaudeApiKeyOverride: (v) => { localStorage.setItem("chat_claudeApiKey", v); set({ claudeApiKeyOverride: v }); },
@@ -811,17 +1035,57 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setCodexApiKeyOverride: (v) => { localStorage.setItem("chat_codexApiKey", v); set({ codexApiKeyOverride: v }); },
   setCodexBaseUrlOverride: (v) => { localStorage.setItem("chat_codexBaseUrl", v); set({ codexBaseUrlOverride: v }); },
 
-  setStreaming: (v) => set({ isStreaming: v }),
-  setSessionId: (id) => set({ sessionId: id }),
-  setError: (e) => set({ error: e }),
-  setProjectPath: (p) => set({ projectPath: p }),
+  setPaneStreaming: (paneId, value) => {
+    get().setPaneState(paneId, { isStreaming: value });
+  },
+  setPaneSessionId: (paneId, id) => {
+    get().setPaneState(paneId, { sessionId: id });
+  },
+  setPaneError: (paneId, error) => {
+    get().setPaneState(paneId, { error });
+  },
+  setPaneProjectPath: (paneId, path) => {
+    get().setPaneState(paneId, { projectPath: path });
+  },
+  setPaneModel: (paneId, model) => {
+    localStorage.setItem("chat_lastUsedModel", model);
+    get().setPaneState(paneId, { model });
+  },
+  setPaneSource: (paneId, source) => {
+    const pane = get().getPaneState(paneId);
+    if (pane.source === source) return;
+    set((state) => {
+      const updates = applyPaneStateUpdate(state, paneId, {
+        source,
+        model: "",
+      });
+      if (paneId === state.activePaneId) {
+        return {
+          ...updates,
+          modelList: [],
+        };
+      }
+      return updates;
+    });
+  },
+
+  setStreaming: (v) => {
+    get().setPaneStreaming(DEFAULT_CHAT_PANE_ID, v);
+  },
+  setSessionId: (id) => {
+    get().setPaneSessionId(DEFAULT_CHAT_PANE_ID, id);
+  },
+  setError: (e) => {
+    get().setPaneError(DEFAULT_CHAT_PANE_ID, e);
+  },
+  setProjectPath: (p) => {
+    get().setPaneProjectPath(DEFAULT_CHAT_PANE_ID, p);
+  },
   setModel: (m) => {
-    localStorage.setItem("chat_lastUsedModel", m);
-    set({ model: m });
+    get().setPaneModel(DEFAULT_CHAT_PANE_ID, m);
   },
   setSource: (s) => {
-    if (get().source === s) return;
-    // Clear model list so fetchModelList loads the correct source's models
-    set({ source: s, modelList: [], model: "" });
+    get().setPaneSource(DEFAULT_CHAT_PANE_ID, s);
   },
-}));
+  };
+});

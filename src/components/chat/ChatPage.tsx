@@ -1,9 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useChatStore } from "../../stores/chatStore";
+import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { useAppStore } from "../../stores/appStore";
-import { useChatStream } from "../../hooks/useChatStream";
 import { ChatHeader } from "./ChatHeader";
 import { ChatInput } from "./ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "./StreamingMessage";
@@ -13,6 +12,10 @@ import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { normalizeToolName } from "./tool-viewers/ToolViewers";
+import { ScrollArea } from "../ScrollArea";
+import { subscribeToChatWebSocketMessages } from "../../services/webApi";
+
+declare const __IS_TAURI__: boolean;
 
 /** Enable virtual scrolling when there are more turns than this */
 const VIRTUAL_THRESHOLD = 30;
@@ -21,6 +24,130 @@ interface Turn {
   turnIndex: number;
   messages: ChatMessage[];
   tokens: number;
+}
+
+function isActualError(line: string): boolean {
+  const lower = line.toLowerCase().trim();
+  if (!lower) return false;
+  if (lower.startsWith("[request interrupted")) return false;
+  if (lower.startsWith("warning:")) return false;
+  if (lower.startsWith("info:")) return false;
+  if (lower.startsWith("debug:")) return false;
+  if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic")) return true;
+  return true;
+}
+
+function usePaneChatStream(paneId: string, sessionId: string | null) {
+  const cleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (__IS_TAURI__) {
+      if (!sessionId) return;
+
+      const { addStreamLineToPane, setPaneStreaming, setPaneError } = useChatStore.getState();
+      let cancelled = false;
+
+      const setupListeners = async () => {
+        const { listen } = await import("@tauri-apps/api/event");
+        if (cancelled) return;
+
+        const unlistenOutput = await listen<string>(
+          `chat-output:${sessionId}`,
+          (event) => {
+            if (!cancelled) {
+              addStreamLineToPane(paneId, event.payload);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          return;
+        }
+
+        const unlistenError = await listen<string>(
+          `chat-error:${sessionId}`,
+          (event) => {
+            if (!cancelled && isActualError(event.payload)) {
+              setPaneError(paneId, event.payload);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          return;
+        }
+
+        const unlistenComplete = await listen<string>(
+          `chat-complete:${sessionId}`,
+          () => {
+            if (!cancelled) {
+              setPaneStreaming(paneId, false);
+            }
+          }
+        );
+        if (cancelled) {
+          unlistenOutput();
+          unlistenError();
+          unlistenComplete();
+          return;
+        }
+
+        cleanupRef.current = () => {
+          unlistenOutput();
+          unlistenError();
+          unlistenComplete();
+        };
+      };
+
+      setupListeners();
+
+      return () => {
+        cancelled = true;
+        if (cleanupRef.current) {
+          cleanupRef.current();
+          cleanupRef.current = null;
+        }
+      };
+    }
+
+    const unsubscribe = subscribeToChatWebSocketMessages((rawMessage) => {
+      const { addStreamLineToPane, setPaneStreaming, setPaneError } = useChatStore.getState();
+
+      try {
+        const data = JSON.parse(rawMessage);
+        const type = typeof data?.type === "string" ? data.type : "";
+        const payload =
+          typeof data?.data === "string"
+            ? data.data
+            : typeof data?.payload === "string"
+              ? data.payload
+              : "";
+
+        if (type === "output" || type === "chunk") {
+          if (payload) {
+            addStreamLineToPane(paneId, payload);
+          }
+        } else if (type === "error" || type === "auth_required") {
+          if (type === "auth_required") {
+            setPaneStreaming(paneId, false);
+            window.dispatchEvent(new CustomEvent("asv-auth-required"));
+          }
+          if (payload && isActualError(payload)) {
+            setPaneError(paneId, payload);
+          }
+        } else if (type === "complete" || type === "done") {
+          setPaneStreaming(paneId, false);
+        }
+      } catch {
+        // ignore non-JSON messages
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [paneId, sessionId]);
 }
 
 function getNormalizedCommandInput(input: string): string {
@@ -98,51 +225,54 @@ function dedupeTurnMessages(
   return deduped;
 }
 
-export function ChatPage() {
+interface ChatPageProps {
+  paneId?: string;
+}
+
+export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   const { sessionId: urlSessionId } = useParams<{ sessionId?: string }>();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  const {
-    isActive,
-    sessionId,
-    projectPath,
-    model,
-    messages,
-    isStreaming,
-    error,
-    availableClis,
-    detectCli,
-    fetchCliConfig,
-    fetchCodexCliConfig,
-    fetchModelList,
-    startNewChat,
-    continueExistingChat,
-    cancelChat,
-    clearChat,
-    setProjectPath,
-    setSessionId,
-    setSource,
-  } = useChatStore();
+  const pane = useChatStore((state) => state.getPaneState(paneId));
+  const availableClis = useChatStore((state) => state.availableClis);
+  const detectCli = useChatStore((state) => state.detectCli);
+  const fetchCliConfig = useChatStore((state) => state.fetchCliConfig);
+  const fetchCodexCliConfig = useChatStore((state) => state.fetchCodexCliConfig);
+  const fetchModelList = useChatStore((state) => state.fetchModelList);
+  const setActivePane = useChatStore((state) => state.setActivePane);
+  const startNewChatInPane = useChatStore((state) => state.startNewChatInPane);
+  const continueExistingChatInPane = useChatStore((state) => state.continueExistingChatInPane);
+  const cancelPane = useChatStore((state) => state.cancelPane);
+  const clearPane = useChatStore((state) => state.clearPane);
+  const setPaneProjectPath = useChatStore((state) => state.setPaneProjectPath);
+  const setPaneSessionId = useChatStore((state) => state.setPaneSessionId);
+  const setPaneSource = useChatStore((state) => state.setPaneSource);
   const [expandVersion, setExpandVersion] = useState(0);
   const [allExpanded, setAllExpanded] = useState(true);
+  const { isActive, sessionId, projectPath, model, messages, isStreaming, error, source } = pane;
 
   const appSource = useAppStore((s) => s.source);
-  const cliLabel = appSource === "codex" ? "Codex" : "Claude";
+  const cliLabel = source === "codex" ? "Codex" : "Claude";
   const activeSessionId = urlSessionId ?? sessionId ?? null;
 
-  // Sync source from appStore into chatStore
-  useEffect(() => { setSource(appSource); }, [appSource, setSource]);
+  useEffect(() => {
+    setActivePane(paneId);
+  }, [paneId, setActivePane]);
+
+  // Sync source from appStore into the target pane
+  useEffect(() => {
+    setPaneSource(paneId, appSource);
+  }, [appSource, paneId, setPaneSource]);
 
   // Detect CLI on mount + fetch config & model list
   useEffect(() => { detectCli(); }, [detectCli]);
   useLayoutEffect(() => {
     if (urlSessionId) {
-      clearChat();
-      setSessionId(urlSessionId);
+      clearPane(paneId);
+      setPaneSessionId(paneId, urlSessionId);
       return;
     }
-    clearChat();
-  }, [clearChat, setSessionId, urlSessionId]);
+    clearPane(paneId);
+  }, [clearPane, paneId, setPaneSessionId, urlSessionId]);
   useEffect(() => {
     if (appSource === "codex") {
       fetchCodexCliConfig();
@@ -153,19 +283,19 @@ export function ChatPage() {
   // Re-fetch model list whenever source changes (setSource clears modelList first)
   useEffect(() => { fetchModelList(); }, [appSource, fetchModelList]);
 
-  // Listen for stream events
-  useChatStream(activeSessionId);
+  // Listen for stream events in the target pane
+  usePaneChatStream(paneId, activeSessionId);
 
   const handleSend = useCallback((prompt: string) => {
     if (!projectPath) return;
     if (activeSessionId) {
-      continueExistingChat(activeSessionId, projectPath, prompt, model);
+      continueExistingChatInPane(paneId, activeSessionId, projectPath, prompt, model);
     } else {
-      startNewChat(projectPath, prompt, model);
+      startNewChatInPane(paneId, projectPath, prompt, model);
     }
-  }, [activeSessionId, projectPath, model, continueExistingChat, startNewChat]);
+  }, [activeSessionId, continueExistingChatInPane, model, paneId, projectPath, startNewChatInPane]);
 
-  const cliAvailable = availableClis.some((c) => c.cliType === appSource);
+  const cliAvailable = availableClis.some((c) => c.cliType === source);
 
   const toolResultMap = useMemo(() => {
     const resultMap = new Map<string, { content: string; isError: boolean }>();
@@ -251,18 +381,19 @@ export function ChatPage() {
     if (!trimmedAnswers || !projectPath || !activeSessionId) return;
 
     if (isStreaming) {
-      await cancelChat();
+      await cancelPane(paneId);
       setTimeout(() => {
-        continueExistingChat(activeSessionId, projectPath, trimmedAnswers, model);
+        continueExistingChatInPane(paneId, activeSessionId, projectPath, trimmedAnswers, model);
       }, 150);
       return;
     }
-    continueExistingChat(activeSessionId, projectPath, trimmedAnswers, model);
-  }, [activeSessionId, cancelChat, continueExistingChat, isStreaming, model, projectPath]);
+    continueExistingChatInPane(paneId, activeSessionId, projectPath, trimmedAnswers, model);
+  }, [activeSessionId, cancelPane, continueExistingChatInPane, isStreaming, model, paneId, projectPath]);
 
   return (
     <div className="flex flex-col h-full">
       <ChatHeader
+        paneId={paneId}
         onExpandAll={() => {
           setAllExpanded(true);
           setExpandVersion((v) => v + 1);
@@ -273,12 +404,16 @@ export function ChatPage() {
         }}
       />
 
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      <ScrollArea
+        className="flex-1 min-h-0"
+        viewportRef={scrollContainerRef}
+        viewportClassName="h-full"
+      >
         <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
           {!isActive && messages.length === 0 ? (
           <EmptyState
             projectPath={projectPath}
-            onProjectPathChange={setProjectPath}
+            onProjectPathChange={(path) => setPaneProjectPath(paneId, path)}
             cliAvailable={cliAvailable}
             cliLabel={cliLabel}
           />
@@ -307,12 +442,13 @@ export function ChatPage() {
           </div>
         )}
         </ExpandAllProvider>
-      </div>
+      </ScrollArea>
 
       <div className="max-w-4xl mx-auto w-full">
         <ChatInput
+          paneId={paneId}
           onSend={handleSend}
-          onCancel={cancelChat}
+          onCancel={() => cancelPane(paneId)}
           isStreaming={isStreaming}
           disabled={!projectPath || !cliAvailable}
         />

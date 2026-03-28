@@ -11,9 +11,18 @@ interface Props {
   source: string;
   showTimestamp: boolean;
   showModel: boolean;
+  threadAnchor?: string | null;
+  threadHint?: string | null;
 }
 
-export function AssistantMessage({ message, source, showTimestamp, showModel }: Props) {
+export function AssistantMessage({
+  message,
+  source,
+  showTimestamp,
+  showModel,
+  threadAnchor,
+  threadHint,
+}: Props) {
   const assistantName = source === "codex" ? "Codex" : "Claude";
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
@@ -40,6 +49,11 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-1">
           <span className="text-sm font-medium">{assistantName}</span>
+          {threadAnchor && (
+            <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+              {threadAnchor}
+            </span>
+          )}
           {showModel && message.model && (
             <span className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
               {message.model}
@@ -70,6 +84,11 @@ export function AssistantMessage({ message, source, showTimestamp, showModel }: 
             </button>
           )}
         </div>
+        {threadHint && (
+          <div className="mb-2 text-[11px] text-muted-foreground">
+            {threadHint}
+          </div>
+        )}
         {message.content.map((block, i) => {
           if (block.type === "text") {
             const cleaned = cleanMessageText(block.text);

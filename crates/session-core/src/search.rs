@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::metadata;
 use crate::models::message::{DisplayContentBlock, DisplayMessage};
+use crate::parser::jsonl as claude_parser;
 use crate::provider::{claude, codex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,8 +58,20 @@ struct SearchSessionContext {
     project_name: String,
     session_id: String,
     alias: Option<String>,
+    search_aliases: Vec<String>,
     tags: Option<Vec<String>>,
     file_path: String,
+}
+
+fn push_search_alias(search_aliases: &mut Vec<String>, alias: Option<String>) {
+    if let Some(alias) = alias
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        if !search_aliases.iter().any(|existing| existing == &alias) {
+            search_aliases.push(alias);
+        }
+    }
 }
 
 /// Safely truncate a string to approximately `max_chars` characters
@@ -135,31 +148,33 @@ fn search_messages_for_session(
     let mut first_prompt = None;
 
     if scope.includes_session() {
-        if let Some(alias) = &ctx.alias {
-            if alias.to_lowercase().contains(query_lower) {
-                session_name_matched = true;
-                if !push_limited_result(
-                    &mut results,
-                    counter,
-                    max_results,
-                    SearchResult {
-                        source: ctx.source.clone(),
-                        project_id: ctx.project_id.clone(),
-                        project_name: ctx.project_name.clone(),
-                        session_id: ctx.session_id.clone(),
-                        first_prompt: None,
-                        alias: ctx.alias.clone(),
-                        tags: ctx.tags.clone(),
-                        matched_text: alias.clone(),
-                        role: "session".to_string(),
-                        timestamp: None,
-                        file_path: ctx.file_path.clone(),
-                        total_message_count,
-                        matched_message_id: None,
-                    },
-                ) {
-                    return results;
-                }
+        if let Some(matched_alias) = ctx
+            .search_aliases
+            .iter()
+            .find(|alias| alias.to_lowercase().contains(query_lower))
+        {
+            session_name_matched = true;
+            if !push_limited_result(
+                &mut results,
+                counter,
+                max_results,
+                SearchResult {
+                    source: ctx.source.clone(),
+                    project_id: ctx.project_id.clone(),
+                    project_name: ctx.project_name.clone(),
+                    session_id: ctx.session_id.clone(),
+                    first_prompt: None,
+                    alias: ctx.alias.clone(),
+                    tags: ctx.tags.clone(),
+                    matched_text: matched_alias.clone(),
+                    role: "session".to_string(),
+                    timestamp: None,
+                    file_path: ctx.file_path.clone(),
+                    total_message_count,
+                    matched_message_id: None,
+                },
+            ) {
+                return results;
             }
         }
     }
@@ -307,15 +322,20 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
             let session_meta = meta_cache
                 .get(encoded_name)
                 .and_then(|m| m.sessions.get(&session_id));
-            let alias = session_meta.and_then(|s| s.alias.clone());
+            let metadata_alias = session_meta.and_then(|s| s.alias.clone());
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
+            let custom_title = claude_parser::scan_session_file_once(file_path)
+                .and_then(|scan| scan.custom_title);
+            let alias = custom_title.clone().or(metadata_alias.clone());
+            let mut search_aliases = Vec::with_capacity(2);
+            push_search_alias(&mut search_aliases, custom_title);
+            push_search_alias(&mut search_aliases, metadata_alias);
             let content_has_query = content.to_lowercase().contains(query_lower);
-            let alias_has_query = alias
-                .as_ref()
-                .map(|a| a.to_lowercase().contains(query_lower))
-                .unwrap_or(false);
+            let alias_has_query = search_aliases
+                .iter()
+                .any(|candidate| candidate.to_lowercase().contains(query_lower));
 
             if !content_has_query && !alias_has_query {
                 return Vec::new();
@@ -328,6 +348,7 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
                     project_name: project_name.clone(),
                     session_id,
                     alias,
+                    search_aliases,
                     tags,
                     file_path: file_path.to_string_lossy().to_string(),
                 };
@@ -396,11 +417,12 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
+            let mut search_aliases = Vec::with_capacity(1);
+            push_search_alias(&mut search_aliases, alias.clone());
             let content_has_query = content.to_lowercase().contains(query_lower);
-            let alias_has_query = alias
-                .as_ref()
-                .map(|a| a.to_lowercase().contains(query_lower))
-                .unwrap_or(false);
+            let alias_has_query = search_aliases
+                .iter()
+                .any(|candidate| candidate.to_lowercase().contains(query_lower));
 
             if !content_has_query && !alias_has_query {
                 return Vec::new();
@@ -413,6 +435,7 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
                     project_name: short_name,
                     session_id,
                     alias,
+                    search_aliases,
                     tags,
                     file_path: file_path.to_string_lossy().to_string(),
                 };

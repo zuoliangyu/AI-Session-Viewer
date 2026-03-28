@@ -6,6 +6,8 @@ export interface ModelInfo {
   created: number | null;
 }
 
+export type ChatSource = "claude" | "codex";
+
 export interface CliInstallation {
   path: string;
   version: string | null;
