@@ -100,11 +100,13 @@ function getPlaceholderLabel(node: ThreadDisplayNode) {
 function DeferredMessagePlaceholder({
   node,
   estimatedHeight,
+  isThreaded,
 }: {
   node: ThreadDisplayNode;
   estimatedHeight: number;
+  isThreaded: boolean;
 }) {
-  const isUser = node.message.role === "user";
+  const isUser = node.message.role === "user" && !isThreaded;
 
   return (
     <div
@@ -112,7 +114,9 @@ function DeferredMessagePlaceholder({
       style={{ minHeight: `${estimatedHeight}px` }}
     >
       <div
-        className={`w-full max-w-[85%] rounded-2xl border border-dashed border-border/70 bg-muted/25 px-4 py-3 ${
+        className={`w-full rounded-2xl border border-dashed border-border/70 bg-muted/25 px-4 py-3 ${
+          !isThreaded ? "max-w-[85%]" : ""
+        } ${
           isUser ? "bg-primary/5" : ""
         }`}
       >
@@ -135,11 +139,13 @@ function DeferredThreadMessage({
   eager,
   viewportRef,
   renderContent,
+  isThreaded,
 }: {
   node: ThreadDisplayNode;
   eager: boolean;
   viewportRef?: RefObject<HTMLDivElement | null>;
   renderContent: () => ReactNode;
+  isThreaded: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userMessageId =
@@ -184,71 +190,117 @@ function DeferredThreadMessage({
       ref={containerRef}
       data-user-msg-id={userMessageId}
     >
-      {activated ? renderContent() : <DeferredMessagePlaceholder node={node} estimatedHeight={estimatedHeight} />}
+      {activated ? renderContent() : <DeferredMessagePlaceholder node={node} estimatedHeight={estimatedHeight} isThreaded={isThreaded} />}
     </div>
   );
 }
 
+function getThreadLineText(node: ThreadDisplayNode, source: string): string {
+  const title = node.threadTitle.trim();
+
+  if (node.message.role === "assistant") {
+    const assistantName = source === "claude" ? "Claude" : "Codex";
+    return title ? `${assistantName} · ${title}` : assistantName;
+  }
+
+  if (node.message.role === "user") {
+    return title || "（用户问题）";
+  }
+
+  return title || "工具输出";
+}
+
+function getThreadLineTone(node: ThreadDisplayNode) {
+  switch (node.message.role) {
+    case "assistant":
+      return {
+        label: "text-foreground",
+        meta: "text-sky-600 dark:text-sky-400",
+      };
+    case "user":
+      return {
+        label: "text-foreground",
+        meta: "text-emerald-600 dark:text-emerald-400",
+      };
+    default:
+      return {
+        label: "text-muted-foreground",
+        meta: "text-muted-foreground",
+      };
+  }
+}
+
 function ThreadBranch({
   node,
-  depth,
   renderMessage,
+  source,
 }: {
   node: ThreadDisplayNode;
-  depth: number;
   renderMessage: (node: ThreadDisplayNode) => ReactNode;
+  source: string;
 }) {
   const hasChildren = node.children.length > 0;
   const { expanded, setExpanded } = useExpandAllControl(true);
-  const branchTitle = node.threadTitle.trim();
+  const lineText = getThreadLineText(node, source);
+  const tone = getThreadLineTone(node);
+  const collapsedText = lineText.trim() || "当前分支";
 
   return (
-    <div className={depth > 0 ? "ml-2" : ""}>
-      <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-        <div className="flex w-5 shrink-0 justify-center">
-          {hasChildren ? (
-            <button
-              onClick={() => setExpanded(!expanded)}
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title={expanded ? `折叠 ${branchTitle}` : `展开 ${branchTitle}`}
+    <div className="min-w-0">
+      <div className="relative min-w-0 rounded-md text-left">
+        {hasChildren && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className={`absolute right-full top-0 mr-1 rounded-full border p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
+              expanded ? "border-border/80 bg-background" : "border-border/60 bg-muted/40"
+            }`}
+            title={expanded ? `折叠 ${collapsedText}` : `展开 ${collapsedText}`}
+          >
+            {expanded ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+        )}
+
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2 py-0.5 text-left">
+            <span
+              className={`min-w-0 truncate text-[13px] leading-5 ${tone.label}`}
+              title={lineText}
             >
-              {expanded ? (
-                <ChevronDown className="h-3.5 w-3.5" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5" />
-              )}
-            </button>
-          ) : (
-            <span className="h-3.5 w-3.5" />
+              {lineText}
+            </span>
+            {hasChildren && (
+              <span className={`shrink-0 text-[11px] ${tone.meta}`}>
+                {node.children.length} 条回复
+              </span>
+            )}
+          </div>
+
+          <div className="mt-2 min-w-0">{renderMessage(node)}</div>
+
+          {hasChildren && expanded && (
+            <div className="mt-4 space-y-4">
+              {node.children.map((child) => (
+                <ThreadBranch
+                  key={child.id}
+                  node={child}
+                  renderMessage={renderMessage}
+                  source={source}
+                />
+              ))}
+            </div>
+          )}
+
+          {hasChildren && !expanded && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              已折叠 {collapsedText}（{node.children.length} 条后续消息）
+            </div>
           )}
         </div>
-        <div className="min-w-0">
-          <span className="block truncate text-sm font-medium text-foreground" title={branchTitle}>
-            <span>{node.threadTitle}</span>
-          </span>
-        </div>
       </div>
-
-      <div className="min-w-0">{renderMessage(node)}</div>
-
-      {hasChildren && expanded && (
-        <div className="mt-3 space-y-5">
-          {node.children.map((child) => (
-            <ThreadBranch
-              key={child.id}
-              node={child}
-              depth={depth + 1}
-              renderMessage={renderMessage}
-            />
-          ))}
-        </div>
-      )}
-
-      {hasChildren && !expanded && (
-        <div className="ml-7 mt-2 text-xs text-muted-foreground">
-          已折叠 {branchTitle}（{node.children.length} 条后续消息）
-        </div>
-      )}
     </div>
   );
 }
@@ -421,6 +473,7 @@ export const MessageThread = memo(function MessageThread({
 
   const renderMessageContent = (node: ThreadDisplayNode) => {
     const msg = node.message;
+    const messageLayout = isThreaded ? "thread" : "default";
 
     if (msg.role === "user") {
       const msgId = getUserMessageId(msg, node.originalIndex);
@@ -434,12 +487,13 @@ export const MessageThread = memo(function MessageThread({
         <div
           key={msgId}
           data-user-msg-id={msgId}
-          className="group/bookmark flex items-start justify-end gap-1.5"
+          className={`group/bookmark flex items-start gap-1.5 ${isThreaded ? "w-full justify-start" : "justify-end"}`}
         >
-          <div className="min-w-0">
+          <div className={`min-w-0 ${isThreaded ? "flex-1" : ""}`}>
             <UserMessage
               message={msg}
               showTimestamp={showTimestamp}
+              layout={messageLayout}
               threadHint={
                 node.parentSource === "mention" && node.mentionAnchors[0]
                   ? `通过 ${node.mentionAnchors[0]} 挂到该回复`
@@ -498,7 +552,7 @@ export const MessageThread = memo(function MessageThread({
     if (msg.role === "tool") {
       return (
         <div key={node.id}>
-          <ToolOutputMessage message={msg} showTimestamp={showTimestamp} />
+          <ToolOutputMessage message={msg} showTimestamp={showTimestamp} layout={messageLayout} />
         </div>
       );
     }
@@ -511,6 +565,7 @@ export const MessageThread = memo(function MessageThread({
             source={source}
             showTimestamp={showTimestamp}
             showModel={showModel}
+            layout={messageLayout}
             threadAnchor={node.threadAnchor}
             threadHint={showActionButtons && node.forkUserMessageId ? "右击可从此回复分叉" : null}
           />
@@ -525,6 +580,7 @@ export const MessageThread = memo(function MessageThread({
       node={node}
       eager={!shouldDefer || eagerNodeIds?.has(node.id) === true}
       viewportRef={viewportRef}
+      isThreaded={isThreaded}
       renderContent={() => renderMessageContent(node)}
     />
   );
@@ -564,9 +620,9 @@ export const MessageThread = memo(function MessageThread({
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-6 py-6">
+    <div className="mx-auto max-w-3xl space-y-6 px-2 py-6 sm:px-3">
       {roots.map((node) => (
-        <ThreadBranch key={node.id} node={node} depth={0} renderMessage={renderMessage} />
+        <ThreadBranch key={node.id} node={node} renderMessage={renderMessage} source={source} />
       ))}
       {renderAssistantContextMenu()}
     </div>

@@ -8,6 +8,7 @@ import { useExpandAllControl } from "../common/ExpandAllContext";
 interface Props {
   message: DisplayMessage;
   showTimestamp: boolean;
+  layout?: "default" | "thread";
 }
 
 const COLLAPSE_THRESHOLD = 400;
@@ -17,9 +18,11 @@ const COLLAPSE_THRESHOLD = 400;
 function OutputBlock({
   content,
   isError = false,
+  compact = false,
 }: {
   content: string;
   isError?: boolean;
+  compact?: boolean;
 }) {
   const isLong = content.length > COLLAPSE_THRESHOLD;
   const { expanded, setExpanded } = useExpandAllControl(!isLong);
@@ -38,7 +41,7 @@ function OutputBlock({
       isError ? "border-destructive/30" : "border-border"
     }`}>
       {/* 标题栏 */}
-      <div className={`flex items-center gap-1 px-2 py-1 text-xs ${
+      <div className={`flex items-center gap-1 ${compact ? "px-1.5" : "px-2"} py-1 text-xs ${
         isError ? "bg-destructive/5" : "bg-muted/30"
       }`}>
         {/* 折叠/展开主区域 */}
@@ -91,12 +94,12 @@ function OutputBlock({
       {expanded && (
         <div className="border-t border-border">
           {viewMode === "md" ? (
-            <div className="max-h-80 overflow-y-auto">
+            <div className={`max-h-80 overflow-y-auto ${compact ? "px-2 py-2" : ""}`}>
               <MarkdownContent content={markdownContent} />
             </div>
           ) : (
             <pre
-              className={`px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all
+              className={`${compact ? "px-2" : "px-3"} py-2 text-xs font-mono whitespace-pre-wrap break-all
                 max-h-80 overflow-y-auto ${
                 isError
                   ? "text-destructive bg-destructive/5"
@@ -116,16 +119,23 @@ function OutputBlock({
 
 const MemoizedOutputBlock = memo(OutputBlock, (prevProps, nextProps) => (
   prevProps.content === nextProps.content &&
-  prevProps.isError === nextProps.isError
+  prevProps.isError === nextProps.isError &&
+  prevProps.compact === nextProps.compact
 ));
 
-export const ToolOutputMessage = memo(function ToolOutputMessage({ message, showTimestamp }: Props) {
+export const ToolOutputMessage = memo(function ToolOutputMessage({
+  message,
+  showTimestamp,
+  layout = "default",
+}: Props) {
+  const isThreadLayout = layout === "thread";
+
   return (
-    <div className="flex gap-3 ml-10">
+    <div className={isThreadLayout ? "w-full" : "flex ml-10 gap-3"}>
       <div className="flex-1 min-w-0">
         {/* 标题行 */}
-        <div className="flex items-center gap-2 mb-1">
-          <Terminal className="w-3 h-3 text-muted-foreground" />
+        <div className={`mb-1 flex items-center ${isThreadLayout ? "gap-1.5" : "gap-2"}`}>
+          {!isThreadLayout && <Terminal className="w-3 h-3 text-muted-foreground" />}
           <span className="text-xs font-medium text-muted-foreground">Tool Output</span>
           {showTimestamp && message.timestamp && (
             <span className="text-xs text-muted-foreground">
@@ -138,11 +148,11 @@ export const ToolOutputMessage = memo(function ToolOutputMessage({ message, show
         {message.content.map((block, i) => {
           if (block.type === "function_call_output") {
             const output = stripAnsi(block.output);
-            return <MemoizedOutputBlock key={i} content={output} />;
+            return <MemoizedOutputBlock key={i} content={output} compact={isThreadLayout} />;
           }
           if (block.type === "tool_result") {
             const cleaned = stripAnsi(block.content);
-            return <MemoizedOutputBlock key={i} content={cleaned} isError={block.isError} />;
+            return <MemoizedOutputBlock key={i} content={cleaned} isError={block.isError} compact={isThreadLayout} />;
           }
           return null;
         })}
@@ -151,5 +161,6 @@ export const ToolOutputMessage = memo(function ToolOutputMessage({ message, show
   );
 }, (prevProps, nextProps) => (
   prevProps.message === nextProps.message &&
-  prevProps.showTimestamp === nextProps.showTimestamp
+  prevProps.showTimestamp === nextProps.showTimestamp &&
+  prevProps.layout === nextProps.layout
 ));

@@ -13,6 +13,7 @@ interface Props {
   showModel: boolean;
   threadAnchor?: string | null;
   threadHint?: string | null;
+  layout?: "default" | "thread";
 }
 
 const MARKDOWN_CLASS_NAME = "prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
@@ -24,6 +25,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   showModel,
   threadAnchor,
   threadHint,
+  layout = "default",
 }: Props) {
   const assistantName = source === "codex" ? "Codex" : "Claude";
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
@@ -49,48 +51,58 @@ export const AssistantMessage = memo(function AssistantMessage({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isThreadLayout = layout === "thread";
+  const metaContent = (
+    <>
+      <span className="text-sm font-medium">{assistantName}</span>
+      {threadAnchor && (
+        <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
+          {threadAnchor}
+        </span>
+      )}
+      {showModel && message.model && (
+        <span className="rounded bg-muted/50 px-1.5 py-0.5 text-xs text-muted-foreground">
+          {message.model}
+        </span>
+      )}
+      {showTimestamp && message.timestamp && (
+        <span className="text-xs text-muted-foreground">
+          {formatTime(message.timestamp)}
+        </span>
+      )}
+    </>
+  );
+  const copyButton = hasTextContent ? (
+    <button
+      onClick={handleCopy}
+      className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      title="复制消息"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3.5 w-3.5 text-green-500" />
+          已复制
+        </>
+      ) : (
+        <>
+          <Copy className="h-3.5 w-3.5" />
+          复制文本
+        </>
+      )}
+    </button>
+  ) : null;
+
   return (
-    <div className="flex gap-3 group/assistant">
-      <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center mt-0.5`}>
-        <Bot className={`w-3.5 h-3.5 ${iconColor}`} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-sm font-medium">{assistantName}</span>
-          {threadAnchor && (
-            <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-              {threadAnchor}
-            </span>
-          )}
-          {showModel && message.model && (
-            <span className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
-              {message.model}
-            </span>
-          )}
-          {showTimestamp && message.timestamp && (
-            <span className="text-xs text-muted-foreground">
-              {formatTime(message.timestamp)}
-            </span>
-          )}
-          {hasTextContent && (
-            <button
-              onClick={handleCopy}
-              className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              title="复制消息"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3.5 h-3.5 text-green-500" />
-                  已复制
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  复制文本
-                </>
-              )}
-            </button>
-          )}
+    <div className={`group/assistant ${isThreadLayout ? "w-full" : "flex gap-3"}`}>
+      {!isThreadLayout && (
+        <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconBg}`}>
+          <Bot className={`h-3.5 w-3.5 ${iconColor}`} />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className={`mb-1 flex gap-2 ${isThreadLayout ? "items-center flex-wrap" : "items-baseline"}`}>
+          {metaContent}
+          {copyButton}
         </div>
         {threadHint && (
           <div className="mb-2 text-[11px] text-muted-foreground">
@@ -110,10 +122,10 @@ export const AssistantMessage = memo(function AssistantMessage({
             );
           }
           if (block.type === "thinking") {
-            return <ThinkingBlock key={i} thinking={block.thinking} />;
+            return <ThinkingBlock key={i} thinking={block.thinking} layout={layout} />;
           }
           if (block.type === "reasoning") {
-            return <ReasoningBlock key={i} text={block.text} />;
+            return <ReasoningBlock key={i} text={block.text} layout={layout} />;
           }
           if (block.type === "tool_use") {
             return (
@@ -144,11 +156,13 @@ export const AssistantMessage = memo(function AssistantMessage({
   prevProps.showTimestamp === nextProps.showTimestamp &&
   prevProps.showModel === nextProps.showModel &&
   prevProps.threadAnchor === nextProps.threadAnchor &&
-  prevProps.threadHint === nextProps.threadHint
+  prevProps.threadHint === nextProps.threadHint &&
+  prevProps.layout === nextProps.layout
 ));
 
-function ThinkingBlock({ thinking }: { thinking: string }) {
+function ThinkingBlock({ thinking, layout = "default" }: { thinking: string; layout?: "default" | "thread" }) {
   const { expanded, setExpanded } = useExpandAllControl(true);
+  const isThreadLayout = layout === "thread";
 
   return (
     <div className="mt-2 mb-2">
@@ -165,7 +179,11 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         )}
       </button>
       {expanded && (
-        <div className="mt-1 pl-5 text-xs text-muted-foreground whitespace-pre-wrap border-l-2 border-muted">
+        <div className={`mt-1 whitespace-pre-wrap text-xs text-muted-foreground ${
+          isThreadLayout
+            ? "rounded-md border border-border/60 bg-muted/15 px-2.5 py-2"
+            : "border-l-2 border-muted pl-5"
+        }`}>
           {thinking}
         </div>
       )}
@@ -173,8 +191,9 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
   );
 }
 
-function ReasoningBlock({ text }: { text: string }) {
+function ReasoningBlock({ text, layout = "default" }: { text: string; layout?: "default" | "thread" }) {
   const { expanded, setExpanded } = useExpandAllControl(true);
+  const isThreadLayout = layout === "thread";
 
   return (
     <div className="mt-2 mb-2">
@@ -191,7 +210,11 @@ function ReasoningBlock({ text }: { text: string }) {
         )}
       </button>
       {expanded && (
-        <div className="mt-1 pl-5 text-xs text-muted-foreground whitespace-pre-wrap border-l-2 border-muted">
+        <div className={`mt-1 whitespace-pre-wrap text-xs text-muted-foreground ${
+          isThreadLayout
+            ? "rounded-md border border-border/60 bg-muted/15 px-2.5 py-2"
+            : "border-l-2 border-muted pl-5"
+        }`}>
           {text}
         </div>
       )}

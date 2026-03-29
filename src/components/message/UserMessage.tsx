@@ -8,11 +8,17 @@ interface Props {
   message: DisplayMessage;
   showTimestamp: boolean;
   threadHint?: string | null;
+  layout?: "default" | "thread";
 }
 
 const MARKDOWN_CLASS_NAME = "prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
 
-export const UserMessage = memo(function UserMessage({ message, showTimestamp, threadHint }: Props) {
+export const UserMessage = memo(function UserMessage({
+  message,
+  showTimestamp,
+  threadHint,
+  layout = "default",
+}: Props) {
   const [copied, setCopied] = useState(false);
   const textContent = useMemo(
     () => message.content
@@ -34,16 +40,18 @@ export const UserMessage = memo(function UserMessage({ message, showTimestamp, t
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isThreadLayout = layout === "thread";
+
   return (
-    <div className="flex justify-end">
-      <div className="max-w-[85%]">
+    <div className={`flex ${isThreadLayout ? "justify-start" : "justify-end"}`}>
+      <div className={isThreadLayout ? "w-full" : "max-w-[85%]"}>
         {threadHint && (
-          <div className="mb-1 text-right text-[11px] text-muted-foreground">
+          <div className={`mb-1 text-[11px] text-muted-foreground ${isThreadLayout ? "text-left" : "text-right"}`}>
             {threadHint}
           </div>
         )}
         {(showTimestamp && message.timestamp) || hasTextContent ? (
-          <div className="flex items-center justify-end gap-2 mb-1">
+          <div className={`mb-1 flex items-center gap-2 ${isThreadLayout ? "justify-start" : "justify-end"}`}>
             {showTimestamp && message.timestamp && (
               <span className="text-xs text-muted-foreground">
                 {formatTime(message.timestamp)}
@@ -73,7 +81,7 @@ export const UserMessage = memo(function UserMessage({ message, showTimestamp, t
         {message.content.map((block, i) => {
           if (block.type === "text") {
             return (
-              <div key={i} className="bg-primary/10 rounded-2xl px-4 py-2.5 text-sm leading-relaxed">
+              <div key={i} className="rounded-2xl bg-primary/10 px-4 py-2.5 text-sm leading-relaxed">
                 <MarkdownContent
                   content={cleanMessageText(block.text)}
                   className={MARKDOWN_CLASS_NAME}
@@ -107,5 +115,6 @@ export const UserMessage = memo(function UserMessage({ message, showTimestamp, t
 }, (prevProps, nextProps) => (
   prevProps.message === nextProps.message &&
   prevProps.showTimestamp === nextProps.showTimestamp &&
-  prevProps.threadHint === nextProps.threadHint
+  prevProps.threadHint === nextProps.threadHint &&
+  prevProps.layout === nextProps.layout
 ));
