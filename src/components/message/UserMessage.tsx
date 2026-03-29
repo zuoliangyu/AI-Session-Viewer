@@ -1,6 +1,6 @@
+import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Copy, Check } from "lucide-react";
-import { useState } from "react";
 import { formatTime, cleanMessageText } from "./utils";
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -10,18 +10,26 @@ interface Props {
   threadHint?: string | null;
 }
 
-export function UserMessage({ message, showTimestamp, threadHint }: Props) {
+const MARKDOWN_CLASS_NAME = "prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
+
+export const UserMessage = memo(function UserMessage({ message, showTimestamp, threadHint }: Props) {
   const [copied, setCopied] = useState(false);
-  const hasTextContent = message.content.some((b) => b.type === "text");
+  const textContent = useMemo(
+    () => message.content
+      .filter((block): block is { type: "text"; text: string } => block.type === "text")
+      .map((block) => cleanMessageText(block.text))
+      .filter(Boolean),
+    [message.content]
+  );
+  const hasTextContent = textContent.length > 0;
+  const copyText = useMemo(
+    () => textContent.join("\n\n").trim(),
+    [textContent]
+  );
 
   const handleCopy = () => {
-    const text = message.content
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => cleanMessageText(b.text))
-      .join("\n\n")
-      .trim();
-    if (!text) return;
-    navigator.clipboard.writeText(text);
+    if (!copyText) return;
+    navigator.clipboard.writeText(copyText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -68,7 +76,7 @@ export function UserMessage({ message, showTimestamp, threadHint }: Props) {
               <div key={i} className="bg-primary/10 rounded-2xl px-4 py-2.5 text-sm leading-relaxed">
                 <MarkdownContent
                   content={cleanMessageText(block.text)}
-                  className="prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                  className={MARKDOWN_CLASS_NAME}
                 />
               </div>
             );
@@ -96,4 +104,8 @@ export function UserMessage({ message, showTimestamp, threadHint }: Props) {
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => (
+  prevProps.message === nextProps.message &&
+  prevProps.showTimestamp === nextProps.showTimestamp &&
+  prevProps.threadHint === nextProps.threadHint
+));

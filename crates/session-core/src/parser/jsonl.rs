@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -6,6 +7,10 @@ use crate::models::message::{
     ContentBlock, ContentValue, DisplayContentBlock, DisplayMessage, PaginatedMessages, RawRecord,
 };
 use crate::models::session::{SessionsIndex, SessionsIndexFileEntry};
+use crate::state::{
+    get_cached_full_messages, get_cached_page, paginate_from_range, store_full_messages,
+    store_partial_messages, tail_window_len,
+};
 
 /// Types of records to skip during parsing (large/irrelevant)
 const SKIP_TYPES: &[&str] = &["file-history-snapshot", "progress"];
@@ -18,10 +23,41 @@ pub fn parse_session_messages(
     page_size: usize,
     from_end: bool,
 ) -> Result<PaginatedMessages, String> {
+    if let Ok(Some(cached)) = get_cached_page(path, page, page_size, from_end) {
+        return Ok(cached);
+    }
+
+    if from_end {
+        return parse_tail_messages(path, page, page_size);
+    }
+
+    let all_messages = parse_all_messages(path)?;
+    let total = all_messages.len();
+    let start = page * page_size;
+    let end = (start + page_size).min(total);
+    let has_more = end < total;
+
+    let page_messages = if start < total {
+        all_messages[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(PaginatedMessages {
+        messages: page_messages,
+        total,
+        page,
+        page_size,
+        has_more,
+    })
+}
+
+fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<PaginatedMessages, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
-
-    let mut all_messages: Vec<DisplayMessage> = Vec::new();
+    let window_len = tail_window_len(page, page_size);
+    let mut tail_messages: VecDeque<DisplayMessage> = VecDeque::with_capacity(window_len);
+    let mut total = 0usize;
 
     for line in reader.lines() {
         let line = match line {
@@ -47,86 +83,29 @@ pub fn parse_session_messages(
             Err(_) => continue,
         };
 
-        // Only process user/assistant messages
-        if record.record_type != "user" && record.record_type != "assistant" {
-            continue;
-        }
-
-        if let Some(msg) = record.message {
-            let display_blocks = convert_content(&msg.content);
-
-            // Skip messages with no meaningful content
-            if display_blocks.is_empty() {
-                continue;
+        if let Some(message) = display_message_from_record(record) {
+            total += 1;
+            if tail_messages.len() == window_len {
+                tail_messages.pop_front();
             }
-
-            // Fix: tool_result messages stored as role="user" should be treated as "tool"
-            let role = if msg.role == "user"
-                && !display_blocks.is_empty()
-                && display_blocks
-                    .iter()
-                    .all(|b| matches!(b, DisplayContentBlock::ToolResult { .. }))
-            {
-                "tool".to_string()
-            } else {
-                msg.role
-            };
-
-            all_messages.push(DisplayMessage {
-                uuid: record.uuid,
-                parent_uuid: record.parent_uuid,
-                role,
-                timestamp: record.timestamp,
-                model: msg.model,
-                content: display_blocks,
-            });
+            tail_messages.push_back(message);
         }
     }
 
-    let total = all_messages.len();
+    let messages: Vec<DisplayMessage> = tail_messages.into_iter().collect();
+    let range_start = total.saturating_sub(messages.len());
+    let _ = store_partial_messages(path, total, range_start, &messages);
 
-    if from_end {
-        // page=0 means last page, page=1 means second-to-last, etc.
-        let end = total.saturating_sub(page * page_size);
-        let start = end.saturating_sub(page_size);
-        let has_more = start > 0;
-
-        let page_messages = if end > 0 {
-            all_messages[start..end].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(PaginatedMessages {
-            messages: page_messages,
-            total,
-            page,
-            page_size,
-            has_more,
-        })
-    } else {
-        let start = page * page_size;
-        let end = (start + page_size).min(total);
-        let has_more = end < total;
-
-        let page_messages = if start < total {
-            all_messages[start..end].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(PaginatedMessages {
-            messages: page_messages,
-            total,
-            page,
-            page_size,
-            has_more,
-        })
-    }
+    paginate_from_range(&messages, total, page, page_size, true, range_start)
+        .ok_or_else(|| "Failed to paginate tail messages".to_string())
 }
 
 /// Parse all messages from a JSONL file (no pagination, for search)
 pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
+    if let Ok(Some(cached)) = get_cached_full_messages(path) {
+        return Ok(cached);
+    }
+
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let mut messages: Vec<DisplayMessage> = Vec::new();
@@ -152,38 +131,45 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
             Err(_) => continue,
         };
 
-        if record.record_type != "user" && record.record_type != "assistant" {
-            continue;
-        }
-
-        if let Some(msg) = record.message {
-            let display_blocks = convert_content(&msg.content);
-            if display_blocks.is_empty() {
-                continue;
-            }
-            let role = if msg.role == "user"
-                && !display_blocks.is_empty()
-                && display_blocks
-                    .iter()
-                    .all(|b| matches!(b, DisplayContentBlock::ToolResult { .. }))
-            {
-                "tool".to_string()
-            } else {
-                msg.role
-            };
-
-            messages.push(DisplayMessage {
-                uuid: record.uuid,
-                parent_uuid: record.parent_uuid,
-                role,
-                timestamp: record.timestamp,
-                model: msg.model,
-                content: display_blocks,
-            });
+        if let Some(message) = display_message_from_record(record) {
+            messages.push(message);
         }
     }
 
+    let _ = store_full_messages(path, &messages);
     Ok(messages)
+}
+
+fn display_message_from_record(record: RawRecord) -> Option<DisplayMessage> {
+    if record.record_type != "user" && record.record_type != "assistant" {
+        return None;
+    }
+
+    let msg = record.message?;
+    let display_blocks = convert_content(&msg.content);
+
+    if display_blocks.is_empty() {
+        return None;
+    }
+
+    let role = if msg.role == "user"
+        && display_blocks
+            .iter()
+            .all(|block| matches!(block, DisplayContentBlock::ToolResult { .. }))
+    {
+        "tool".to_string()
+    } else {
+        msg.role
+    };
+
+    Some(DisplayMessage {
+        uuid: record.uuid,
+        parent_uuid: record.parent_uuid,
+        role,
+        timestamp: record.timestamp,
+        model: msg.model,
+        content: display_blocks,
+    })
 }
 
 /// Extract the custom title set by CC `/rename` from a JSONL file.

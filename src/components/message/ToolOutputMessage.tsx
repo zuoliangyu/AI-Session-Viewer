@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Terminal, ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
 import { formatTime, stripAnsi } from "./utils";
@@ -24,6 +24,14 @@ function OutputBlock({
   const isLong = content.length > COLLAPSE_THRESHOLD;
   const { expanded, setExpanded } = useExpandAllControl(!isLong);
   const [viewMode, setViewMode] = useState<"source" | "md">("source");
+  const displayContent = useMemo(
+    () => (content.length > 10000 ? content.slice(0, 10000) + "\n... (truncated)" : content),
+    [content]
+  );
+  const markdownContent = useMemo(
+    () => (content.length > 10000 ? content.slice(0, 10000) + "\n\n... (truncated)" : content),
+    [content]
+  );
 
   return (
     <div className={`mt-1 border rounded-md overflow-hidden ${
@@ -84,11 +92,7 @@ function OutputBlock({
         <div className="border-t border-border">
           {viewMode === "md" ? (
             <div className="max-h-80 overflow-y-auto">
-              <MarkdownContent content={
-                content.length > 10000
-                  ? content.slice(0, 10000) + "\n\n... (truncated)"
-                  : content
-              } />
+              <MarkdownContent content={markdownContent} />
             </div>
           ) : (
             <pre
@@ -99,9 +103,7 @@ function OutputBlock({
                   : "text-muted-foreground"
               }`}
             >
-              {content.length > 10000
-                ? content.slice(0, 10000) + "\n... (truncated)"
-                : content}
+              {displayContent}
             </pre>
           )}
         </div>
@@ -112,7 +114,12 @@ function OutputBlock({
 
 /* ── ToolOutputMessage ───────────────────────────────── */
 
-export function ToolOutputMessage({ message, showTimestamp }: Props) {
+const MemoizedOutputBlock = memo(OutputBlock, (prevProps, nextProps) => (
+  prevProps.content === nextProps.content &&
+  prevProps.isError === nextProps.isError
+));
+
+export const ToolOutputMessage = memo(function ToolOutputMessage({ message, showTimestamp }: Props) {
   return (
     <div className="flex gap-3 ml-10">
       <div className="flex-1 min-w-0">
@@ -131,15 +138,18 @@ export function ToolOutputMessage({ message, showTimestamp }: Props) {
         {message.content.map((block, i) => {
           if (block.type === "function_call_output") {
             const output = stripAnsi(block.output);
-            return <OutputBlock key={i} content={output} />;
+            return <MemoizedOutputBlock key={i} content={output} />;
           }
           if (block.type === "tool_result") {
             const cleaned = stripAnsi(block.content);
-            return <OutputBlock key={i} content={cleaned} isError={block.isError} />;
+            return <MemoizedOutputBlock key={i} content={cleaned} isError={block.isError} />;
           }
           return null;
         })}
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => (
+  prevProps.message === nextProps.message &&
+  prevProps.showTimestamp === nextProps.showTimestamp
+));

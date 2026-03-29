@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Bot, ChevronDown, ChevronRight, Wrench, Brain, Copy, Check } from "lucide-react";
 import { formatTime, cleanMessageText, stripAnsi } from "./utils";
@@ -15,7 +15,9 @@ interface Props {
   threadHint?: string | null;
 }
 
-export function AssistantMessage({
+const MARKDOWN_CLASS_NAME = "prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0";
+
+export const AssistantMessage = memo(function AssistantMessage({
   message,
   source,
   showTimestamp,
@@ -27,16 +29,22 @@ export function AssistantMessage({
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
   const [copied, setCopied] = useState(false);
-  const hasTextContent = message.content.some((b) => b.type === "text");
+  const textContent = useMemo(
+    () => message.content
+      .filter((block): block is { type: "text"; text: string } => block.type === "text")
+      .map((block) => cleanMessageText(block.text))
+      .filter(Boolean),
+    [message.content]
+  );
+  const hasTextContent = textContent.length > 0;
+  const copyText = useMemo(
+    () => textContent.join("\n\n").trim(),
+    [textContent]
+  );
 
   const handleCopy = () => {
-    const text = message.content
-      .filter((b): b is { type: "text"; text: string } => b.type === "text")
-      .map((b) => cleanMessageText(b.text))
-      .join("\n\n")
-      .trim();
-    if (!text) return;
-    navigator.clipboard.writeText(text);
+    if (!copyText) return;
+    navigator.clipboard.writeText(copyText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -97,7 +105,7 @@ export function AssistantMessage({
               <MarkdownContent
                 key={i}
                 content={cleaned}
-                className="prose prose-sm max-w-none p-0 text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                className={MARKDOWN_CLASS_NAME}
               />
             );
           }
@@ -130,7 +138,14 @@ export function AssistantMessage({
       </div>
     </div>
   );
-}
+}, (prevProps, nextProps) => (
+  prevProps.message === nextProps.message &&
+  prevProps.source === nextProps.source &&
+  prevProps.showTimestamp === nextProps.showTimestamp &&
+  prevProps.showModel === nextProps.showModel &&
+  prevProps.threadAnchor === nextProps.threadAnchor &&
+  prevProps.threadHint === nextProps.threadHint
+));
 
 function ThinkingBlock({ thinking }: { thinking: string }) {
   const { expanded, setExpanded } = useExpandAllControl(true);
@@ -186,6 +201,12 @@ function ReasoningBlock({ text }: { text: string }) {
 
 function FunctionCallBlock({ name, arguments: args }: { name: string; arguments: string }) {
   const { expanded, setExpanded } = useExpandAllControl(true);
+  const cleanedArgs = useMemo(() => {
+    const cleaned = stripAnsi(args);
+    return cleaned.length > 5000
+      ? cleaned.slice(0, 5000) + "\n... (truncated)"
+      : cleaned;
+  }, [args]);
 
   return (
     <div className="mt-2 mb-2 border border-border rounded-md overflow-hidden">
@@ -203,14 +224,7 @@ function FunctionCallBlock({ name, arguments: args }: { name: string; arguments:
       </button>
       {expanded && (
         <div className="p-3 text-xs font-mono bg-muted/20 overflow-x-auto">
-          <pre className="whitespace-pre-wrap break-all">
-            {(() => {
-              const cleaned = stripAnsi(args);
-              return cleaned.length > 5000
-                ? cleaned.slice(0, 5000) + "\n... (truncated)"
-                : cleaned;
-            })()}
-          </pre>
+          <pre className="whitespace-pre-wrap break-all">{cleanedArgs}</pre>
         </div>
       )}
     </div>

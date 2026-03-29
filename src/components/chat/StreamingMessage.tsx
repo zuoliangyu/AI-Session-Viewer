@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ChatMessage, ChatContentBlock } from "../../types/chat";
 import {
   Bot,
@@ -26,12 +27,102 @@ interface Props {
   interactiveQuestions?: boolean;
 }
 
+type ToolResultData = { content: string; isError: boolean };
+
+function getRelevantToolResultIds(message: ChatMessage): string[] {
+  const ids: string[] = [];
+
+  for (const block of message.content) {
+    if (block.type === "tool_use" && block.id) {
+      ids.push(block.id);
+      continue;
+    }
+
+    if (block.type === "tool_result" && block.toolUseId) {
+      ids.push(block.toolUseId);
+    }
+  }
+
+  return ids;
+}
+
+function areToolResultMapsEqualForMessage(
+  message: ChatMessage,
+  prevMap?: Map<string, ToolResultData>,
+  nextMap?: Map<string, ToolResultData>
+) {
+  const relevantIds = getRelevantToolResultIds(message);
+  if (relevantIds.length === 0) {
+    return true;
+  }
+
+  for (const id of relevantIds) {
+    const prevResult = prevMap?.get(id);
+    const nextResult = nextMap?.get(id);
+    if (
+      prevResult?.content !== nextResult?.content ||
+      prevResult?.isError !== nextResult?.isError
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areLinkedToolUseIdsEqualForMessage(
+  message: ChatMessage,
+  prevLinkedIds?: Set<string>,
+  nextLinkedIds?: Set<string>
+) {
+  if (message.role !== "user") {
+    return true;
+  }
+
+  for (const block of message.content) {
+    if (block.type !== "tool_result") {
+      continue;
+    }
+
+    if (prevLinkedIds?.has(block.toolUseId) !== nextLinkedIds?.has(block.toolUseId)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function areStreamingMessagePropsEqual(prevProps: Props, nextProps: Props) {
+  if (prevProps.message !== nextProps.message) {
+    return false;
+  }
+
+  if (
+    prevProps.showTimestamp !== nextProps.showTimestamp ||
+    prevProps.showModel !== nextProps.showModel ||
+    prevProps.onSubmitAnswers !== nextProps.onSubmitAnswers ||
+    prevProps.interactiveQuestions !== nextProps.interactiveQuestions
+  ) {
+    return false;
+  }
+
+  if (!areToolResultMapsEqualForMessage(prevProps.message, prevProps.toolResultMap, nextProps.toolResultMap)) {
+    return false;
+  }
+
+  if (!areLinkedToolUseIdsEqualForMessage(prevProps.message, prevProps.linkedToolUseIds, nextProps.linkedToolUseIds)) {
+    return false;
+  }
+
+  return true;
+}
+
 /**
  * Renders a streaming chat message with specialized tool viewers.
  * When toolResultMap is provided, tool_use blocks are rendered with their
  * matching results in a unified view (Read→code, Edit→diff, Bash→terminal).
  */
-export function StreamingMessage({
+export const StreamingMessage = memo(function StreamingMessage({
   message,
   showTimestamp,
   showModel,
@@ -63,9 +154,7 @@ export function StreamingMessage({
         interactiveQuestions={interactiveQuestions}
       />
     );
-}
-
-type ToolResultData = { content: string; isError: boolean };
+}, areStreamingMessagePropsEqual);
 
 function isBashToolName(name: string): boolean {
   return normalizeToolName(name) === "Bash";

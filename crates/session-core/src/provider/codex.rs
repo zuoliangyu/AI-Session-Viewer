@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -10,6 +11,10 @@ use crate::models::message::{DisplayContentBlock, DisplayMessage, PaginatedMessa
 use crate::models::project::ProjectEntry;
 use crate::models::session::SessionIndexEntry;
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
+use crate::state::{
+    get_cached_full_messages, get_cached_page, paginate_from_range, store_full_messages,
+    store_partial_messages, tail_window_len,
+};
 
 const DISK_CACHE_VERSION: u32 = 1;
 
@@ -534,50 +539,40 @@ pub fn parse_session_messages(
     page_size: usize,
     from_end: bool,
 ) -> Result<PaginatedMessages, String> {
-    let all_messages = parse_all_messages(path)?;
-
-    let total = all_messages.len();
+    if let Ok(Some(cached)) = get_cached_page(path, page, page_size, from_end) {
+        return Ok(cached);
+    }
 
     if from_end {
-        let end = total.saturating_sub(page * page_size);
-        let start = end.saturating_sub(page_size);
-        let has_more = start > 0;
-
-        let page_messages = if end > 0 {
-            all_messages[start..end].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(PaginatedMessages {
-            messages: page_messages,
-            total,
-            page,
-            page_size,
-            has_more,
-        })
-    } else {
-        let start = page * page_size;
-        let end = (start + page_size).min(total);
-        let has_more = end < total;
-
-        let page_messages = if start < total {
-            all_messages[start..end].to_vec()
-        } else {
-            Vec::new()
-        };
-
-        Ok(PaginatedMessages {
-            messages: page_messages,
-            total,
-            page,
-            page_size,
-            has_more,
-        })
+        return parse_tail_messages(path, page, page_size);
     }
+
+    let all_messages = parse_all_messages(path)?;
+    let total = all_messages.len();
+    let start = page * page_size;
+    let end = (start + page_size).min(total);
+    let has_more = end < total;
+
+    let page_messages = if start < total {
+        all_messages[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(PaginatedMessages {
+        messages: page_messages,
+        total,
+        page,
+        page_size,
+        has_more,
+    })
 }
 
 pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
+    if let Ok(Some(cached)) = get_cached_full_messages(path) {
+        return Ok(cached);
+    }
+
     let file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let mut messages: Vec<DisplayMessage> = Vec::new();
@@ -596,144 +591,193 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
             Ok(v) => v,
             Err(_) => continue,
         };
-
-        let row_type = row.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let timestamp = row.get("timestamp").and_then(|v| v.as_str()).map(String::from);
-        let payload = match row.get("payload") {
-            Some(p) => p,
-            None => continue,
-        };
-
-        if row_type == "response_item" {
-            let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
-
-            match payload_type {
-                "message" => {
-                    let role = payload
-                        .get("role")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
-                    if role == "developer" || role == "system" {
-                        continue;
-                    }
-                    if role == "user" || role == "assistant" {
-                        let content_blocks = extract_message_content(payload);
-                        if !content_blocks.is_empty() {
-                            messages.push(DisplayMessage {
-                                uuid: None,
-                                parent_uuid: None,
-                                role: role.to_string(),
-                                timestamp: timestamp.clone(),
-                                model: None,
-                                content: content_blocks,
-                            });
-                        }
-                    }
-                }
-                "function_call" => {
-                    let name = payload
-                        .get("name")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let arguments = payload
-                        .get("arguments")
-                        .map(|v| {
-                            if let Some(s) = v.as_str() {
-                                if let Ok(parsed) = serde_json::from_str::<Value>(s) {
-                                    serde_json::to_string_pretty(&parsed)
-                                        .unwrap_or_else(|_| s.to_string())
-                                } else {
-                                    s.to_string()
-                                }
-                            } else {
-                                serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-                            }
-                        })
-                        .unwrap_or_default();
-                    let call_id = payload
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    messages.push(DisplayMessage {
-                        uuid: None,
-                        parent_uuid: None,
-                        role: "assistant".to_string(),
-                        timestamp: timestamp.clone(),
-                        model: None,
-                        content: vec![DisplayContentBlock::FunctionCall {
-                            name,
-                            arguments: truncate_string(&arguments, MAX_ARGS_SIZE),
-                            call_id,
-                        }],
-                    });
-                }
-                "function_call_output" => {
-                    let call_id = payload
-                        .get("call_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let output = payload
-                        .get("output")
-                        .map(|v| {
-                            if let Some(s) = v.as_str() {
-                                s.to_string()
-                            } else {
-                                serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-                            }
-                        })
-                        .unwrap_or_default();
-
-                    messages.push(DisplayMessage {
-                        uuid: None,
-                        parent_uuid: None,
-                        role: "tool".to_string(),
-                        timestamp: timestamp.clone(),
-                        model: None,
-                        content: vec![DisplayContentBlock::FunctionCallOutput {
-                            call_id,
-                            output: truncate_string(&output, MAX_OUTPUT_BLOCK_SIZE),
-                        }],
-                    });
-                }
-                "reasoning" => {
-                    let text = payload
-                        .get("text")
-                        .or_else(|| payload.get("summary").and_then(|s| s.get(0)))
-                        .map(|v| {
-                            if let Some(s) = v.as_str() {
-                                s.to_string()
-                            } else if let Some(arr) = v.as_array() {
-                                arr.iter()
-                                    .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
-                                    .collect::<Vec<&str>>()
-                                    .join("\n")
-                            } else {
-                                v.to_string()
-                            }
-                        })
-                        .unwrap_or_default();
-
-                    if !text.is_empty() {
-                        messages.push(DisplayMessage {
-                            uuid: None,
-                            parent_uuid: None,
-                            role: "assistant".to_string(),
-                            timestamp: timestamp.clone(),
-                            model: None,
-                            content: vec![DisplayContentBlock::Reasoning { text }],
-                        });
-                    }
-                }
-                _ => {}
-            }
+        if let Some(message) = display_message_from_row(&row) {
+            messages.push(message);
         }
     }
 
+    let _ = store_full_messages(path, &messages);
     Ok(messages)
+}
+
+fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<PaginatedMessages, String> {
+    let file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let reader = BufReader::new(file);
+    let window_len = tail_window_len(page, page_size);
+    let mut tail_messages: VecDeque<DisplayMessage> = VecDeque::with_capacity(window_len);
+    let mut total = 0usize;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let row: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if let Some(message) = display_message_from_row(&row) {
+            total += 1;
+            if tail_messages.len() == window_len {
+                tail_messages.pop_front();
+            }
+            tail_messages.push_back(message);
+        }
+    }
+
+    let messages: Vec<DisplayMessage> = tail_messages.into_iter().collect();
+    let range_start = total.saturating_sub(messages.len());
+    let _ = store_partial_messages(path, total, range_start, &messages);
+
+    paginate_from_range(&messages, total, page, page_size, true, range_start)
+        .ok_or_else(|| "Failed to paginate tail messages".to_string())
+}
+
+fn display_message_from_row(row: &Value) -> Option<DisplayMessage> {
+    let row_type = row.get("type").and_then(|v| v.as_str()).unwrap_or("");
+    if row_type != "response_item" {
+        return None;
+    }
+
+    let timestamp = row.get("timestamp").and_then(|v| v.as_str()).map(String::from);
+    let payload = row.get("payload")?;
+    let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+    match payload_type {
+        "message" => {
+            let role = payload
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if role == "developer" || role == "system" {
+                return None;
+            }
+            if role != "user" && role != "assistant" {
+                return None;
+            }
+
+            let content_blocks = extract_message_content(payload);
+            if content_blocks.is_empty() {
+                return None;
+            }
+
+            Some(DisplayMessage {
+                uuid: None,
+                parent_uuid: None,
+                role: role.to_string(),
+                timestamp,
+                model: None,
+                content: content_blocks,
+            })
+        }
+        "function_call" => {
+            let name = payload
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let arguments = payload
+                .get("arguments")
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        if let Ok(parsed) = serde_json::from_str::<Value>(s) {
+                            serde_json::to_string_pretty(&parsed)
+                                .unwrap_or_else(|_| s.to_string())
+                        } else {
+                            s.to_string()
+                        }
+                    } else {
+                        serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
+                    }
+                })
+                .unwrap_or_default();
+            let call_id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            Some(DisplayMessage {
+                uuid: None,
+                parent_uuid: None,
+                role: "assistant".to_string(),
+                timestamp,
+                model: None,
+                content: vec![DisplayContentBlock::FunctionCall {
+                    name,
+                    arguments: truncate_string(&arguments, MAX_ARGS_SIZE),
+                    call_id,
+                }],
+            })
+        }
+        "function_call_output" => {
+            let call_id = payload
+                .get("call_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let output = payload
+                .get("output")
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else {
+                        serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
+                    }
+                })
+                .unwrap_or_default();
+
+            Some(DisplayMessage {
+                uuid: None,
+                parent_uuid: None,
+                role: "tool".to_string(),
+                timestamp,
+                model: None,
+                content: vec![DisplayContentBlock::FunctionCallOutput {
+                    call_id,
+                    output: truncate_string(&output, MAX_OUTPUT_BLOCK_SIZE),
+                }],
+            })
+        }
+        "reasoning" => {
+            let text = payload
+                .get("text")
+                .or_else(|| payload.get("summary").and_then(|s| s.get(0)))
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else if let Some(arr) = v.as_array() {
+                        arr.iter()
+                            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+                            .collect::<Vec<&str>>()
+                            .join("\n")
+                    } else {
+                        v.to_string()
+                    }
+                })
+                .unwrap_or_default();
+
+            if text.is_empty() {
+                return None;
+            }
+
+            Some(DisplayMessage {
+                uuid: None,
+                parent_uuid: None,
+                role: "assistant".to_string(),
+                timestamp,
+                model: None,
+                content: vec![DisplayContentBlock::Reasoning { text }],
+            })
+        }
+        _ => None,
+    }
 }
 
 fn extract_message_content(payload: &Value) -> Vec<DisplayContentBlock> {

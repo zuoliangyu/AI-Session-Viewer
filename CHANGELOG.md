@@ -4,77 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [2.7.9] - 2026-03-28
-
-### Fixed
-
-- 修复 Tauri 聊天流在新会话和 `/chat/:sessionId` 续聊场景下的事件监听时序问题；新会话会先分配 `sessionId` 并在会话切换后重绑监听，避免桌面端收不到 `chat-output:*`、`chat-error:*`、`chat-complete:*`。
-- 修复侧边栏「CLI 对话」入口仅跳转不清理 chat store 的问题，进入 `/chat` 时现在会显式清空旧会话状态，避免“新建聊天”误续写上一条会话。
-- 修复 Codex 数据源默认模型未接入自动选型链路的问题，模型列表加载时会正确读取 Codex CLI 配置中的 `defaultModel`。
-
-### Changed
-
-- Chat 页面路由初始化改为优先以 URL 会话 ID 驱动，消息页与聊天页共用的流监听接口支持显式指定目标会话 ID。
-- Web 前端改为按页面懒加载，并补充 markdown、图表、React 运行时等 vendor 分包策略，降低首屏主 bundle 压力。
-- 同步工作区发布版本到 `2.7.9`，覆盖 `package.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest，以及 `Cargo.lock` 中的 workspace 包版本记录。
-
-### Documentation
-
-- 更新 README 顶部 `Latest in v2.7.9` 摘要，概述聊天链路修复、Codex 默认模型修复和 Web 首屏分包优化。
-- 新增仓库级 `AGENTS.md` 开发指引，并在 README 中补充 Linux 环境下 `glib/gobject/gio/libsoup` 缺失时的预检说明。
-
----
-
-## [2.7.8] - 2026-03-27
-
-### Fixed
-
-- Web 模式文件监听现在会和 Tauri 模式一样在广播变更前失效 Claude / Codex 列表缓存，避免前端收到刷新事件后仍读到旧的 session 数据。
-- 无效会话清理改为走专用接口：Claude 现在会显式返回无消息/空文件会话，清理页与项目页的「清理空会话」入口重新能够发现并删除异常会话。
-- 移除未使用且绕过认证探测的 `getChatWebSocket()` 入口，Web 端聊天连接统一复用带认证校验的连接流程。
-
-### Changed
-
-- 搜索逻辑提取公共匹配流程，减少 Claude / Codex 两套实现的重复代码。
-- 并行搜索在达到 `max_results` 后会尽早停止累积结果，减少大型会话库下不必要的内存占用。
-- 同步工作区发布版本到 `2.7.8`，覆盖 `package.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest，以及 `Cargo.lock` 中的 workspace 包版本记录。
-
-### Documentation
-
-- 更新 README 顶部 `Latest in v2.7.8` 摘要，概述 Web 缓存修复、无效会话清理恢复和搜索优化。
-- 新增本节记录 `2.7.8` 发布内容与版本同步范围。
-
----
-
-## [2.7.7] - 2026-03-27
-
-### Fixed
-
-- `useReplyNotification.ts` 移除 `NotificationOptions` 不兼容的 `renotify` 相关用法，回复提醒在不同浏览器环境下更稳定。
-
-### Documentation
-
-- 更新 README 顶部 `Latest in v2.7.7` 摘要，说明回复提醒兼容修复与稳定性改进。
-
----
-
-## [2.7.6] - 2026-03-27
+## [2.8.0] - 2026-03-29
 
 ### Added
 
-- 消息页新增多 session 分屏浏览，支持在左右分屏与上下分屏之间切换；横向分屏时可直接拖动画布滚动浏览并排会话。
-- `AskUserQuestion` 工具结果支持在界面内直接填写答案并提交，页面失焦时新增网页标题与系统通知回复提醒。
+- 消息页支持多会话分屏浏览与继续对话，可在左右分屏和上下分屏之间切换，每个分屏都能独立查看和续聊。
+- 新增线程视图：根据 `parentUuid` 与 `@mention` 解析消息分叉关系，支持折叠分支、语义标题展示、从历史节点继续追问，以及当前会话提问定位悬浮球。
+- `AskUserQuestion` 工具结果支持在界面内直接填写答案并提交，页面失焦时补充网页标题与系统通知提醒。
 
 ### Changed
 
-- 会话与流式消息渲染新增批量展开/折叠控制，并对 Bash 工具调用结果做去重，降低重复命令刷屏。
-- 全局搜索新增 `all / session / content` 范围过滤，搜索结果页与会话页联动标签筛选，并补充复制会话名、时间显示切换等消息浏览细节优化。
-- 同步工作区发布版本到 `2.7.6`，覆盖 `package.json`、`src-tauri/tauri.conf.json` 以及 3 个 Cargo manifest。
+- 全局搜索新增 `all / session / content` 范围过滤、会话分组视图、会话名称/别名匹配与标签筛选联动，搜索结果与会话页之间的跳转链路更完整。
+- Chat 页面优先由 URL 会话 ID 驱动，修复新建会话和继续会话之间的状态串扰，并让 Codex 默认模型接入自动选型链路。
+- Web 前端改为按页面懒加载，并补充 vendor 分包策略，降低首屏主 bundle 压力。
+- 将工作区版本统一提升到 `2.8.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest 与 `Cargo.lock` 中的工作区包版本记录。
 
-### Documentation
+### Fixed
 
-- 更新 README 顶部 `Latest in v2.7.6` 摘要，概述多分屏、交互提问、提醒、搜索与消息体验改进。
-- 新增本节记录 `2.7.6` 发布内容与版本同步范围。
+- 修复 Web 模式文件监听后 Claude / Codex 列表缓存未及时失效的问题，避免刷新后仍读取旧的 session 数据。
+- 恢复空会话/无效会话的清理链路，并统一搜索候选提取与提前停止逻辑，减少无效扫描和结果偏差。
+- 修复 Tauri CLI 对话在新会话与 `/chat/:sessionId` 续聊场景下的事件绑定时序问题，避免漏收 `chat-output`、`chat-error`、`chat-complete` 事件。
+- 修复浏览器环境下回复通知兼容性问题，避免 `NotificationOptions` 差异导致提醒失效。
+
+### Performance
+
+- 消息加载改为优先走尾部分页与基于文件 `mtime` 的缓存，重复打开同一会话时不再为最后 50 条消息完整物化整份消息向量。
+- 收敛聊天页与消息页的重复派生计算，减少 `toolResultMap`、turn 切分、线程建树和滚动按钮状态带来的无效重算。
+- 对消息叶子组件、流式消息链路和长历史线程视图补充 memo 与渐进挂载，降低首次打开长会话时的主线程压力。
+- 超大 Markdown、超长代码块以及工具视图中的大 JSON / 大源码默认先走纯文本轻量展示，按需再启用完整 Markdown 渲染或语法高亮。
 
 ---
 
@@ -1155,6 +1112,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.0
 [2.7.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.2
 [2.7.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.1
 [2.2.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.2.0

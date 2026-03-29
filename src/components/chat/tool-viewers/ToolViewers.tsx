@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
   Pencil,
@@ -35,6 +35,9 @@ interface ToolViewerProps {
   interactive?: boolean;
 }
 
+const DEFER_HIGHLIGHT_CHAR_THRESHOLD = 3000;
+const DEFER_HIGHLIGHT_LINE_THRESHOLD = 140;
+
 /* ── Helpers ───────────────────────────────────────── */
 
 function tryParseJson(s: string): ToolInput | null {
@@ -69,6 +72,17 @@ function getFileName(path: string): string {
 
 function getToolNameKey(name: string): string {
   return name.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
+
+function getLineCount(text: string): number {
+  return text === "" ? 0 : text.split("\n").length;
+}
+
+function shouldDeferHighlight(text: string): boolean {
+  return (
+    text.length >= DEFER_HIGHLIGHT_CHAR_THRESHOLD ||
+    getLineCount(text) >= DEFER_HIGHLIGHT_LINE_THRESHOLD
+  );
 }
 
 export function normalizeToolName(name: string): string {
@@ -191,6 +205,67 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
     </button>
+  );
+}
+
+function DeferredSyntaxBlock({
+  content,
+  language,
+  copyText,
+  showLineNumbers = false,
+  startingLineNumber = 1,
+}: {
+  content: string;
+  language: string;
+  copyText: string;
+  showLineNumbers?: boolean;
+  startingLineNumber?: number;
+}) {
+  const deferredByDefault = shouldDeferHighlight(content);
+  const [highlightEnabled, setHighlightEnabled] = useState(!deferredByDefault);
+  const lineCount = useMemo(() => getLineCount(content), [content]);
+
+  useEffect(() => {
+    setHighlightEnabled(!deferredByDefault);
+  }, [content, deferredByDefault]);
+
+  return (
+    <div className="relative group">
+      <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+        <CopyButton text={copyText} />
+      </div>
+      {highlightEnabled ? (
+        <SyntaxHighlighter
+          style={oneDark}
+          language={language}
+          showLineNumbers={showLineNumbers}
+          wrapLongLines={true}
+          startingLineNumber={startingLineNumber}
+          customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
+          lineNumberStyle={showLineNumbers ? { minWidth: "2.5em", opacity: 0.4 } : undefined}
+        >
+          {content}
+        </SyntaxHighlighter>
+      ) : (
+        <div className="overflow-hidden border-t border-border bg-muted/10">
+          <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+            <span className="truncate">
+              {language} · {lineCount} 行 · {content.length} 字符
+            </span>
+            <button
+              type="button"
+              onClick={() => setHighlightEnabled(true)}
+              className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
+            >
+              启用高亮
+            </button>
+          </div>
+          <pre className="max-h-96 overflow-auto px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all text-foreground">
+            {content}
+          </pre>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -348,21 +423,13 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
       {expanded && (
         <div className="border-t border-border">
           {viewMode === "code" ? (
-            <div className="relative group">
-              <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-                <CopyButton text={input} />
-              </div>
-              <SyntaxHighlighter
-                style={oneDark}
-                language={rawViewLanguage}
-                wrapLongLines={true}
-                customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
-              >
-                {input.length > 15000
-                  ? input.slice(0, 15000) + "\n... (truncated)"
-                  : input}
-              </SyntaxHighlighter>
-            </div>
+            <DeferredSyntaxBlock
+              content={input.length > 15000
+                ? input.slice(0, 15000) + "\n... (truncated)"
+                : input}
+              language={rawViewLanguage}
+              copyText={input}
+            />
           ) : (
             <ToolContent
               name={normalizedName}
@@ -446,26 +513,22 @@ function ReadContent({
   const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
 
   return (
-    <div className="relative group">
-      <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-        <CopyButton text={content} />
-      </div>
-      {lang === "markdown" ? (
+    lang === "markdown" ? (
+      <div className="relative group">
+        <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+          <CopyButton text={content} />
+        </div>
         <MarkdownContent content={display} />
-      ) : (
-        <SyntaxHighlighter
-          style={oneDark}
-          language={lang}
-          showLineNumbers
-          wrapLongLines={true}
-          startingLineNumber={parsed?.offset ? Number(parsed.offset) : 1}
-          customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
-          lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
-        >
-          {display}
-        </SyntaxHighlighter>
-      )}
-    </div>
+      </div>
+    ) : (
+      <DeferredSyntaxBlock
+        content={display}
+        language={lang}
+        copyText={content}
+        showLineNumbers
+        startingLineNumber={parsed?.offset ? Number(parsed.offset) : 1}
+      />
+    )
   );
 }
 
@@ -534,25 +597,21 @@ function WriteContent({
   const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
 
   return (
-    <div className="relative group">
-      <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-        <CopyButton text={content} />
-      </div>
-      {lang === "markdown" ? (
+    lang === "markdown" ? (
+      <div className="relative group">
+        <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+          <CopyButton text={content} />
+        </div>
         <MarkdownContent content={display} />
-      ) : (
-        <SyntaxHighlighter
-          style={oneDark}
-          language={lang}
-          showLineNumbers
-          wrapLongLines={true}
-          customStyle={{ margin: 0, borderRadius: 0, fontSize: "11px", maxHeight: "24rem" }}
-          lineNumberStyle={{ minWidth: "2.5em", opacity: 0.4 }}
-        >
-          {display}
-        </SyntaxHighlighter>
-      )}
-    </div>
+      </div>
+    ) : (
+      <DeferredSyntaxBlock
+        content={display}
+        language={lang}
+        copyText={content}
+        showLineNumbers
+      />
+    )
   );
 }
 

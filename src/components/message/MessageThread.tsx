@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { DisplayMessage } from "../../types";
 import { UserMessage } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
@@ -26,6 +26,167 @@ interface MessageThreadProps {
   sessionTitle?: string;
   projectName?: string;
   projectPath?: string;
+  viewportRef?: RefObject<HTMLDivElement | null>;
+  priorityMessageId?: string | null;
+}
+
+const DEFER_RENDER_THRESHOLD = 120;
+const INITIAL_RECENT_RENDER_COUNT = 48;
+const BACKFILL_RENDER_BATCH = 24;
+const BACKFILL_DELAY_MS = 32;
+const DEFER_RENDER_ROOT_MARGIN = "1400px 0px 1400px 0px";
+const PLACEHOLDER_MIN_HEIGHT = 76;
+const PLACEHOLDER_MAX_HEIGHT = 320;
+
+function flattenThreadNodes(nodes: ThreadDisplayNode[]): ThreadDisplayNode[] {
+  const flat: ThreadDisplayNode[] = [];
+
+  const visit = (list: ThreadDisplayNode[]) => {
+    list.forEach((node) => {
+      flat.push(node);
+      if (node.children.length > 0) {
+        visit(node.children);
+      }
+    });
+  };
+
+  visit(nodes);
+  return flat;
+}
+
+function estimatePlaceholderHeight(node: ThreadDisplayNode): number {
+  const textLength = node.message.content.reduce((total, block) => {
+    switch (block.type) {
+      case "text":
+        return total + block.text.length;
+      case "thinking":
+        return total + block.thinking.length;
+      case "reasoning":
+        return total + block.text.length;
+      case "tool_result":
+        return total + block.content.length;
+      case "function_call_output":
+        return total + block.output.length;
+      case "tool_use":
+        return total + block.input.length;
+      case "function_call":
+        return total + block.arguments.length;
+      default:
+        return total;
+    }
+  }, 0);
+
+  const blockWeight = node.message.content.length * 18;
+  const baseHeight = node.message.role === "assistant" ? 88 : node.message.role === "tool" ? 96 : 80;
+  return Math.max(
+    PLACEHOLDER_MIN_HEIGHT,
+    Math.min(PLACEHOLDER_MAX_HEIGHT, baseHeight + Math.ceil(textLength / 140) * 24 + blockWeight)
+  );
+}
+
+function getPlaceholderLabel(node: ThreadDisplayNode) {
+  switch (node.message.role) {
+    case "user":
+      return "用户消息";
+    case "assistant":
+      return "助手回复";
+    case "tool":
+      return "工具输出";
+    default:
+      return "消息";
+  }
+}
+
+function DeferredMessagePlaceholder({
+  node,
+  estimatedHeight,
+}: {
+  node: ThreadDisplayNode;
+  estimatedHeight: number;
+}) {
+  const isUser = node.message.role === "user";
+
+  return (
+    <div
+      className={`flex ${isUser ? "justify-end" : "justify-start"}`}
+      style={{ minHeight: `${estimatedHeight}px` }}
+    >
+      <div
+        className={`w-full max-w-[85%] rounded-2xl border border-dashed border-border/70 bg-muted/25 px-4 py-3 ${
+          isUser ? "bg-primary/5" : ""
+        }`}
+      >
+        <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span>{getPlaceholderLabel(node)}</span>
+          <span className="truncate">{node.threadTitle || "正在准备内容..."}</span>
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 rounded bg-muted/70" />
+          <div className="h-3 w-11/12 rounded bg-muted/60" />
+          <div className="h-3 w-8/12 rounded bg-muted/50" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DeferredThreadMessage({
+  node,
+  eager,
+  viewportRef,
+  renderContent,
+}: {
+  node: ThreadDisplayNode;
+  eager: boolean;
+  viewportRef?: RefObject<HTMLDivElement | null>;
+  renderContent: () => ReactNode;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const userMessageId =
+    node.message.role === "user" ? getUserMessageId(node.message, node.originalIndex) : undefined;
+  const estimatedHeight = useMemo(() => estimatePlaceholderHeight(node), [node]);
+  const [activated, setActivated] = useState(eager);
+
+  useEffect(() => {
+    setActivated(eager);
+  }, [node.id, eager]);
+
+  useEffect(() => {
+    if (activated) {
+      return;
+    }
+
+    const element = containerRef.current;
+    if (!element || typeof IntersectionObserver === "undefined") {
+      setActivated(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0)) {
+          setActivated(true);
+          observer.disconnect();
+        }
+      },
+      {
+        root: viewportRef?.current ?? null,
+        rootMargin: DEFER_RENDER_ROOT_MARGIN,
+      }
+    );
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [activated, viewportRef]);
+
+  return (
+    <div
+      ref={containerRef}
+      data-user-msg-id={userMessageId}
+    >
+      {activated ? renderContent() : <DeferredMessagePlaceholder node={node} estimatedHeight={estimatedHeight} />}
+    </div>
+  );
 }
 
 function ThreadBranch({
@@ -92,7 +253,7 @@ function ThreadBranch({
   );
 }
 
-export function MessageThread({
+export const MessageThread = memo(function MessageThread({
   messages,
   source,
   showTimestamp,
@@ -103,15 +264,15 @@ export function MessageThread({
   sessionTitle,
   projectName,
   projectPath,
+  viewportRef,
+  priorityMessageId,
 }: MessageThreadProps) {
-  const {
-    addBookmark,
-    removeBookmark,
-    isBookmarked,
-    bookmarks,
-    terminalShell,
-    refreshInBackground,
-  } = useAppStore();
+  const addBookmark = useAppStore((state) => state.addBookmark);
+  const removeBookmark = useAppStore((state) => state.removeBookmark);
+  const isBookmarked = useAppStore((state) => state.isBookmarked);
+  const bookmarks = useAppStore((state) => state.bookmarks);
+  const terminalShell = useAppStore((state) => state.terminalShell);
+  const refreshInBackground = useAppStore((state) => state.refreshInBackground);
   const [forkingMsgId, setForkingMsgId] = useState<string | null>(null);
   const [forkSuccessMsgId, setForkSuccessMsgId] = useState<string | null>(null);
   const [assistantContextMenu, setAssistantContextMenu] = useState<{
@@ -221,9 +382,44 @@ export function MessageThread({
   };
 
   const showActionButtons = __IS_TAURI__ && source === "claude";
-  const { roots, isThreaded } = buildMessageTree(messages);
+  const { roots, isThreaded } = useMemo(() => buildMessageTree(messages), [messages]);
+  const flatNodes = useMemo(() => flattenThreadNodes(roots), [roots]);
+  const shouldDefer = flatNodes.length > DEFER_RENDER_THRESHOLD;
+  const initialRenderedFrom = useMemo(
+    () => (shouldDefer ? Math.max(0, flatNodes.length - INITIAL_RECENT_RENDER_COUNT) : 0),
+    [flatNodes.length, shouldDefer]
+  );
+  const [renderedFromIndex, setRenderedFromIndex] = useState(initialRenderedFrom);
 
-  const renderMessage = (node: ThreadDisplayNode) => {
+  useEffect(() => {
+    setRenderedFromIndex(initialRenderedFrom);
+  }, [initialRenderedFrom, messages]);
+
+  useEffect(() => {
+    if (!shouldDefer || renderedFromIndex <= 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRenderedFromIndex((current) => Math.max(0, current - BACKFILL_RENDER_BATCH));
+    }, BACKFILL_DELAY_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [renderedFromIndex, shouldDefer]);
+
+  const eagerNodeIds = useMemo(() => {
+    if (!shouldDefer) {
+      return null;
+    }
+
+    const ids = new Set(flatNodes.slice(renderedFromIndex).map((node) => node.id));
+    if (priorityMessageId) {
+      ids.add(priorityMessageId);
+    }
+    return ids;
+  }, [flatNodes, priorityMessageId, renderedFromIndex, shouldDefer]);
+
+  const renderMessageContent = (node: ThreadDisplayNode) => {
     const msg = node.message;
 
     if (msg.role === "user") {
@@ -323,6 +519,16 @@ export function MessageThread({
     );
   };
 
+  const renderMessage = (node: ThreadDisplayNode) => (
+    <DeferredThreadMessage
+      key={node.id}
+      node={node}
+      eager={!shouldDefer || eagerNodeIds?.has(node.id) === true}
+      viewportRef={viewportRef}
+      renderContent={() => renderMessageContent(node)}
+    />
+  );
+
   if (!isThreaded) {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-6">
@@ -376,4 +582,17 @@ export function MessageThread({
       )}
     </div>
   );
-}
+}, (prevProps, nextProps) => (
+  prevProps.messages === nextProps.messages &&
+  prevProps.source === nextProps.source &&
+  prevProps.showTimestamp === nextProps.showTimestamp &&
+  prevProps.showModel === nextProps.showModel &&
+  prevProps.sessionId === nextProps.sessionId &&
+  prevProps.projectId === nextProps.projectId &&
+  prevProps.filePath === nextProps.filePath &&
+  prevProps.sessionTitle === nextProps.sessionTitle &&
+  prevProps.projectName === nextProps.projectName &&
+  prevProps.projectPath === nextProps.projectPath &&
+  prevProps.viewportRef === nextProps.viewportRef &&
+  prevProps.priorityMessageId === nextProps.priorityMessageId
+));

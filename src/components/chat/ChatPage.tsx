@@ -22,8 +22,25 @@ const VIRTUAL_THRESHOLD = 30;
 
 interface Turn {
   turnIndex: number;
-  messages: ChatMessage[];
+  displayMessages: ChatMessage[];
   tokens: number;
+}
+
+interface ToolResultSummary {
+  content: string;
+  isError: boolean;
+}
+
+interface LatestAssistantMessagePreview {
+  key: string;
+  preview: string;
+}
+
+interface ChatDerivedState {
+  toolResultMap: Map<string, ToolResultSummary>;
+  turns: Turn[];
+  linkedToolUseIds: Set<string>;
+  latestAssistantMessage: LatestAssistantMessagePreview | null;
 }
 
 function isActualError(line: string): boolean {
@@ -225,6 +242,73 @@ function dedupeTurnMessages(
   return deduped;
 }
 
+function buildChatDerivedState(messages: ChatMessage[]): ChatDerivedState {
+  const toolResultMap = new Map<string, ToolResultSummary>();
+  const rawTurns: Array<{ turnIndex: number; messages: ChatMessage[]; tokens: number }> = [];
+  const linkedToolUseIds = new Set<string>();
+  let currentMessages: ChatMessage[] = [];
+  let turnIndex = 0;
+  let tokens = 0;
+  let latestAssistantMessage: LatestAssistantMessagePreview | null = null;
+
+  for (const message of messages) {
+    for (const block of message.content) {
+      if (block.type === "tool_result") {
+        toolResultMap.set(block.toolUseId, {
+          content: block.content,
+          isError: block.isError,
+        });
+      }
+    }
+
+    if (message.role === "assistant") {
+      const text = message.content.find((block) => block.type === "text");
+      latestAssistantMessage = {
+        key: `${message.id}:${message.timestamp}`,
+        preview: text && "text" in text ? text.text.slice(0, 80) : "有新回复",
+      };
+    }
+
+    const isUserText = message.role === "user" && message.content.some((block) => block.type === "text");
+    if (isUserText && currentMessages.length > 0) {
+      rawTurns.push({ turnIndex, messages: currentMessages, tokens });
+      turnIndex += 1;
+      currentMessages = [];
+      tokens = 0;
+    }
+
+    currentMessages.push(message);
+    if (message.usage) {
+      tokens += message.usage.inputTokens + message.usage.outputTokens;
+    }
+  }
+
+  if (currentMessages.length > 0) {
+    rawTurns.push({ turnIndex, messages: currentMessages, tokens });
+  }
+
+  const turns = rawTurns.map((turn) => {
+    const displayMessages = dedupeTurnMessages(turn.messages, toolResultMap);
+    for (const message of displayMessages) {
+      for (const toolUseId of getLinkedToolUseIds(message, toolResultMap)) {
+        linkedToolUseIds.add(toolUseId);
+      }
+    }
+    return {
+      turnIndex: turn.turnIndex,
+      displayMessages,
+      tokens: turn.tokens,
+    };
+  });
+
+  return {
+    toolResultMap,
+    turns,
+    linkedToolUseIds,
+    latestAssistantMessage,
+  };
+}
+
 interface ChatPageProps {
   paneId?: string;
 }
@@ -294,58 +378,27 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
       startNewChatInPane(paneId, projectPath, prompt, model);
     }
   }, [activeSessionId, continueExistingChatInPane, model, paneId, projectPath, startNewChatInPane]);
+  const handleExpandAll = useCallback(() => {
+    setAllExpanded(true);
+    setExpandVersion((v) => v + 1);
+  }, []);
+  const handleCollapseAll = useCallback(() => {
+    setAllExpanded(false);
+    setExpandVersion((v) => v + 1);
+  }, []);
+  const handleProjectPathChange = useCallback((path: string) => {
+    setPaneProjectPath(paneId, path);
+  }, [paneId, setPaneProjectPath]);
+  const handleCancel = useCallback(() => {
+    void cancelPane(paneId);
+  }, [cancelPane, paneId]);
 
   const cliAvailable = availableClis.some((c) => c.cliType === source);
 
-  const toolResultMap = useMemo(() => {
-    const resultMap = new Map<string, { content: string; isError: boolean }>();
-    for (const msg of messages) {
-      for (const block of msg.content) {
-        if (block.type === "tool_result") {
-          resultMap.set(block.toolUseId, { content: block.content, isError: block.isError });
-        }
-      }
-    }
-    return resultMap;
-  }, [messages]);
-
-  // Build conversation turns
-  const turns = useMemo(() => {
-    const result: Turn[] = [];
-    let current: ChatMessage[] = [];
-    let turnIdx = 0;
-    let tokens = 0;
-
-    for (const msg of messages) {
-      const isUserText = msg.role === "user" && msg.content.some((b) => b.type === "text");
-      if (isUserText && current.length > 0) {
-        result.push({ turnIndex: turnIdx, messages: current, tokens });
-        turnIdx++;
-        current = [];
-        tokens = 0;
-      }
-      current.push(msg);
-      if (msg.usage) tokens += msg.usage.inputTokens + msg.usage.outputTokens;
-    }
-    if (current.length > 0) {
-      result.push({ turnIndex: turnIdx, messages: current, tokens });
-    }
-    return result;
-  }, [messages]);
-
-  const linkedToolUseIds = useMemo(() => {
-    const linkedIds = new Set<string>();
-
-    for (const turn of turns) {
-      for (const message of dedupeTurnMessages(turn.messages, toolResultMap)) {
-        for (const toolUseId of getLinkedToolUseIds(message, toolResultMap)) {
-          linkedIds.add(toolUseId);
-        }
-      }
-    }
-
-    return linkedIds;
-  }, [toolResultMap, turns]);
+  const { toolResultMap, turns, linkedToolUseIds, latestAssistantMessage } = useMemo(
+    () => buildChatDerivedState(messages),
+    [messages]
+  );
 
   const useVirtual = turns.length > VIRTUAL_THRESHOLD;
 
@@ -356,19 +409,6 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
     // Scroll to bottom
     el.scrollTop = el.scrollHeight;
   }, [messages.length, isStreaming]);
-
-  const latestAssistantMessage = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "assistant") {
-        const text = messages[i].content.find((block) => block.type === "text");
-        return {
-          key: `${messages[i].id}:${messages[i].timestamp}`,
-          preview: text && "text" in text ? text.text.slice(0, 80) : "有新回复",
-        };
-      }
-    }
-    return null;
-  }, [messages]);
 
   useReplyNotification(
     latestAssistantMessage?.key ?? null,
@@ -394,14 +434,8 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
     <div className="flex flex-col h-full">
       <ChatHeader
         paneId={paneId}
-        onExpandAll={() => {
-          setAllExpanded(true);
-          setExpandVersion((v) => v + 1);
-        }}
-        onCollapseAll={() => {
-          setAllExpanded(false);
-          setExpandVersion((v) => v + 1);
-        }}
+        onExpandAll={handleExpandAll}
+        onCollapseAll={handleCollapseAll}
       />
 
       <ScrollArea
@@ -413,7 +447,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
           {!isActive && messages.length === 0 ? (
           <EmptyState
             projectPath={projectPath}
-            onProjectPathChange={(path) => setPaneProjectPath(paneId, path)}
+            onProjectPathChange={handleProjectPathChange}
             cliAvailable={cliAvailable}
             cliLabel={cliLabel}
           />
@@ -448,7 +482,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
         <ChatInput
           paneId={paneId}
           onSend={handleSend}
-          onCancel={() => cancelPane(paneId)}
+          onCancel={handleCancel}
           isStreaming={isStreaming}
           disabled={!projectPath || !cliAvailable}
         />
@@ -551,11 +585,6 @@ function TurnBlock({
   linkedToolUseIds: Set<string>;
   onSubmitAnswers: (answers: string) => void;
 }) {
-  const displayMessages = useMemo(
-    () => dedupeTurnMessages(turn.messages, toolResultMap),
-    [toolResultMap, turn.messages]
-  );
-
   return (
     <div>
       {turn.turnIndex > 0 && (
@@ -569,7 +598,7 @@ function TurnBlock({
         </div>
       )}
       <div className="space-y-1">
-        {displayMessages.map((msg) => (
+        {turn.displayMessages.map((msg) => (
           <StreamingMessage
             key={msg.id}
             message={msg}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useCallback, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
@@ -343,6 +343,7 @@ export function MessagesPage() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
+  const scrollButtonStateRef = useRef({ showScrollDown: false, showScrollUp: false });
   const [jumpListCollapsed, setJumpListCollapsed] = useState(true);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
   const prevScrollHeightRef = useRef<number>(0);
@@ -445,6 +446,9 @@ export function MessagesPage() {
     let cancelled = false;
     setInitialScrollDone(false);
     setJumpListCollapsed(true);
+    scrollButtonStateRef.current = { showScrollDown: false, showScrollUp: false };
+    setShowScrollDown(false);
+    setShowScrollUp(false);
     scrolledTargetRef.current = null;
 
     const load = async () => {
@@ -518,14 +522,27 @@ export function MessagesPage() {
     }
   }, [messages, messagesLoading]);
 
+  const updateScrollButtonState = useCallback((nextShowScrollUp: boolean, nextShowScrollDown: boolean) => {
+    const current = scrollButtonStateRef.current;
+
+    if (current.showScrollUp !== nextShowScrollUp) {
+      current.showScrollUp = nextShowScrollUp;
+      setShowScrollUp(nextShowScrollUp);
+    }
+
+    if (current.showScrollDown !== nextShowScrollDown) {
+      current.showScrollDown = nextShowScrollDown;
+      setShowScrollDown(nextShowScrollDown);
+    }
+  }, []);
+
   const handleScroll = useCallback(() => {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    const nextShowScrollDown = scrollHeight - scrollTop - clientHeight > 400;
+    const nextShowScrollUp = scrollTop > 400;
 
-    // Show scroll-to-bottom when not near bottom
-    setShowScrollDown(scrollHeight - scrollTop - clientHeight > 400);
-    // Show scroll-to-top when not near top
-    setShowScrollUp(scrollTop > 400);
+    updateScrollButtonState(nextShowScrollUp, nextShowScrollDown);
 
     // Load older messages when scrolling near top
     if (!messagesLoading && messagesHasMore && scrollTop < 200) {
@@ -533,7 +550,7 @@ export function MessagesPage() {
       prevScrollHeightRef.current = scrollHeight;
       loadMoreMessages();
     }
-  }, [messagesLoading, messagesHasMore, loadMoreMessages]);
+  }, [loadMoreMessages, messagesHasMore, messagesLoading, updateScrollButtonState]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -952,6 +969,8 @@ export function MessagesPage() {
                     sessionTitle={resolvedSessionTitle}
                     projectName={project?.shortName || projectId}
                     projectPath={chatProjectPath}
+                    viewportRef={containerRef}
+                    priorityMessageId={scrollToMessageId}
                   />
                 )}
                 {!messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
@@ -1332,6 +1351,7 @@ function SplitSessionPane({
             source={source}
             showTimestamp={showTimestamp}
             showModel={showModel}
+            viewportRef={containerRef}
           />
         )}
 
@@ -1385,7 +1405,7 @@ function SplitSessionPane({
 
 /* ── Helper: Chat messages with tool linking ── */
 
-function ChatMessagesBlock({
+const ChatMessagesBlock = memo(function ChatMessagesBlock({
   messages,
   onSubmitAnswers,
 }: {
@@ -1424,9 +1444,12 @@ function ChatMessagesBlock({
           interactiveQuestions
         />
       ))}
-    </div>
-  );
-}
+      </div>
+    );
+}, (prevProps, nextProps) => (
+  prevProps.messages === nextProps.messages &&
+  prevProps.onSubmitAnswers === nextProps.onSubmitAnswers
+));
 
 function assistantNameFromSource(source: MessageSource) {
   return source === "codex" ? "Codex" : "Claude";
