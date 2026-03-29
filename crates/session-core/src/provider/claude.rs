@@ -13,6 +13,7 @@ use crate::parser::jsonl as claude_parser;
 use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
+use crate::state::clear_message_cache;
 
 #[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -155,6 +156,7 @@ fn store_sessions_cache(project_id: &str, entries: &[SessionIndexEntry]) {
 
 pub fn invalidate_cache() {
     *cache_state().lock() = ClaudeCacheFile::default();
+    clear_message_cache();
     if let Some(path) = cache_path() {
         let _ = fs::remove_file(path);
     }

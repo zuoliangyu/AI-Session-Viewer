@@ -8,6 +8,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 use session_core::cli;
+use session_core::cli_config::{self, ResolvedCliCredentials};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +21,8 @@ struct ChatRequest {
     session_id: Option<String>,
     skip_permissions: Option<bool>,
     cli_path: Option<String>,
+    api_key: Option<String>,
+    base_url: Option<String>,
 }
 
 pub async fn chat_ws_handler(ws: WebSocketUpgrade) -> Response {
@@ -147,6 +150,8 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                 let model = request.model.unwrap_or_default();
                                 let skip_permissions = request.skip_permissions.unwrap_or(false);
                                 let cli_path = request.cli_path.unwrap_or_default();
+                                let api_key = request.api_key.unwrap_or_default();
+                                let base_url = request.base_url.unwrap_or_default();
                                 let resume_id = if request.action == "continue" {
                                     request.session_id.clone()
                                 } else {
@@ -177,6 +182,8 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                         skip_permissions,
                                         resume_id.as_deref(),
                                         &cli_path,
+                                        &api_key,
+                                        &base_url,
                                         tx_clone,
                                         &mut cancel_rx,
                                     ).await {
@@ -223,6 +230,8 @@ async fn run_cli_process(
     skip_permissions: bool,
     resume_session_id: Option<&str>,
     custom_cli_path: &str,
+    api_key_override: &str,
+    base_url_override: &str,
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
@@ -232,6 +241,8 @@ async fn run_cli_process(
         tracing::warn!("Ignoring client-supplied cli_path for web chat");
     }
     let cli_path = cli::find_cli(source)?;
+    let credentials =
+        cli_config::resolve_credentials(source, Some(api_key_override), Some(base_url_override))?;
 
     let mut cmd = Command::new(&cli_path);
 
@@ -274,7 +285,8 @@ async fn run_cli_process(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-
+    prepend_cli_dir_to_path(&mut cmd, &cli_path)?;
+    apply_provider_env(&mut cmd, source, &credentials);
     cmd.current_dir(project_dir);
 
     let mut child = cmd
@@ -345,4 +357,60 @@ async fn run_cli_process(
     }
 
     Ok(())
+}
+
+fn prepend_cli_dir_to_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
+    let Some(cli_dir) = Path::new(cli_path)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    else {
+        return Ok(());
+    };
+
+    let mut paths = vec![cli_dir.to_path_buf()];
+    if let Some(existing_path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&existing_path));
+    }
+
+    let joined = std::env::join_paths(paths)
+        .map_err(|e| format!("Failed to compose PATH for chat CLI: {}", e))?;
+    cmd.env("PATH", joined);
+    Ok(())
+}
+
+fn apply_provider_env(
+    cmd: &mut Command,
+    source: &str,
+    credentials: &ResolvedCliCredentials,
+) {
+    for key in &[
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "CODEX_API_KEY",
+        "OPENAI_API_KEY",
+        "CODEX_BASE_URL",
+        "OPENAI_BASE_URL",
+    ] {
+        cmd.env_remove(key);
+    }
+
+    if source == "codex" {
+        if !credentials.api_key.is_empty() {
+            cmd.env("CODEX_API_KEY", &credentials.api_key);
+            cmd.env("OPENAI_API_KEY", &credentials.api_key);
+        }
+        if !credentials.base_url.is_empty() {
+            cmd.env("CODEX_BASE_URL", &credentials.base_url);
+            cmd.env("OPENAI_BASE_URL", &credentials.base_url);
+        }
+    } else {
+        if !credentials.api_key.is_empty() {
+            cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
+            cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);
+        }
+        if !credentials.base_url.is_empty() {
+            cmd.env("ANTHROPIC_BASE_URL", &credentials.base_url);
+        }
+    }
 }

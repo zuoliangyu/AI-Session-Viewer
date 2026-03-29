@@ -1,25 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useChatStore } from "../stores/chatStore";
 import { subscribeToChatWebSocketMessages } from "../services/webApi";
+import { isActualChatError } from "../components/chat/chatError";
 
 declare const __IS_TAURI__: boolean;
 
 let webChatSubscriptionInitialized = false;
-
-/** Filter out non-error stderr lines (progress/info output from CLI). */
-function isActualError(line: string): boolean {
-  const lower = line.toLowerCase().trim();
-  if (!lower) return false;
-  // Ignore common non-error stderr lines
-  if (lower.startsWith("[request interrupted")) return false;
-  if (lower.startsWith("warning:")) return false;
-  if (lower.startsWith("info:")) return false;
-  if (lower.startsWith("debug:")) return false;
-  // Lines containing "error" or "fatal" are likely real errors
-  if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic")) return true;
-  // Other stderr lines — show them (could be relevant)
-  return true;
-}
 
 function handleWebChatMessage(rawMessage: string): void {
   const { addStreamLine, setStreaming, setError } = useChatStore.getState();
@@ -43,7 +29,7 @@ function handleWebChatMessage(rawMessage: string): void {
         setStreaming(false);
         window.dispatchEvent(new CustomEvent("asv-auth-required"));
       }
-      if (payload && isActualError(payload)) {
+      if (payload && isActualChatError(payload)) {
         setError(payload);
       }
     } else if (type === "complete" || type === "done") {
@@ -108,7 +94,7 @@ export function useChatStream(sessionIdOverride?: string | null) {
             if (!cancelled) {
               // stderr from CLI — only show actual errors, not progress/info lines
               const line = event.payload;
-              if (line && isActualError(line)) {
+              if (line && isActualChatError(line)) {
                 setError(line);
               }
             }

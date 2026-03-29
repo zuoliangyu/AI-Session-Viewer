@@ -97,6 +97,15 @@ fn cache_key(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+pub fn clear_message_cache() {
+    global_message_cache().lock().clear();
+}
+
+pub fn clear_message_cache_for_path(path: &Path) {
+    let key = cache_key(path);
+    let _ = global_message_cache().lock().pop(&key);
+}
+
 pub fn file_modified_key(path: &Path) -> Result<u64, String> {
     let modified = std::fs::metadata(path)
         .map_err(|e| format!("Failed to read metadata: {}", e))?

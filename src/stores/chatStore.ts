@@ -12,6 +12,12 @@ type ChatSource = "claude" | "codex";
 
 export const DEFAULT_CHAT_PANE_ID = "default";
 
+interface ChatPaneModelListState {
+  modelList: ModelInfo[];
+  modelListLoading: boolean;
+  modelListError: string | null;
+}
+
 export interface ChatPaneState {
   isActive: boolean;
   sessionId: string | null;
@@ -25,6 +31,7 @@ export interface ChatPaneState {
 }
 
 type ChatPaneStateMap = Record<string, ChatPaneState>;
+type ChatPaneModelListStateMap = Record<string, ChatPaneModelListState>;
 type ChatPaneStateUpdater =
   | Partial<ChatPaneState>
   | ((pane: ChatPaneState) => ChatPaneState);
@@ -32,6 +39,7 @@ type ChatPaneStateUpdater =
 interface ChatState {
   activePaneId: string;
   panes: ChatPaneStateMap;
+  paneModelLists: ChatPaneModelListStateMap;
 
   // Chat status
   isActive: boolean;
@@ -81,8 +89,9 @@ interface ChatState {
   setClaudeBaseUrlOverride: (v: string) => void;
   setCodexApiKeyOverride: (v: string) => void;
   setCodexBaseUrlOverride: (v: string) => void;
-  fetchModelList: () => Promise<void>;
+  fetchModelList: (paneId?: string) => Promise<void>;
   getPaneState: (paneId?: string) => ChatPaneState;
+  getPaneModelListState: (paneId?: string) => ChatPaneModelListState;
   setActivePane: (paneId: string) => void;
   setPaneState: (paneId: string, updater: ChatPaneStateUpdater) => void;
   clearPane: (paneId: string) => void;
@@ -123,8 +132,8 @@ interface ChatState {
   setSkipPermissions: (v: boolean) => void;
   setDefaultModel: (m: string) => void;
   setCliPath: (p: string) => void;
-  addCustomModel: (modelId: string, source?: "claude" | "codex") => void;
-  removeCustomModel: (modelId: string, source?: "claude" | "codex") => void;
+  addCustomModel: (modelId: string, source?: "claude" | "codex", paneId?: string) => void;
+  removeCustomModel: (modelId: string, source?: "claude" | "codex", paneId?: string) => void;
   addStreamLine: (line: string) => void;
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string) => void;
@@ -147,6 +156,17 @@ function createChatPaneState(
     rawOutput: [],
     isStreaming: false,
     error: null,
+    ...overrides,
+  };
+}
+
+function createChatPaneModelListState(
+  overrides: Partial<ChatPaneModelListState> = {}
+): ChatPaneModelListState {
+  return {
+    modelList: [],
+    modelListLoading: false,
+    modelListError: null,
     ...overrides,
   };
 }
@@ -176,12 +196,30 @@ function toLegacyPaneFields(pane: ChatPaneState): Pick<
   };
 }
 
+function toLegacyModelListFields(modelListState: ChatPaneModelListState): Pick<
+  ChatState,
+  "modelList" | "modelListLoading" | "modelListError"
+> {
+  return {
+    modelList: modelListState.modelList,
+    modelListLoading: modelListState.modelListLoading,
+    modelListError: modelListState.modelListError,
+  };
+}
+
 function getOrCreatePaneState(
   panes: ChatPaneStateMap,
   paneId: string,
   fallback?: Partial<ChatPaneState>
 ): ChatPaneState {
   return panes[paneId] ?? createChatPaneState(fallback);
+}
+
+function getOrCreatePaneModelListState(
+  paneModelLists: ChatPaneModelListStateMap,
+  paneId: string
+): ChatPaneModelListState {
+  return paneModelLists[paneId] ?? createChatPaneModelListState();
 }
 
 function getPaneFallbackFromState(
@@ -245,6 +283,27 @@ function waitForNextPaint(): Promise<void> {
     }
     setTimeout(resolve, 0);
   });
+}
+
+function getSourceOverrides(
+  state: Pick<
+    ChatState,
+    | "claudeApiKeyOverride"
+    | "claudeBaseUrlOverride"
+    | "codexApiKeyOverride"
+    | "codexBaseUrlOverride"
+  >,
+  source: ChatSource
+): { apiKey?: string; baseUrl?: string } {
+  const apiKey =
+    source === "codex" ? state.codexApiKeyOverride : state.claudeApiKeyOverride;
+  const baseUrl =
+    source === "codex" ? state.codexBaseUrlOverride : state.claudeBaseUrlOverride;
+
+  return {
+    apiKey: apiKey || undefined,
+    baseUrl: baseUrl || undefined,
+  };
 }
 
 /** Result of parsing a single stream line */
@@ -535,19 +594,20 @@ function parseCodexStreamLine(line: string): { action: "session_id"; id: string 
 
 export const useChatStore = create<ChatState>((set, get) => {
   const initialDefaultPane = createChatPaneState();
+  const initialDefaultPaneModelList = createChatPaneModelListState();
 
   return {
     activePaneId: DEFAULT_CHAT_PANE_ID,
     panes: {
       [DEFAULT_CHAT_PANE_ID]: initialDefaultPane,
     },
+    paneModelLists: {
+      [DEFAULT_CHAT_PANE_ID]: initialDefaultPaneModelList,
+    },
     ...toLegacyPaneFields(initialDefaultPane),
+    ...toLegacyModelListFields(initialDefaultPaneModelList),
 
     availableClis: [],
-
-    modelList: [],
-    modelListLoading: false,
-    modelListError: null,
 
     cliConfig: null,
     cliConfigLoading: false,
@@ -609,6 +669,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     );
   },
 
+  getPaneModelListState: (paneId = DEFAULT_CHAT_PANE_ID) => {
+    const state = get();
+    return getOrCreatePaneModelListState(state.paneModelLists, paneId);
+  },
+
   setActivePane: (paneId) => {
     set((state) => {
       const nextPane = getOrCreatePaneState(
@@ -616,13 +681,22 @@ export const useChatStore = create<ChatState>((set, get) => {
         paneId,
         getPaneFallbackFromState(state)
       );
+      const nextPaneModelList = getOrCreatePaneModelListState(
+        state.paneModelLists,
+        paneId
+      );
       return {
         activePaneId: paneId,
         panes: {
           ...state.panes,
           [paneId]: nextPane,
         },
+        paneModelLists: {
+          ...state.paneModelLists,
+          [paneId]: nextPaneModelList,
+        },
         ...toLegacyPaneFields(nextPane),
+        ...toLegacyModelListFields(nextPaneModelList),
       };
     });
   },
@@ -660,11 +734,39 @@ export const useChatStore = create<ChatState>((set, get) => {
     get().setPaneStreaming(paneId, false);
   },
 
-  fetchModelList: async () => {
-    const { source, claudeApiKeyOverride, claudeBaseUrlOverride, codexApiKeyOverride, codexBaseUrlOverride } = get();
+  fetchModelList: async (paneId) => {
+    const state = get();
+    const targetPaneId = paneId ?? state.activePaneId;
+    const pane = state.getPaneState(targetPaneId);
+    const {
+      claudeApiKeyOverride,
+      claudeBaseUrlOverride,
+      codexApiKeyOverride,
+      codexBaseUrlOverride,
+    } = state;
+    const { source } = pane;
     const apiKey = source === "codex" ? codexApiKeyOverride : claudeApiKeyOverride;
     const baseUrl = source === "codex" ? codexBaseUrlOverride : claudeBaseUrlOverride;
-    set({ modelListLoading: true, modelListError: null });
+    set((currentState) => {
+      const currentPaneModelList = getOrCreatePaneModelListState(
+        currentState.paneModelLists,
+        targetPaneId
+      );
+      const nextPaneModelList = {
+        ...currentPaneModelList,
+        modelListLoading: true,
+        modelListError: null,
+      };
+      return {
+        paneModelLists: {
+          ...currentState.paneModelLists,
+          [targetPaneId]: nextPaneModelList,
+        },
+        ...(targetPaneId === currentState.activePaneId
+          ? toLegacyModelListFields(nextPaneModelList)
+          : {}),
+      };
+    });
     try {
       let activeCliConfig = source === "codex" ? get().codexCliConfig : get().cliConfig;
       if (!activeCliConfig) {
@@ -695,12 +797,26 @@ export const useChatStore = create<ChatState>((set, get) => {
         .filter((id) => !existingIds.has(id))
         .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
       const allModels = [...customModels, ...models];
-      set({ modelList: allModels, modelListLoading: false });
+      set((currentState) => {
+        const nextPaneModelList = createChatPaneModelListState({
+          modelList: allModels,
+        });
+        return {
+          paneModelLists: {
+            ...currentState.paneModelLists,
+            [targetPaneId]: nextPaneModelList,
+          },
+          ...(targetPaneId === currentState.activePaneId
+            ? toLegacyModelListFields(nextPaneModelList)
+            : {}),
+        };
+      });
 
       // Auto-select first model if current model is empty or not in this source's list
-      const state = get();
+      const latestState = get();
+      const latestPane = latestState.getPaneState(targetPaneId);
       const modelIds = new Set(allModels.map((m) => m.id));
-      if (!state.model || !modelIds.has(state.model)) {
+      if (!latestPane.model || !modelIds.has(latestPane.model)) {
         const resolve = (name: string): string => {
           if (!name) return "";
           if (modelIds.has(name)) return name;
@@ -708,19 +824,35 @@ export const useChatStore = create<ChatState>((set, get) => {
           return allModels.find((m) => m.id.toLowerCase().includes(lower))?.id || "";
         };
         const candidates = [
-          resolve(state.model),
-          resolve(state.defaultModel),
+          resolve(latestPane.model),
+          resolve(latestState.defaultModel),
           resolve(activeCliConfig?.defaultModel || ""),
         ].filter(Boolean);
         const selected = candidates[0] || (allModels.length > 0 ? allModels[0].id : "");
-        if (selected && selected !== state.model) {
-          get().setPaneModel(get().activePaneId, selected);
+        if (selected && selected !== latestPane.model) {
+          get().setPaneModel(targetPaneId, selected);
         }
       }
     } catch (e) {
-      set({
-        modelListLoading: false,
-        modelListError: e instanceof Error ? e.message : String(e),
+      set((currentState) => {
+        const currentPaneModelList = getOrCreatePaneModelListState(
+          currentState.paneModelLists,
+          targetPaneId
+        );
+        const nextPaneModelList = {
+          ...currentPaneModelList,
+          modelListLoading: false,
+          modelListError: e instanceof Error ? e.message : String(e),
+        };
+        return {
+          paneModelLists: {
+            ...currentState.paneModelLists,
+            [targetPaneId]: nextPaneModelList,
+          },
+          ...(targetPaneId === currentState.activePaneId
+            ? toLegacyModelListFields(nextPaneModelList)
+            : {}),
+        };
       });
     }
   },
@@ -728,6 +860,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   startNewChatInPane: async (paneId, projectPath, prompt, model) => {
     const state = get();
     const pane = state.getPaneState(paneId);
+    const overrides = getSourceOverrides(state, pane.source);
     const pendingSessionId = generateUUID();
     localStorage.setItem("chat_lastUsedModel", model);
     get().setPaneState(paneId, {
@@ -758,6 +891,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         model,
         skipPermissions: state.skipPermissions,
         cliPath: state.cliPath || undefined,
+        ...overrides,
       });
       if (sessionId !== pendingSessionId) {
         get().setPaneSessionId(paneId, sessionId);
@@ -780,6 +914,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   ) => {
     const state = get();
     const pane = state.getPaneState(paneId);
+    const overrides = getSourceOverrides(state, pane.source);
     localStorage.setItem("chat_lastUsedModel", model);
     get().setPaneState(paneId, {
       isActive: true,
@@ -809,6 +944,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         model,
         skipPermissions: state.skipPermissions,
         cliPath: state.cliPath || undefined,
+        ...overrides,
       });
     } catch (e) {
       get().setPaneState(paneId, {
@@ -860,7 +996,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({ cliPath: p });
   },
 
-  addCustomModel: (modelId, sourceOverride) => {
+  addCustomModel: (modelId, sourceOverride, paneId) => {
     const state = get();
     const src = sourceOverride ?? state.source;
     const customKey = `chat_customModels_${src}`;
@@ -868,27 +1004,101 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (!existing.includes(modelId)) {
       localStorage.setItem(customKey, JSON.stringify([...existing, modelId]));
     }
-    // Only update chatStore.modelList if this source matches the active source
-    if (src === state.source && !state.modelList.some((m) => m.id === modelId)) {
-      set({
-        modelList: [
-          { id: modelId, name: modelId, provider: src === "codex" ? "openai" : "anthropic", group: "自定义", created: null },
-          ...state.modelList,
-        ],
-      });
-    }
+    const customModel = {
+      id: modelId,
+      name: modelId,
+      provider: src === "codex" ? "openai" : "anthropic",
+      group: "自定义",
+      created: null,
+    } satisfies ModelInfo;
+    set((currentState) => {
+      const targetPaneIds = paneId
+        ? [paneId]
+        : Array.from(new Set([
+            ...Object.keys(currentState.panes),
+            ...Object.keys(currentState.paneModelLists),
+          ]));
+      const nextPaneModelLists = { ...currentState.paneModelLists };
+      let activePaneModelList: ChatPaneModelListState | null = null;
+
+      for (const targetPaneId of targetPaneIds) {
+        const targetPane = getOrCreatePaneState(
+          currentState.panes,
+          targetPaneId,
+          getPaneFallbackFromState(currentState)
+        );
+        if (targetPane.source !== src) continue;
+
+        const currentPaneModelList = getOrCreatePaneModelListState(
+          nextPaneModelLists,
+          targetPaneId
+        );
+        if (currentPaneModelList.modelList.some((m) => m.id === modelId)) continue;
+
+        const nextPaneModelList = {
+          ...currentPaneModelList,
+          modelList: [customModel, ...currentPaneModelList.modelList],
+        };
+        nextPaneModelLists[targetPaneId] = nextPaneModelList;
+        if (targetPaneId === currentState.activePaneId) {
+          activePaneModelList = nextPaneModelList;
+        }
+      }
+
+      return {
+        paneModelLists: nextPaneModelLists,
+        ...(activePaneModelList
+          ? toLegacyModelListFields(activePaneModelList)
+          : {}),
+      };
+    });
   },
 
-  removeCustomModel: (modelId, sourceOverride) => {
+  removeCustomModel: (modelId, sourceOverride, paneId) => {
     const state = get();
     const src = sourceOverride ?? state.source;
     const customKey = `chat_customModels_${src}`;
     const existing: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
     localStorage.setItem(customKey, JSON.stringify(existing.filter((id) => id !== modelId)));
-    // Only update chatStore.modelList if this source matches the active source
-    if (src === state.source) {
-      set({ modelList: state.modelList.filter((m) => m.id !== modelId) });
-    }
+    set((currentState) => {
+      const targetPaneIds = paneId
+        ? [paneId]
+        : Array.from(new Set([
+            ...Object.keys(currentState.panes),
+            ...Object.keys(currentState.paneModelLists),
+          ]));
+      const nextPaneModelLists = { ...currentState.paneModelLists };
+      let activePaneModelList: ChatPaneModelListState | null = null;
+
+      for (const targetPaneId of targetPaneIds) {
+        const targetPane = getOrCreatePaneState(
+          currentState.panes,
+          targetPaneId,
+          getPaneFallbackFromState(currentState)
+        );
+        if (targetPane.source !== src) continue;
+
+        const currentPaneModelList = getOrCreatePaneModelListState(
+          nextPaneModelLists,
+          targetPaneId
+        );
+        const nextPaneModelList = {
+          ...currentPaneModelList,
+          modelList: currentPaneModelList.modelList.filter((m) => m.id !== modelId),
+        };
+        nextPaneModelLists[targetPaneId] = nextPaneModelList;
+        if (targetPaneId === currentState.activePaneId) {
+          activePaneModelList = nextPaneModelList;
+        }
+      }
+
+      return {
+        paneModelLists: nextPaneModelLists,
+        ...(activePaneModelList
+          ? toLegacyModelListFields(activePaneModelList)
+          : {}),
+      };
+    });
   },
 
   addStreamLineToPane: (paneId, line) => {
@@ -1059,13 +1269,17 @@ export const useChatStore = create<ChatState>((set, get) => {
         source,
         model: "",
       });
-      if (paneId === state.activePaneId) {
-        return {
-          ...updates,
-          modelList: [],
-        };
-      }
-      return updates;
+      const nextPaneModelList = createChatPaneModelListState();
+      return {
+        ...updates,
+        paneModelLists: {
+          ...state.paneModelLists,
+          [paneId]: nextPaneModelList,
+        },
+        ...(paneId === state.activePaneId
+          ? toLegacyModelListFields(nextPaneModelList)
+          : {}),
+      };
     });
   },
 

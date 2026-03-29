@@ -42,6 +42,12 @@ pub struct CliConfig {
     pub base_url_source: String,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedCliCredentials {
+    pub api_key: String,
+    pub base_url: String,
+}
+
 // ── Internal deserialization structures ──
 
 /// Claude's `~/.claude/settings.json`
@@ -102,15 +108,40 @@ pub fn read_cli_config(source: &str) -> Result<CliConfig, String> {
     })
 }
 
-/// Get real credentials for internal use (e.g. model_list, quick_chat).
-pub(crate) fn get_credentials(source: &str) -> (String, String) {
-    if source == "codex" {
+/// Resolve effective credentials for runtime use.
+/// Request overrides take precedence over CLI config fallback.
+pub fn resolve_credentials(
+    source: &str,
+    api_key_override: Option<&str>,
+    base_url_override: Option<&str>,
+) -> Result<ResolvedCliCredentials, String> {
+    let source = crate::cli::normalize_source(source)?;
+    let (fallback_api_key, fallback_base_url) = if source == "codex" {
         read_codex_credentials()
     } else {
-        match read_claude_config() {
-            Ok((api_key, base_url, _, _)) if !api_key.is_empty() => (api_key, base_url),
-            _ => (String::new(), "https://api.anthropic.com".to_string()),
-        }
+        read_claude_credentials()?
+    };
+
+    let api_key = api_key_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_owned())
+        .unwrap_or(fallback_api_key);
+    let base_url = base_url_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_owned())
+        .unwrap_or(fallback_base_url);
+
+    Ok(ResolvedCliCredentials { api_key, base_url })
+}
+
+/// Get real credentials for internal use (e.g. model_list, quick_chat).
+pub(crate) fn get_credentials(source: &str) -> (String, String) {
+    match resolve_credentials(source, None, None) {
+        Ok(credentials) => (credentials.api_key, credentials.base_url),
+        Err(_) if source == "codex" => (String::new(), "https://api.openai.com".to_string()),
+        Err(_) => (String::new(), "https://api.anthropic.com".to_string()),
     }
 }
 
@@ -233,6 +264,11 @@ pub(crate) fn read_codex_credentials() -> (String, String) {
     };
 
     (api_key, base_url)
+}
+
+fn read_claude_credentials() -> Result<(String, String), String> {
+    let (api_key, base_url, _, _) = read_claude_config()?;
+    Ok((api_key, base_url))
 }
 
 /// Helper: if `self` is empty, call `f` and return its result.

@@ -26,15 +26,14 @@ export function ModelSelector({
   onSelect,
 }: Props) {
   const pane = useChatStore((state) => state.getPaneState(paneId));
+  const paneModelListState = useChatStore((state) => state.getPaneModelListState(paneId));
   const {
-    modelList,
-    modelListLoading,
-    modelListError,
     fetchModelList,
     addCustomModel,
     removeCustomModel,
   } = useChatStore();
   const { model, source } = pane;
+  const { modelList, modelListLoading, modelListError } = paneModelListState;
 
   const [search, setSearch] = useState("");
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -47,14 +46,14 @@ export function ModelSelector({
   // Fetch model list when opened
   useEffect(() => {
     if (open) {
-      fetchModelList();
+      fetchModelList(paneId);
       setSearch("");
       setHighlightIndex(0);
       setShowAddInput(false);
       setNewModelId("");
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  }, [open, fetchModelList]);
+  }, [fetchModelList, open, paneId]);
 
   // Focus add input when shown
   useEffect(() => {
@@ -116,7 +115,7 @@ export function ModelSelector({
   const handleUseSearchAsCustom = () => {
     const id = search.trim();
     if (id) {
-      addCustomModel(id, source);
+      addCustomModel(id, source, paneId);
       onSelect(id);
       onClose();
     }
@@ -152,7 +151,7 @@ export function ModelSelector({
   const handleAddModel = () => {
     const id = newModelId.trim();
     if (!id) return;
-    addCustomModel(id, source);
+    addCustomModel(id, source, paneId);
     onSelect(id);
     setNewModelId("");
     setShowAddInput(false);
@@ -194,7 +193,7 @@ export function ModelSelector({
         {/* Management bar */}
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border bg-muted/50">
           <button
-            onClick={() => fetchModelList()}
+            onClick={() => fetchModelList(paneId)}
             disabled={modelListLoading}
             className="flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
             title="刷新模型列表"
@@ -268,7 +267,7 @@ export function ModelSelector({
                 {modelListError}
               </div>
               <button
-                onClick={() => fetchModelList()}
+                onClick={() => fetchModelList(paneId)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
                 点击重试
@@ -333,7 +332,7 @@ export function ModelSelector({
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            removeCustomModel(m.id, source);
+                            removeCustomModel(m.id, source, paneId);
                           }}
                           className="p-0.5 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
                           title="移除自定义模型"

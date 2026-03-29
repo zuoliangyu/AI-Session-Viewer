@@ -14,6 +14,7 @@ import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { normalizeToolName } from "./tool-viewers/ToolViewers";
 import { ScrollArea } from "../ScrollArea";
 import { subscribeToChatWebSocketMessages } from "../../services/webApi";
+import { isActualChatError } from "./chatError";
 
 declare const __IS_TAURI__: boolean;
 
@@ -41,17 +42,6 @@ interface ChatDerivedState {
   turns: Turn[];
   linkedToolUseIds: Set<string>;
   latestAssistantMessage: LatestAssistantMessagePreview | null;
-}
-
-function isActualError(line: string): boolean {
-  const lower = line.toLowerCase().trim();
-  if (!lower) return false;
-  if (lower.startsWith("[request interrupted")) return false;
-  if (lower.startsWith("warning:")) return false;
-  if (lower.startsWith("info:")) return false;
-  if (lower.startsWith("debug:")) return false;
-  if (lower.includes("error") || lower.includes("fatal") || lower.includes("panic")) return true;
-  return true;
 }
 
 function usePaneChatStream(paneId: string, sessionId: string | null) {
@@ -84,7 +74,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
         const unlistenError = await listen<string>(
           `chat-error:${sessionId}`,
           (event) => {
-            if (!cancelled && isActualError(event.payload)) {
+            if (!cancelled && isActualChatError(event.payload)) {
               setPaneError(paneId, event.payload);
             }
           }
@@ -150,7 +140,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
             setPaneStreaming(paneId, false);
             window.dispatchEvent(new CustomEvent("asv-auth-required"));
           }
-          if (payload && isActualError(payload)) {
+          if (payload && isActualChatError(payload)) {
             setPaneError(paneId, payload);
           }
         } else if (type === "complete" || type === "done") {

@@ -23,6 +23,8 @@ declare const __IS_TAURI__: boolean;
 type MessageSource = "claude" | "codex";
 type SplitDirection = "horizontal" | "vertical";
 
+const SPLIT_PANE_MESSAGES_PAGE_SIZE = 50;
+
 function useHorizontalDragScroll(enabled: boolean) {
   const dragStateRef = useRef<{
     pointerId: number | null;
@@ -403,7 +405,7 @@ export function MessagesPage() {
   useEffect(() => {
     setActivePane(mainPaneId);
     setPaneSource(mainPaneId, source);
-    fetchChatModelList();
+    fetchChatModelList(mainPaneId);
   }, [fetchChatModelList, mainPaneId, setActivePane, setPaneSource, source]);
 
   // Extract the model used in this historical session
@@ -1030,6 +1032,7 @@ export function MessagesPage() {
       {resolvedSessionId && cliAvailable && (
         <div className="shrink-0">
           <ChatInput
+            paneId={mainPaneId}
             onSend={handleSendChat}
             onCancel={() => cancelPane(mainPaneId)}
             isStreaming={chatStreaming}
@@ -1182,7 +1185,7 @@ function SplitSessionPane({
       }
 
       try {
-        const result = await api.getMessages(source, filePath, nextPage, 50, true);
+        const result = await api.getMessages(source, filePath, nextPage, SPLIT_PANE_MESSAGES_PAGE_SIZE, true);
         if (requestVersionRef.current !== requestVersion) return;
 
         setMessages((prev) =>
@@ -1392,6 +1395,7 @@ function SplitSessionPane({
       {resolvedSessionId && cliAvailable && (
         <div className="shrink-0 border-t border-border">
           <ChatInput
+            paneId={paneId}
             onSend={handleSendChat}
             onCancel={() => cancelPane(paneId)}
             isStreaming={chatStreaming}

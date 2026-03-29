@@ -11,6 +11,8 @@ import type {
 } from "../types";
 import { api } from "../services/api";
 
+const MAIN_MESSAGES_PAGE_SIZE = 100;
+
 interface AppState {
   // Source
   source: "claude" | "codex";
@@ -255,7 +257,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       messagesPage: 0,
     });
     try {
-      const result = await api.getMessages(requestSource, filePath, 0, 50, true);
+      const result = await api.getMessages(requestSource, filePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
       if (
         get().source !== requestSource ||
         get().selectedFilePath !== filePath
@@ -342,7 +344,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         state.source,
         state.selectedFilePath,
         nextPage,
-        50,
+        MAIN_MESSAGES_PAGE_SIZE,
         true
       );
       set({
@@ -442,7 +444,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { selectedFilePath, messagesPage, source: currentSource } = get();
     if (selectedFilePath && messagesPage === 0) {
       try {
-        const result = await api.getMessages(currentSource, selectedFilePath, 0, 50, true);
+        const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
         if (
           get().source !== currentSource ||
           get().selectedFilePath !== selectedFilePath ||

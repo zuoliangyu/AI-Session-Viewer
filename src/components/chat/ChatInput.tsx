@@ -31,6 +31,7 @@ export function ChatInput({
 
   const model = useChatStore((state) => state.getPaneState(paneId).model);
   const setPaneModel = useChatStore((state) => state.setPaneModel);
+  const setActivePane = useChatStore((state) => state.setActivePane);
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) {
@@ -38,17 +39,10 @@ export function ChatInput({
     }
   }, [isStreaming]);
 
-  // Ctrl+K shortcut to open model selector
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
-        e.preventDefault();
-        setModelSelectorOpen((v) => !v);
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
+  const openModelSelector = () => {
+    setActivePane(paneId);
+    setModelSelectorOpen(true);
+  };
 
   const handleSubmit = () => {
     const trimmed = text.trim();
@@ -72,6 +66,12 @@ export function ChatInput({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      openModelSelector();
+      return;
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
@@ -94,7 +94,7 @@ export function ChatInput({
         {/* Model selector row */}
         <div className="flex items-center gap-2 mb-2">
           <button
-            onClick={() => setModelSelectorOpen(true)}
+            onClick={openModelSelector}
             disabled={isStreaming}
             className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border bg-muted hover:bg-accent/50 transition-colors disabled:opacity-50"
             title={model || "选择模型 (Ctrl+K)"}
@@ -115,6 +115,7 @@ export function ChatInput({
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
+            onFocus={() => setActivePane(paneId)}
             placeholder={
               isStreaming
                 ? "等待响应中..."

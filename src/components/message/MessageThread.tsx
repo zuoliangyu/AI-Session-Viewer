@@ -529,29 +529,36 @@ export const MessageThread = memo(function MessageThread({
     />
   );
 
+  const renderAssistantContextMenu = () => {
+    if (!assistantContextMenu) {
+      return null;
+    }
+
+    return (
+      <div
+        className="fixed z-50 min-w-[11rem] rounded-lg border border-border bg-popover p-1 shadow-lg"
+        style={{
+          left: Math.min(assistantContextMenu.x, window.innerWidth - 220),
+          top: Math.min(assistantContextMenu.y, window.innerHeight - 80),
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          onClick={handleAssistantFork}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+        >
+          <GitFork className="h-4 w-4 text-primary" />
+          从此回复继续分叉
+        </button>
+      </div>
+    );
+  };
+
   if (!isThreaded) {
     return (
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-6">
         {roots.map((node) => renderMessage(node))}
-
-        {assistantContextMenu && (
-          <div
-            className="fixed z-50 min-w-[11rem] rounded-lg border border-border bg-popover p-1 shadow-lg"
-            style={{
-              left: Math.min(assistantContextMenu.x, window.innerWidth - 220),
-              top: Math.min(assistantContextMenu.y, window.innerHeight - 80),
-            }}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <button
-              onClick={handleAssistantFork}
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
-            >
-              <GitFork className="h-4 w-4 text-primary" />
-              从此回复继续分叉
-            </button>
-          </div>
-        )}
+        {renderAssistantContextMenu()}
       </div>
     );
   }
@@ -561,25 +568,7 @@ export const MessageThread = memo(function MessageThread({
       {roots.map((node) => (
         <ThreadBranch key={node.id} node={node} depth={0} renderMessage={renderMessage} />
       ))}
-
-      {assistantContextMenu && (
-        <div
-          className="fixed z-50 min-w-[11rem] rounded-lg border border-border bg-popover p-1 shadow-lg"
-          style={{
-            left: Math.min(assistantContextMenu.x, window.innerWidth - 220),
-            top: Math.min(assistantContextMenu.y, window.innerHeight - 80),
-          }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <button
-            onClick={handleAssistantFork}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
-          >
-            <GitFork className="h-4 w-4 text-primary" />
-            从此回复继续分叉
-          </button>
-        </div>
-      )}
+      {renderAssistantContextMenu()}
     </div>
   );
 }, (prevProps, nextProps) => (

@@ -3,7 +3,9 @@ use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
+use parking_lot::Mutex;
 use rayon::prelude::*;
 use serde_json::Value;
 
@@ -12,18 +14,26 @@ use crate::models::project::ProjectEntry;
 use crate::models::session::SessionIndexEntry;
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
 use crate::state::{
-    get_cached_full_messages, get_cached_page, paginate_from_range, store_full_messages,
-    store_partial_messages, tail_window_len,
+    clear_message_cache, get_cached_full_messages, get_cached_page, paginate_from_range,
+    store_full_messages, store_partial_messages, tail_window_len,
 };
 
-const DISK_CACHE_VERSION: u32 = 1;
+const DISK_CACHE_VERSION: u32 = 2;
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct CodexDiskCache {
     version: u32,
     #[serde(default)]
+    projects: Option<CachedProjects>,
+    #[serde(default)]
     sessions_by_project: HashMap<String, CachedSessions>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct CachedProjects {
+    entries: Vec<ProjectEntry>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
@@ -38,7 +48,7 @@ fn disk_cache_path() -> Option<PathBuf> {
     Some(dir.join("codex-list-cache.json"))
 }
 
-fn load_disk_cache() -> CodexDiskCache {
+fn read_disk_cache() -> CodexDiskCache {
     let path = match disk_cache_path() {
         Some(path) => path,
         None => return CodexDiskCache::default(),
@@ -61,37 +71,70 @@ fn load_disk_cache() -> CodexDiskCache {
     cache
 }
 
+fn cache_state() -> &'static Mutex<CodexDiskCache> {
+    static CACHE_STATE: OnceLock<Mutex<CodexDiskCache>> = OnceLock::new();
+    CACHE_STATE.get_or_init(|| Mutex::new(read_disk_cache()))
+}
+
 fn save_disk_cache(cache: &CodexDiskCache) {
     if let Some(path) = disk_cache_path() {
         if let Ok(json) = serde_json::to_string(cache) {
-            let _ = fs::write(path, json);
+            let tmp_path = path.with_extension("json.tmp");
+            if fs::write(&tmp_path, json).is_ok() {
+                let _ = fs::rename(&tmp_path, &path);
+            }
         }
     }
 }
 
+fn cached_projects() -> Option<Vec<ProjectEntry>> {
+    cache_state()
+        .lock()
+        .projects
+        .as_ref()
+        .map(|cached| cached.entries.clone())
+}
+
+fn store_projects(entries: &[ProjectEntry]) {
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.version = DISK_CACHE_VERSION;
+        cache.projects = Some(CachedProjects {
+            entries: entries.to_vec(),
+        });
+        cache.clone()
+    };
+    save_disk_cache(&cache);
+}
+
 fn cached_project_sessions(cwd: &str) -> Option<Vec<SessionIndexEntry>> {
-    load_disk_cache()
+    cache_state()
+        .lock()
         .sessions_by_project
         .get(cwd)
         .map(|cached| cached.entries.clone())
 }
 
 fn cached_project_count(cwd: &str) -> Option<usize> {
-    load_disk_cache()
+    cache_state()
+        .lock()
         .sessions_by_project
         .get(cwd)
         .map(|cached| cached.entries.len())
 }
 
 fn store_project_sessions(cwd: &str, entries: &[SessionIndexEntry]) {
-    let mut cache = load_disk_cache();
-    cache.version = DISK_CACHE_VERSION;
-    cache.sessions_by_project.insert(
-        cwd.to_string(),
-        CachedSessions {
-            entries: entries.to_vec(),
-        },
-    );
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.version = DISK_CACHE_VERSION;
+        cache.sessions_by_project.insert(
+            cwd.to_string(),
+            CachedSessions {
+                entries: entries.to_vec(),
+            },
+        );
+        cache.clone()
+    };
     save_disk_cache(&cache);
 }
 
@@ -102,6 +145,8 @@ fn clear_disk_cache() {
 }
 
 pub fn invalidate_sessions_cache() {
+    *cache_state().lock() = CodexDiskCache::default();
+    clear_message_cache();
     clear_disk_cache();
 }
 
@@ -392,6 +437,142 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
     }
 }
 
+#[derive(Default)]
+struct SessionVisibilityScan {
+    first_prompt: Option<String>,
+    message_count: u32,
+    has_visible_activity: bool,
+}
+
+fn scan_session_visibility(path: &Path) -> SessionVisibilityScan {
+    let file = match fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return SessionVisibilityScan::default(),
+    };
+    let reader = BufReader::new(file);
+
+    let mut scan = SessionVisibilityScan::default();
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        let row: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if row.get("type").and_then(|v| v.as_str()) != Some("response_item") {
+            continue;
+        }
+
+        let Some(payload) = row.get("payload") else {
+            continue;
+        };
+
+        let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        match payload_type {
+            "message" => {
+                let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                if role == "developer" || role == "system" {
+                    continue;
+                }
+
+                if let Some(first_prompt) = extract_first_prompt_text(payload) {
+                    if scan.first_prompt.is_none() && role == "user" {
+                        scan.first_prompt = Some(truncate_string(&first_prompt, 200));
+                    }
+                }
+
+                if !extract_message_content(payload).is_empty() {
+                    scan.message_count += 1;
+                    scan.has_visible_activity = true;
+                }
+            }
+            "function_call" => {
+                if payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .map(|name| !name.trim().is_empty())
+                    .unwrap_or(false)
+                {
+                    scan.has_visible_activity = true;
+                }
+            }
+            "function_call_output" => {
+                if payload
+                    .get("output")
+                    .map(value_has_visible_content)
+                    .unwrap_or(false)
+                {
+                    scan.has_visible_activity = true;
+                }
+            }
+            "reasoning" => {
+                if extract_reasoning_text(payload)
+                    .map(|text| !text.trim().is_empty())
+                    .unwrap_or(false)
+                {
+                    scan.has_visible_activity = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    scan
+}
+
+fn extract_first_prompt_text(payload: &Value) -> Option<String> {
+    let content = payload.get("content")?.as_array()?;
+    for item in content {
+        let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        if item_type == "input_text" || item_type == "text" {
+            let text = item.get("text").and_then(|v| v.as_str())?;
+            if !text.trim().is_empty() {
+                return Some(text.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn extract_reasoning_text(payload: &Value) -> Option<String> {
+    let value = payload
+        .get("text")
+        .or_else(|| payload.get("summary").and_then(|summary| summary.get(0)))?;
+
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+
+    if let Some(arr) = value.as_array() {
+        let text = arr
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<&str>>()
+            .join("\n");
+        return (!text.trim().is_empty()).then_some(text);
+    }
+
+    Some(value.to_string())
+}
+
+fn value_has_visible_content(value: &Value) -> bool {
+    match value {
+        Value::Null => false,
+        Value::String(text) => !text.trim().is_empty(),
+        Value::Array(items) => !items.is_empty(),
+        Value::Object(map) => !map.is_empty(),
+        Value::Bool(_) | Value::Number(_) => true,
+    }
+}
+
 fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
     let files = scan_all_session_files();
     let mut project_map: HashMap<String, ProjectEntry> = HashMap::new();
@@ -457,8 +638,18 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
     Ok(projects)
 }
 
+fn refresh_projects_cache() -> Result<Vec<ProjectEntry>, String> {
+    let projects = scan_projects_from_meta()?;
+    store_projects(&projects);
+    Ok(projects)
+}
+
 pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
-    scan_projects_from_meta()
+    if let Some(projects) = cached_projects() {
+        return Ok(projects);
+    }
+
+    refresh_projects_cache()
 }
 
 pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
@@ -525,10 +716,59 @@ pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
 }
 
 pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    Ok(get_sessions(cwd)?
-        .into_iter()
-        .filter(|entry| entry.message_count == 0)
-        .collect())
+    let mut entries: Vec<SessionIndexEntry> = scan_all_session_files()
+        .into_par_iter()
+        .filter_map(|file_path| {
+            let meta = extract_session_meta(&file_path)?;
+            if !meta.is_interactive || meta.cwd != cwd {
+                return None;
+            }
+
+            let scan = scan_session_visibility(&file_path);
+            if scan.has_visible_activity {
+                return None;
+            }
+
+            let file_meta = fs::metadata(&file_path).ok();
+            let modified = file_meta.as_ref().and_then(|m| {
+                m.modified().ok().map(|t| {
+                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                })
+            });
+            let created = file_meta.as_ref().and_then(|m| {
+                m.created().ok().map(|t| {
+                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default()
+                })
+            });
+
+            Some(SessionIndexEntry {
+                source: "codex".to_string(),
+                session_id: meta.id,
+                file_path: file_path.to_string_lossy().to_string(),
+                first_prompt: scan.first_prompt,
+                message_count: scan.message_count,
+                created,
+                modified,
+                git_branch: meta.git_branch,
+                project_path: None,
+                is_sidechain: None,
+                cwd: Some(meta.cwd),
+                model_provider: meta.model_provider,
+                cli_version: meta.cli_version,
+                alias: None,
+                tags: None,
+            })
+        })
+        .collect();
+
+    entries.sort_by(|a, b| b.modified.cmp(&a.modified));
+    Ok(entries)
 }
 
 // ── Message parsing ──

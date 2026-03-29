@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -94,7 +95,10 @@ pub async fn start_chat(
     model: String,
     skip_permissions: bool,
     cli_path: String,
+    api_key: String,
+    base_url: String,
 ) -> Result<String, String> {
+    let source = cli::normalize_source(&source)?.to_string();
     let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let resolved_cli = if cli_path.is_empty() {
@@ -102,16 +106,19 @@ pub async fn start_chat(
     } else {
         cli_path
     };
+    let credentials =
+        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
-    let cmd = build_chat_command(
-        &resolved_cli,
-        &source,
-        &project_path,
-        &prompt,
-        &model,
+    let cmd = build_chat_command(BuildChatCommandParams {
+        cli_path: &resolved_cli,
+        source: &source,
+        project_path: &project_path,
+        prompt: &prompt,
+        model: &model,
         skip_permissions,
-        None,
-    )?;
+        resume_session_id: None,
+        credentials: &credentials,
+    })?;
 
     spawn_and_stream(app, cmd, session_id.clone(), source)?;
 
@@ -129,22 +136,28 @@ pub async fn continue_chat(
     model: String,
     skip_permissions: bool,
     cli_path: String,
+    api_key: String,
+    base_url: String,
 ) -> Result<String, String> {
+    let source = cli::normalize_source(&source)?.to_string();
     let resolved_cli = if cli_path.is_empty() {
         cli::find_cli(&source)?
     } else {
         cli_path
     };
+    let credentials =
+        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
-    let cmd = build_chat_command(
-        &resolved_cli,
-        &source,
-        &project_path,
-        &prompt,
-        &model,
+    let cmd = build_chat_command(BuildChatCommandParams {
+        cli_path: &resolved_cli,
+        source: &source,
+        project_path: &project_path,
+        prompt: &prompt,
+        model: &model,
         skip_permissions,
-        Some(&session_id),
-    )?;
+        resume_session_id: Some(&session_id),
+        credentials: &credentials,
+    })?;
 
     spawn_and_stream(app, cmd, session_id.clone(), source)?;
 
@@ -167,15 +180,31 @@ pub async fn cancel_chat(app: AppHandle, session_id: String) -> Result<(), Strin
     Ok(())
 }
 
-fn build_chat_command(
-    cli_path: &str,
-    source: &str,
-    project_path: &str,
-    prompt: &str,
-    model: &str,
+struct BuildChatCommandParams<'a> {
+    cli_path: &'a str,
+    source: &'a str,
+    project_path: &'a str,
+    prompt: &'a str,
+    model: &'a str,
     skip_permissions: bool,
-    resume_session_id: Option<&str>,
+    resume_session_id: Option<&'a str>,
+    credentials: &'a cli_config::ResolvedCliCredentials,
+}
+
+fn build_chat_command(
+    params: BuildChatCommandParams<'_>,
 ) -> Result<Command, String> {
+    let BuildChatCommandParams {
+        cli_path,
+        source,
+        project_path,
+        prompt,
+        model,
+        skip_permissions,
+        resume_session_id,
+        credentials,
+    } = params;
+
     let mut cmd = Command::new(cli_path);
 
     if source == "codex" {
@@ -253,6 +282,8 @@ fn build_chat_command(
             cmd.env(key, val);
         }
     }
+    prepend_cli_dir_to_path(&mut cmd, cli_path)?;
+    apply_provider_env(&mut cmd, source, credentials);
 
     cmd.current_dir(project_path);
     cmd.stdout(Stdio::piped());
@@ -266,6 +297,62 @@ fn build_chat_command(
     }
 
     Ok(cmd)
+}
+
+fn prepend_cli_dir_to_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
+    let Some(cli_dir) = Path::new(cli_path)
+        .parent()
+        .filter(|path| !path.as_os_str().is_empty())
+    else {
+        return Ok(());
+    };
+
+    let mut paths = vec![cli_dir.to_path_buf()];
+    if let Some(existing_path) = std::env::var_os("PATH") {
+        paths.extend(std::env::split_paths(&existing_path));
+    }
+
+    let joined = std::env::join_paths(paths)
+        .map_err(|e| format!("Failed to compose PATH for chat CLI: {}", e))?;
+    cmd.env("PATH", joined);
+    Ok(())
+}
+
+fn apply_provider_env(
+    cmd: &mut Command,
+    source: &str,
+    credentials: &cli_config::ResolvedCliCredentials,
+) {
+    for key in &[
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_AUTH_TOKEN",
+        "ANTHROPIC_BASE_URL",
+        "CODEX_API_KEY",
+        "OPENAI_API_KEY",
+        "CODEX_BASE_URL",
+        "OPENAI_BASE_URL",
+    ] {
+        cmd.env_remove(key);
+    }
+
+    if source == "codex" {
+        if !credentials.api_key.is_empty() {
+            cmd.env("CODEX_API_KEY", &credentials.api_key);
+            cmd.env("OPENAI_API_KEY", &credentials.api_key);
+        }
+        if !credentials.base_url.is_empty() {
+            cmd.env("CODEX_BASE_URL", &credentials.base_url);
+            cmd.env("OPENAI_BASE_URL", &credentials.base_url);
+        }
+    } else {
+        if !credentials.api_key.is_empty() {
+            cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
+            cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);
+        }
+        if !credentials.base_url.is_empty() {
+            cmd.env("ANTHROPIC_BASE_URL", &credentials.base_url);
+        }
+    }
 }
 
 fn spawn_and_stream(
