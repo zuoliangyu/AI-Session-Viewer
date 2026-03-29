@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.1] - 2026-03-29
+
+### Fixed
+
+- 修复桌面端打包版本与 `tauri dev` 开发模式下启动即白屏的问题；根因是前端 API 入口使用顶层 `await`，在部分 WebView 运行时会在模块初始化阶段直接中断。
+
+### Changed
+
+- `src/services/api.ts` 改为同步导出的懒加载代理，按需动态导入 `tauriApi` / `webApi`，避免基础服务层在应用启动时依赖顶层 `await` 语法支持。
+- 将工作区版本统一提升到 `2.8.1`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest 与 `Cargo.lock` 中的工作区包版本记录。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.8.1` 摘要，补充本次白屏修复与 API 启动链路调整说明。
+
+---
+
 ## [2.8.0] - 2026-03-29
 
 ### Added
@@ -1112,6 +1129,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.8.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.1
 [2.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.0
 [2.7.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.2
 [2.7.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.1

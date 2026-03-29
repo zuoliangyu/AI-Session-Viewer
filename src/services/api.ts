@@ -1,9 +1,26 @@
 declare const __IS_TAURI__: boolean;
 
-// Dynamically import the appropriate API module based on build target
-const apiModule = __IS_TAURI__
+import type * as TauriApi from "./tauriApi";
+
+type ApiModule = typeof TauriApi;
+
+// Keep the API object synchronous so app startup does not depend on top-level await
+// support in the embedded WebView runtime.
+const apiModulePromise: Promise<ApiModule> = __IS_TAURI__
   ? import("./tauriApi")
   : import("./webApi");
 
-// Re-export all API functions through the promise
-export const api = await apiModule;
+export const api = new Proxy({} as ApiModule, {
+  get(_target, prop) {
+    return async (...args: unknown[]) => {
+      const apiModule = await apiModulePromise;
+      const member = apiModule[prop as keyof ApiModule];
+
+      if (typeof member !== "function") {
+        return member;
+      }
+
+      return (member as (...innerArgs: unknown[]) => unknown)(...args);
+    };
+  },
+});
