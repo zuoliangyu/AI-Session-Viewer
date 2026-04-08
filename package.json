@@ -1,7 +1,7 @@
 {
   "name": "ai-session-viewer",
   "private": true,
-  "version": "2.8.1",
+  "version": "2.8.2",
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-icons.mjs && vite",

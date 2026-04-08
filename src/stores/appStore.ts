@@ -347,8 +347,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         MAIN_MESSAGES_PAGE_SIZE,
         true
       );
+      const current = get();
+      if (
+        current.source !== state.source ||
+        current.selectedFilePath !== state.selectedFilePath
+      ) {
+        return;
+      }
       set({
-        messages: [...result.messages, ...state.messages],
+        messages: [...result.messages, ...current.messages],
+        messagesTotal: result.total,
         messagesPage: nextPage,
         messagesHasMore: result.hasMore,
         messagesLoading: false,

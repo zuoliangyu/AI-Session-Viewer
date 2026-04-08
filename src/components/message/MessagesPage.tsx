@@ -524,6 +524,44 @@ export function MessagesPage() {
     }
   }, [messages, messagesLoading]);
 
+  const requestOlderMessages = useCallback(() => {
+    if (!containerRef.current || messagesLoading || !messagesHasMore) return;
+    isLoadingOlderRef.current = true;
+    prevScrollHeightRef.current = containerRef.current.scrollHeight;
+    void loadMoreMessages();
+  }, [loadMoreMessages, messagesHasMore, messagesLoading]);
+
+  useEffect(() => {
+    if (
+      !initialScrollDone ||
+      messagesLoading ||
+      !messagesHasMore ||
+      matchedOnly ||
+      !!scrollToMessageId
+    ) {
+      return;
+    }
+
+    const raf = requestAnimationFrame(() => {
+      const viewport = containerRef.current;
+      if (!viewport) return;
+      const canScroll = viewport.scrollHeight > viewport.clientHeight + 24;
+      if (!canScroll) {
+        requestOlderMessages();
+      }
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [
+    initialScrollDone,
+    matchedOnly,
+    messages,
+    messagesHasMore,
+    messagesLoading,
+    requestOlderMessages,
+    scrollToMessageId,
+  ]);
+
   const updateScrollButtonState = useCallback((nextShowScrollUp: boolean, nextShowScrollDown: boolean) => {
     const current = scrollButtonStateRef.current;
 
@@ -548,11 +586,9 @@ export function MessagesPage() {
 
     // Load older messages when scrolling near top
     if (!messagesLoading && messagesHasMore && scrollTop < 200) {
-      isLoadingOlderRef.current = true;
-      prevScrollHeightRef.current = scrollHeight;
-      loadMoreMessages();
+      requestOlderMessages();
     }
-  }, [loadMoreMessages, messagesHasMore, messagesLoading, updateScrollButtonState]);
+  }, [messagesHasMore, messagesLoading, requestOlderMessages, updateScrollButtonState]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -943,10 +979,16 @@ export function MessagesPage() {
                 onViewportScroll={handleScroll}
                 viewportClassName="h-full"
               >
-                {messagesLoading && messages.length > 0 && messagesHasMore && (
-                  <div className="flex items-center justify-center py-4 text-muted-foreground">
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    加载更早的消息...
+                {messagesHasMore && messages.length > 0 && !matchedOnly && (
+                  <div className="flex justify-center px-4 pt-4">
+                    <button
+                      onClick={requestOlderMessages}
+                      disabled={messagesLoading}
+                      className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {messagesLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                      {messagesLoading ? "加载更早的消息..." : "加载更早的消息"}
+                    </button>
                   </div>
                 )}
                 {!messagesHasMore && messages.length > 0 && (
@@ -1262,6 +1304,13 @@ function SplitSessionPane({
     }
   }, [loading, messages]);
 
+  const requestOlderMessages = useCallback(() => {
+    if (!containerRef.current || loading || !hasMore) return;
+    isLoadingOlderRef.current = true;
+    prevScrollHeightRef.current = containerRef.current.scrollHeight;
+    void loadMessages(page + 1, "prepend");
+  }, [hasMore, loadMessages, loading, page]);
+
   useEffect(() => {
     if (chatMessages.length > 0 || chatStreaming) {
       requestAnimationFrame(() => {
@@ -1270,15 +1319,30 @@ function SplitSessionPane({
     }
   }, [chatMessages, chatStreaming]);
 
+  useEffect(() => {
+    if (!initialScrollDoneRef.current || loading || !hasMore) {
+      return;
+    }
+
+    const raf = requestAnimationFrame(() => {
+      const viewport = containerRef.current;
+      if (!viewport) return;
+      const canScroll = viewport.scrollHeight > viewport.clientHeight + 24;
+      if (!canScroll) {
+        requestOlderMessages();
+      }
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [hasMore, loading, messages, requestOlderMessages]);
+
   const handleScroll = useCallback(() => {
     if (!containerRef.current || loading || !hasMore) return;
-    const { scrollTop, scrollHeight } = containerRef.current;
+    const { scrollTop } = containerRef.current;
     if (scrollTop < 200) {
-      isLoadingOlderRef.current = true;
-      prevScrollHeightRef.current = scrollHeight;
-      void loadMessages(page + 1, "prepend");
+      requestOlderMessages();
     }
-  }, [hasMore, loadMessages, loading, page]);
+  }, [hasMore, loading, requestOlderMessages]);
 
   const handleSendChat = useCallback((prompt: string) => {
     if (!resolvedSessionId || !chatProjectPath) return;
@@ -1328,10 +1392,16 @@ function SplitSessionPane({
         onViewportScroll={handleScroll}
         viewportClassName="h-full"
       >
-        {loading && messages.length > 0 && hasMore && (
-          <div className="flex items-center justify-center py-4 text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            加载更早的消息...
+        {hasMore && messages.length > 0 && (
+          <div className="flex justify-center px-4 pt-4">
+            <button
+              onClick={requestOlderMessages}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {loading ? "加载更早的消息..." : "加载更早的消息"}
+            </button>
           </div>
         )}
 

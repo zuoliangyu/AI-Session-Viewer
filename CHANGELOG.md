@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.2] - 2026-04-08
+
+### Fixed
+
+- 修复长会话在消息页首屏仅显示最近 100 条后缺少可靠后续入口的问题；主视图与分屏视图都补充了显式“加载更早的消息”按钮，并在首屏内容不足以形成滚动区域时自动继续补页，不再容易误判为只能看 100 条消息。
+- 修正消息分页继续加载时的状态回写逻辑，避免异步翻页结果在会话切换后串入当前视图。
+
+### Changed
+
+- 将工作区版本统一提升到 `2.8.2`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest 与 `Cargo.lock` 中的工作区包版本记录。
+
+### Documentation
+
+- 更新 README 顶部 `Latest in v2.8.2` 摘要与消息分页说明，补充“顶部加载按钮 + 首屏自动补页兜底”的行为描述。
+
 ## [2.8.1] - 2026-03-29
 
 ### Fixed
@@ -1129,6 +1144,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[2.8.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.2
 [2.8.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.1
 [2.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.8.0
 [2.7.2]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v2.7.2
