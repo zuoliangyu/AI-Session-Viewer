@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Bot, ChevronDown, ChevronRight, Wrench, Brain, Copy, Check } from "lucide-react";
-import { formatTime, cleanMessageText, stripAnsi } from "./utils";
+import { formatTime, cleanMessageText, stripAnsi, copyTextToClipboard } from "./utils";
 import { ToolViewer } from "../chat/tool-viewers/ToolViewers";
 import { MarkdownContent } from "./MarkdownContent";
 import { useExpandAllControl } from "../common/ExpandAllContext";
@@ -31,6 +31,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
   const [copied, setCopied] = useState(false);
+  const { expanded: messageExpanded, setExpanded: setMessageExpanded } = useExpandAllControl(true);
   const textContent = useMemo(
     () => message.content
       .filter((block): block is { type: "text"; text: string } => block.type === "text")
@@ -43,17 +44,39 @@ export const AssistantMessage = memo(function AssistantMessage({
     () => textContent.join("\n\n").trim(),
     [textContent]
   );
+  const previewText = useMemo(() => {
+    const raw = copyText.replace(/\s+/g, " ").trim();
+    if (raw) {
+      return raw.length > 140 ? `${raw.slice(0, 140)}…` : raw;
+    }
+    const hasTool = message.content.some((b) => b.type === "tool_use" || b.type === "function_call");
+    if (hasTool) return "（工具调用）";
+    const hasThinking = message.content.some((b) => b.type === "thinking" || b.type === "reasoning");
+    if (hasThinking) return "（思考过程）";
+    return "（回复内容）";
+  }, [copyText, message.content]);
 
-  const handleCopy = () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!copyText) return;
-    navigator.clipboard.writeText(copyText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyTextToClipboard(copyText);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const isThreadLayout = layout === "thread";
   const metaContent = (
     <>
+      <button
+        onClick={() => setMessageExpanded(!messageExpanded)}
+        className="inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        title={messageExpanded ? "折叠此回复" : "展开此回复"}
+      >
+        {messageExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+      </button>
       <span className="text-sm font-medium">{assistantName}</span>
       {threadAnchor && (
         <span className="rounded-full border border-border bg-muted/60 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
@@ -109,7 +132,15 @@ export const AssistantMessage = memo(function AssistantMessage({
             {threadHint}
           </div>
         )}
-        {message.content.map((block, i) => {
+        {!messageExpanded ? (
+          <button
+            onClick={() => setMessageExpanded(true)}
+            className="block w-full rounded-xl border border-dashed border-border bg-muted/30 px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-muted/60 transition-colors"
+            title="展开此回复"
+          >
+            <span className="line-clamp-2">{previewText}</span>
+          </button>
+        ) : message.content.map((block, i) => {
           if (block.type === "text") {
             const cleaned = cleanMessageText(block.text);
             if (!cleaned) return null;
@@ -161,7 +192,7 @@ export const AssistantMessage = memo(function AssistantMessage({
 ));
 
 function ThinkingBlock({ thinking, layout = "default" }: { thinking: string; layout?: "default" | "thread" }) {
-  const { expanded, setExpanded } = useExpandAllControl(true);
+  const { expanded, setExpanded } = useExpandAllControl(false);
   const isThreadLayout = layout === "thread";
 
   return (

@@ -1,8 +1,9 @@
 import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
-import { Copy, Check } from "lucide-react";
-import { formatTime, cleanMessageText } from "./utils";
+import { Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { formatTime, cleanMessageText, copyTextToClipboard } from "./utils";
 import { MarkdownContent } from "./MarkdownContent";
+import { useExpandAllControl } from "../common/ExpandAllContext";
 
 interface Props {
   message: DisplayMessage;
@@ -20,6 +21,7 @@ export const UserMessage = memo(function UserMessage({
   layout = "default",
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const { expanded, setExpanded } = useExpandAllControl(true);
   const textContent = useMemo(
     () => message.content
       .filter((block): block is { type: "text"; text: string } => block.type === "text")
@@ -32,12 +34,20 @@ export const UserMessage = memo(function UserMessage({
     () => textContent.join("\n\n").trim(),
     [textContent]
   );
+  const previewText = useMemo(() => {
+    const raw = copyText.replace(/\s+/g, " ").trim();
+    return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || "（用户消息）";
+  }, [copyText]);
 
-  const handleCopy = () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!copyText) return;
-    navigator.clipboard.writeText(copyText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyTextToClipboard(copyText);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const isThreadLayout = layout === "thread";
@@ -50,35 +60,49 @@ export const UserMessage = memo(function UserMessage({
             {threadHint}
           </div>
         )}
-        {(showTimestamp && message.timestamp) || hasTextContent ? (
-          <div className={`mb-1 flex items-center gap-2 ${isThreadLayout ? "justify-start" : "justify-end"}`}>
-            {showTimestamp && message.timestamp && (
-              <span className="text-xs text-muted-foreground">
-                {formatTime(message.timestamp)}
-              </span>
-            )}
-            {hasTextContent && (
-              <button
-                onClick={handleCopy}
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                title="复制消息"
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5 text-green-500" />
-                    已复制
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" />
-                    复制文本
-                  </>
-                )}
-              </button>
-            )}
-          </div>
-        ) : null}
-        {message.content.map((block, i) => {
+        <div className={`mb-1 flex items-center gap-2 ${isThreadLayout ? "justify-start" : "justify-end"}`}>
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            title={expanded ? "折叠此消息" : "展开此消息"}
+          >
+            {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            <span>用户</span>
+          </button>
+          {showTimestamp && message.timestamp && (
+            <span className="text-xs text-muted-foreground">
+              {formatTime(message.timestamp)}
+            </span>
+          )}
+          {hasTextContent && (
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title="复制消息"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-green-500" />
+                  已复制
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5" />
+                  复制文本
+                </>
+              )}
+            </button>
+          )}
+        </div>
+        {!expanded ? (
+          <button
+            onClick={() => setExpanded(true)}
+            className={`block w-full rounded-xl border border-dashed border-border bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/60 transition-colors ${isThreadLayout ? "text-left" : "text-right"}`}
+            title="展开此消息"
+          >
+            <span className="truncate">{previewText}</span>
+          </button>
+        ) : message.content.map((block, i) => {
           if (block.type === "text") {
             return (
               <div key={i} className="rounded-2xl bg-primary/10 px-4 py-2.5 text-sm leading-relaxed">

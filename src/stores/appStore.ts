@@ -87,6 +87,8 @@ interface AppState {
   clearSelection: () => void;
   /** Silently refresh projects and current session list without loading states */
   refreshInBackground: (forceReload?: boolean) => Promise<void>;
+  /** Force-reload page 0 of the currently selected session's messages. Preserves user's scroll position in the viewport but rewinds state to the latest page. */
+  reloadLatestMessages: () => Promise<void>;
   updateSessionMeta: (
     sessionId: string,
     alias: string | null,
@@ -409,6 +411,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions: [],
       messages: [],
     });
+  },
+
+  reloadLatestMessages: async () => {
+    const { source: currentSource, selectedFilePath } = get();
+    if (!selectedFilePath) return;
+    try {
+      const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+      if (
+        get().source !== currentSource ||
+        get().selectedFilePath !== selectedFilePath
+      ) {
+        return;
+      }
+      set({
+        messages: result.messages,
+        messagesTotal: result.total,
+        messagesPage: 0,
+        messagesHasMore: result.hasMore,
+      });
+    } catch {
+      // silent
+    }
   },
 
   refreshInBackground: async (forceReload = false) => {

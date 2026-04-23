@@ -1,7 +1,13 @@
-import { useState, useRef, useEffect } from "react";
+import { forwardRef, useImperativeHandle, useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Bot } from "lucide-react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { ModelSelector } from "./ModelSelector";
+
+export interface ChatInputHandle {
+  /** Insert the given text as a markdown blockquote at the current cursor position, focusing the textarea. */
+  insertQuote: (text: string) => void;
+  focus: () => void;
+}
 
 interface Props {
   paneId?: string;
@@ -18,13 +24,13 @@ function shortModelName(id: string): string {
     .replace(/^claude-/, "");
 }
 
-export function ChatInput({
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   paneId = DEFAULT_CHAT_PANE_ID,
   onSend,
   onCancel,
   isStreaming,
   disabled,
-}: Props) {
+}, ref) {
   const [text, setText] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -32,6 +38,34 @@ export function ChatInput({
   const model = useChatStore((state) => state.getPaneState(paneId).model);
   const setPaneModel = useChatStore((state) => state.setPaneModel);
   const setActivePane = useChatStore((state) => state.setActivePane);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    },
+    insertQuote: (quote: string) => {
+      if (!quote) return;
+      const trimmed = quote.replace(/\r\n?/g, "\n").trim();
+      if (!trimmed) return;
+      const quoted = trimmed
+        .split("\n")
+        .map((line) => (line ? `> ${line}` : ">"))
+        .join("\n");
+      setText((prev) => {
+        const prefix = prev && !prev.endsWith("\n") ? `${prev}\n\n` : prev;
+        return `${prefix}${quoted}\n\n`;
+      });
+      setActivePane(paneId);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+        el.scrollTop = el.scrollHeight;
+      });
+    },
+  }), [paneId, setActivePane]);
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) {
@@ -157,4 +191,4 @@ export function ChatInput({
       />
     </>
   );
-}
+});

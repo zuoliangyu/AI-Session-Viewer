@@ -19,6 +19,7 @@ import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { DiffView } from "./DiffView";
 import { MarkdownContent } from "../../message/MarkdownContent";
+import { copyTextToClipboard } from "../../message/utils";
 import { useExpandAllControl } from "../../common/ExpandAllContext";
 
 /* ── Types ─────────────────────────────────────────── */
@@ -192,10 +193,14 @@ function hasAnswerValue(value: string | string[]): boolean {
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await copyTextToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
   return (
     <button

@@ -2,11 +2,13 @@ import { memo, useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
-import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, Rows2 } from "lucide-react";
+import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, Rows2, ListTree, MessageSquare } from "lucide-react";
 import { MessageThread } from "./MessageThread";
+import { ThreadSummaryView } from "./ThreadSummaryView";
+import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
 import { UserQuestionJumpList } from "./UserQuestionJumpList";
-import { ChatInput } from "../chat/ChatInput";
+import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
 import { formatTime } from "./utils";
@@ -339,10 +341,14 @@ export function MessagesPage() {
     showModel,
     toggleTimestamp,
     toggleModel,
+    refreshInBackground,
+    reloadLatestMessages,
   } = useAppStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatInputRef = useRef<ChatInputHandle>(null);
+  const autoFillAttemptRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
   const scrollButtonStateRef = useRef({ showScrollDown: false, showScrollUp: false });
@@ -356,6 +362,7 @@ export function MessagesPage() {
   const [splitFilePaths, setSplitFilePaths] = useState<string[]>([]);
   const [showSplitPicker, setShowSplitPicker] = useState(false);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
+  const [viewMode, setViewMode] = useState<"messages" | "thread">("messages");
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
 
   // Chat store for inline continue-chat
@@ -448,6 +455,8 @@ export function MessagesPage() {
     let cancelled = false;
     setInitialScrollDone(false);
     setJumpListCollapsed(true);
+    setViewMode("messages");
+    autoFillAttemptRef.current = 0;
     scrollButtonStateRef.current = { showScrollDown: false, showScrollUp: false };
     setShowScrollDown(false);
     setShowScrollUp(false);
@@ -537,7 +546,8 @@ export function MessagesPage() {
       messagesLoading ||
       !messagesHasMore ||
       matchedOnly ||
-      !!scrollToMessageId
+      !!scrollToMessageId ||
+      autoFillAttemptRef.current >= 1
     ) {
       return;
     }
@@ -547,6 +557,7 @@ export function MessagesPage() {
       if (!viewport) return;
       const canScroll = viewport.scrollHeight > viewport.clientHeight + 24;
       if (!canScroll) {
+        autoFillAttemptRef.current += 1;
         requestOlderMessages();
       }
     });
@@ -630,6 +641,29 @@ export function MessagesPage() {
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, []);
 
+  const handleThreadSelect = useCallback(
+    (userMsgId: string, _replyMsgId: string | null) => {
+      void _replyMsgId;
+      setViewMode("messages");
+      // Two RAFs: first to commit the viewMode switch, second to guarantee the
+      // MessageThread has rendered before we query for the anchor element.
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = containerRef.current?.querySelector(
+            `[data-user-msg-id="${userMsgId}"]`
+          );
+          if (!el) return;
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+          el.classList.add("ring-2", "ring-primary/50", "rounded-lg");
+          setTimeout(() => {
+            el.classList.remove("ring-2", "ring-primary/50", "rounded-lg");
+          }, 1600);
+        });
+      });
+    },
+    []
+  );
+
   const assistantName = assistantNameFromSource(source);
 
   const latestReply = useMemo(() => {
@@ -712,6 +746,29 @@ export function MessagesPage() {
       });
     }
   }, [chatMessages, chatStreaming]);
+
+  // When an in-page chat stream completes, the JSONL on disk is freshly written
+  // but fs-change debounce + backend cache may delay the main message list
+  // refresh. Explicitly trigger a background refresh and hand the conversation
+  // over to the historical list so users don't have to reload the page.
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    if (prevStreamingRef.current && !chatStreaming && chatMessages.length > 0) {
+      const refreshTimer = setTimeout(() => {
+        void refreshInBackground(true);
+        void reloadLatestMessages();
+      }, 300);
+      const clearTimer = setTimeout(() => {
+        clearPane(mainPaneId);
+      }, 1500);
+      prevStreamingRef.current = chatStreaming;
+      return () => {
+        clearTimeout(refreshTimer);
+        clearTimeout(clearTimer);
+      };
+    }
+    prevStreamingRef.current = chatStreaming;
+  }, [chatStreaming, chatMessages.length, clearPane, mainPaneId, refreshInBackground, reloadLatestMessages]);
 
   const handleSendChat = (prompt: string) => {
     if (!resolvedSessionId) return;
@@ -826,6 +883,27 @@ export function MessagesPage() {
               )}
             </button>
           )}
+          <button
+            onClick={() => setViewMode((prev) => (prev === "thread" ? "messages" : "thread"))}
+            className={`px-2 py-1.5 rounded text-xs flex items-center gap-1 transition-colors ${
+              viewMode === "thread"
+                ? "bg-primary/15 text-primary hover:bg-primary/20"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+            title={viewMode === "thread" ? "返回消息视图" : "打开 Thread 视图（用户提问摘要）"}
+          >
+            {viewMode === "thread" ? (
+              <>
+                <MessageSquare className="w-3.5 h-3.5" />
+                消息视图
+              </>
+            ) : (
+              <>
+                <ListTree className="w-3.5 h-3.5" />
+                Thread
+              </>
+            )}
+          </button>
           <button
             onClick={() => {
               setAllExpanded(true);
@@ -962,7 +1040,7 @@ export function MessagesPage() {
                     : "min-h-[28rem] max-h-[70vh] min-w-0 shrink-0"
               }`}
             >
-              {userDots.length > 0 && (
+              {userDots.length > 0 && viewMode !== "thread" && (
                 <div className="absolute inset-0 z-20 pointer-events-none">
                   <UserQuestionJumpList
                     items={userDots}
@@ -1001,6 +1079,12 @@ export function MessagesPage() {
                     <Loader2 className="w-5 h-5 animate-spin mr-2" />
                     加载消息中...
                   </div>
+                ) : viewMode === "thread" ? (
+                  <ThreadSummaryView
+                    messages={displayedMessages}
+                    source={source}
+                    onSelect={handleThreadSelect}
+                  />
                 ) : (
                   <MessageThread
                     messages={displayedMessages}
@@ -1071,9 +1155,10 @@ export function MessagesPage() {
       </ExpandAllProvider>
 
       {/* Chat input */}
-      {resolvedSessionId && cliAvailable && (
+      {resolvedSessionId && cliAvailable && viewMode !== "thread" && (
         <div className="shrink-0">
           <ChatInput
+            ref={chatInputRef}
             paneId={mainPaneId}
             onSend={handleSendChat}
             onCancel={() => cancelPane(mainPaneId)}
@@ -1083,8 +1168,17 @@ export function MessagesPage() {
         </div>
       )}
 
+      {/* Floating "Reply" button that appears when the user selects text inside the messages area */}
+      {resolvedSessionId && cliAvailable && viewMode !== "thread" && (
+        <SelectionReplyButton
+          scopeRef={containerRef}
+          disabled={chatStreaming}
+          onReply={(text) => chatInputRef.current?.insertQuote(text)}
+        />
+      )}
+
       {/* Timeline navigation dots */}
-      {userDots.length > 1 && (
+      {userDots.length > 1 && viewMode !== "thread" && (
         <TimelineDots
           dots={userDots}
           activeId={activeUserMsgId}
