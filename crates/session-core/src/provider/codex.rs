@@ -494,32 +494,29 @@ fn scan_session_visibility(path: &Path) -> SessionVisibilityScan {
                     scan.has_visible_activity = true;
                 }
             }
-            "function_call" => {
+            "function_call"
                 if payload
                     .get("name")
                     .and_then(|v| v.as_str())
                     .map(|name| !name.trim().is_empty())
-                    .unwrap_or(false)
-                {
-                    scan.has_visible_activity = true;
-                }
+                    .unwrap_or(false) =>
+            {
+                scan.has_visible_activity = true;
             }
-            "function_call_output" => {
+            "function_call_output"
                 if payload
                     .get("output")
                     .map(value_has_visible_content)
-                    .unwrap_or(false)
-                {
-                    scan.has_visible_activity = true;
-                }
+                    .unwrap_or(false) =>
+            {
+                scan.has_visible_activity = true;
             }
-            "reasoning" => {
+            "reasoning"
                 if extract_reasoning_text(payload)
                     .map(|text| !text.trim().is_empty())
-                    .unwrap_or(false)
-                {
-                    scan.has_visible_activity = true;
-                }
+                    .unwrap_or(false) =>
+            {
+                scan.has_visible_activity = true;
             }
             _ => {}
         }

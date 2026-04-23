@@ -148,7 +148,7 @@ async fn fetch_anthropic_models(api_key: &str, base_url: &str) -> Result<Vec<Mod
     models.retain(|m| m.id.to_lowercase().contains("claude"));
 
     // Sort by created desc (newest first)
-    models.sort_by(|a, b| b.created.cmp(&a.created));
+    models.sort_by_key(|m| std::cmp::Reverse(m.created));
     Ok(models)
 }
 
