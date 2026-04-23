@@ -7,7 +7,7 @@ import { MessageThread } from "./MessageThread";
 import { ThreadSummaryView } from "./ThreadSummaryView";
 import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
-import { UserQuestionJumpList } from "./UserQuestionJumpList";
+import { MessageTOCSidebar } from "./MessageTOCSidebar";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
@@ -352,7 +352,6 @@ export function MessagesPage() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
   const scrollButtonStateRef = useRef({ showScrollDown: false, showScrollUp: false });
-  const [jumpListCollapsed, setJumpListCollapsed] = useState(true);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
   const prevScrollHeightRef = useRef<number>(0);
   const isLoadingOlderRef = useRef(false);
@@ -363,6 +362,13 @@ export function MessagesPage() {
   const [showSplitPicker, setShowSplitPicker] = useState(false);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
   const [viewMode, setViewMode] = useState<"messages" | "thread">("messages");
+  const [tocCollapsed, setTocCollapsed] = useState<boolean>(
+    () => localStorage.getItem("messageTocCollapsed") === "true"
+  );
+  const handleToggleToc = useCallback((next: boolean) => {
+    setTocCollapsed(next);
+    localStorage.setItem("messageTocCollapsed", String(next));
+  }, []);
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
 
   // Chat store for inline continue-chat
@@ -454,7 +460,6 @@ export function MessagesPage() {
     if (!filePath) return;
     let cancelled = false;
     setInitialScrollDone(false);
-    setJumpListCollapsed(true);
     setViewMode("messages");
     autoFillAttemptRef.current = 0;
     scrollButtonStateRef.current = { showScrollDown: false, showScrollUp: false };
@@ -1014,8 +1019,20 @@ export function MessagesPage() {
       )}
 
       <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
-        <div
-          className={`flex-1 min-h-0 ${
+        <div className="flex-1 min-h-0 flex min-w-0">
+          {viewMode !== "thread" && userDots.length > 0 && (
+            <div className="flex shrink-0 py-3 pl-3">
+              <MessageTOCSidebar
+                items={userDots}
+                activeId={activeUserMsgId}
+                onSelect={handleDotClick}
+                collapsed={tocCollapsed}
+                onToggleCollapsed={handleToggleToc}
+              />
+            </div>
+          )}
+          <div
+          className={`flex-1 min-w-0 ${
             isSplitHorizontal ? "overflow-x-auto overflow-y-hidden" : "overflow-y-auto"
           } ${splitScrollDrag.isEnabled ? "cursor-grab" : ""}`}
           onPointerDown={splitScrollDrag.onPointerDown}
@@ -1040,17 +1057,6 @@ export function MessagesPage() {
                     : "min-h-[28rem] max-h-[70vh] min-w-0 shrink-0"
               }`}
             >
-              {userDots.length > 0 && viewMode !== "thread" && (
-                <div className="absolute inset-0 z-20 pointer-events-none">
-                  <UserQuestionJumpList
-                    items={userDots}
-                    activeId={activeUserMsgId}
-                    onSelect={handleDotClick}
-                    collapsed={jumpListCollapsed}
-                    onToggleCollapsed={setJumpListCollapsed}
-                  />
-                </div>
-              )}
               <ScrollArea
                 className="flex-1 min-h-0"
                 viewportRef={containerRef}
@@ -1151,6 +1157,7 @@ export function MessagesPage() {
               />
             ))}
           </div>
+        </div>
         </div>
       </ExpandAllProvider>
 
