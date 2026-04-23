@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-04-23
+
+### Added
+
+- 左侧提问目录侧栏（`MessageTOCSidebar`）：在消息页主区左侧列出会话内所有用户提问（编号 + 两行预览 + 时间戳），点击跳转到对应消息并带 1.2s ring 高亮反馈。展开 240px、折叠 40px 细条，折叠状态持久化到 `localStorage.messageTocCollapsed`。
+- Thread 摘要视图：顶栏新增按钮切换，将会话展平为"用户提问 → CC 回复摘要"卡片列表（含模型、时间、是否包含工具调用），点击任一条跳回消息视图并定位到该问答。
+- 消息级整体折叠：`UserMessage` / `AssistantMessage` 接入 `useExpandAllControl`，顶栏"全部折叠"会把每条消息缩为单行预览，每条消息旁也有独立的展开/折叠按钮。
+- 思考过程块默认折叠、每个独立可展开；每条回答的结构化显示更接近"思考过程（折叠）+ 正式回答"。
+- 选中消息文本浮动 Reply 按钮（`SelectionReplyButton`）：在消息滚动区内划选任意文本即弹出胶囊按钮，点击把选中内容按行包成 `>` markdown 引用块注入续聊输入框并聚焦；Thread 模式或流式中自动禁用。
+- 首问粘性横幅：消息滚动区顶部常驻显示当前已加载消息的首条提问摘要，滚动不消失；点击跳回顶部，当首问本身已进入视口时自动淡出避免重复。
+- 文本复制公共工具 `copyTextToClipboard`（`await navigator.clipboard` + `document.execCommand` 回退），`UserMessage` / `AssistantMessage` / 工具结果卡片 `CopyButton` 共用。
+
+### Changed
+
+- `ExpandAllContext.useExpandAllControl` 首次挂载不再用全局 `ctx.expanded` 覆盖块自身的 `defaultExpanded`，只在版本号变化（用户主动点击全局按钮）时同步；思考块等默认折叠块现在真正以折叠态登场。
+- `ChatInput` 改为 `forwardRef`，暴露 `insertQuote` / `focus` 句柄；在 `appStore` 新增 `reloadLatestMessages()`（无视 `messagesPage` 守卫强刷最新一页）。续聊流式完成后延时触发后台刷新 + `reloadLatestMessages` + 清空续聊 pane，让历史消息列表接管显示，解决需手动刷新才能看到新对话。
+- `MessageThread.handleDotClick`（被 TOC、时间轴、首问横幅共用）加防御：未找到目标退化到回滚视口顶部；找到后加 `ring-2 ring-primary/40` 1.2s 高亮反馈。
+- 移除原有悬浮提问跳转球 `UserQuestionJumpList` 在消息页的使用（组件文件保留，避免破坏其他引用）。
+
+### Fixed
+
+- 修复复制按钮点击无响应：此前三处 `navigator.clipboard.writeText(...)` 均未 await 且无回退，非 HTTPS / 权限不足场景下会静默失败却仍显示"已复制"。
+- 修复进入会话后"一直在重复刷新"：`MessagesPage` 的"视口不足就自动拉更早消息"副作用限制为每次进入会话最多触发一次，避免思考块默认折叠后内容变短引起的多页连环加载。
+- 修复 TOC 点击无响应：先前作为 `absolute + pointer-events-none` 外层包裹时，`pointer-events-auto` 在部分嵌套下并未恢复，导致 TOC 条目点击被吞。
+- 修复 TOC 随右侧/全局滚动一起被带走：`MessagesPage` 根由 `h-full` 改为 `h-dvh max-h-dvh` + `overflow-hidden`，切断与 `scroll-area-content` 的百分比循环依赖，整个消息页被钉在视口高度内；左侧提问目录和右侧消息各自独立滚动，外层 `ScrollArea` 不再能卷走整页。
+
+### Version
+
+- 将工作区版本统一提升到 `2.9.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest 与 `Cargo.lock` 中的工作区包版本记录。
+
 ## [2.8.2] - 2026-04-08
 
 ### Fixed

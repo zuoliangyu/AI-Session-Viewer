@@ -827,7 +827,7 @@ export function MessagesPage() {
   const splitScrollDrag = useHorizontalDragScroll(isSplitHorizontal);
 
   return (
-    <div className="flex flex-col h-full relative overflow-hidden">
+    <div className="flex flex-col h-dvh max-h-dvh relative overflow-hidden">
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
