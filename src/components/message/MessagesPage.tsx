@@ -641,9 +641,31 @@ export function MessagesPage() {
   const userMessageIds = useMemo(() => userDots.map((d) => d.id), [userDots]);
   const activeUserMsgId = useActiveUserMessage(containerRef, userMessageIds);
 
+  // First user question in the currently loaded messages — used as a sticky
+  // context anchor at the top of the scroll area so you always know what the
+  // conversation is about, even after scrolling far down.
+  const firstUserAnchor = useMemo(() => {
+    return userDots.length > 0 ? userDots[0] : null;
+  }, [userDots]);
+  // When the anchor is near the top of the viewport the sticky banner would
+  // visually duplicate the message itself — hide it in that case.
+  const firstAnchorIsActive = firstUserAnchor !== null && activeUserMsgId === firstUserAnchor.id;
+
   const handleDotClick = useCallback((id: string) => {
-    const el = containerRef.current?.querySelector(`[data-user-msg-id="${id}"]`);
-    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const viewport = containerRef.current;
+    if (!viewport) return;
+    const el = viewport.querySelector(`[data-user-msg-id="${id}"]`);
+    if (!el) {
+      // Fallback: jump to top so the user at least sees *something* happen
+      // when the target message is paginated out.
+      viewport.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary/40", "rounded-lg");
+    setTimeout(() => {
+      el.classList.remove("ring-2", "ring-primary/40", "rounded-lg");
+    }, 1200);
   }, []);
 
   const handleThreadSelect = useCallback(
@@ -805,7 +827,7 @@ export function MessagesPage() {
   const splitScrollDrag = useHorizontalDragScroll(isSplitHorizontal);
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div className="flex flex-col h-full relative overflow-hidden">
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-card px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3 min-w-0">
@@ -1021,7 +1043,7 @@ export function MessagesPage() {
       <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
         <div className="flex-1 min-h-0 flex min-w-0">
           {viewMode !== "thread" && userDots.length > 0 && (
-            <div className="flex shrink-0 py-3 pl-3">
+            <div className="relative z-10 shrink-0 py-3 pl-3 flex items-stretch">
               <MessageTOCSidebar
                 items={userDots}
                 activeId={activeUserMsgId}
@@ -1063,6 +1085,28 @@ export function MessagesPage() {
                 onViewportScroll={handleScroll}
                 viewportClassName="h-full"
               >
+                {viewMode !== "thread" && firstUserAnchor && (
+                  <button
+                    type="button"
+                    onClick={() => handleDotClick(firstUserAnchor.id)}
+                    title={firstUserAnchor.preview}
+                    className={`sticky top-0 z-30 flex w-full items-center gap-2 border-b border-border/70 bg-card/95 px-4 py-2 text-left text-xs backdrop-blur supports-[backdrop-filter]:bg-card/80 transition-opacity hover:bg-accent/50 ${
+                      firstAnchorIsActive ? "opacity-0 pointer-events-none" : "opacity-100"
+                    }`}
+                  >
+                    <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary/15 px-1.5 font-mono text-[10px] text-primary">
+                      首问
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-foreground">
+                      {firstUserAnchor.preview}
+                    </span>
+                    {firstUserAnchor.timestamp && (
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
+                        {firstUserAnchor.timestamp}
+                      </span>
+                    )}
+                  </button>
+                )}
                 {messagesHasMore && messages.length > 0 && !matchedOnly && (
                   <div className="flex justify-center px-4 pt-4">
                     <button
