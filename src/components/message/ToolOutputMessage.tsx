@@ -1,7 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
-import { Terminal, ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
-import { formatTime, stripAnsi } from "./utils";
+import { Terminal, ChevronDown, ChevronRight, Code, FileText, Copy, Check } from "lucide-react";
+import { formatTime, stripAnsi, copyTextToClipboard } from "./utils";
 import { MarkdownContent } from "./MarkdownContent";
 import { useExpandAllControl } from "../common/ExpandAllContext";
 
@@ -27,6 +27,7 @@ function OutputBlock({
   const isLong = content.length > COLLAPSE_THRESHOLD;
   const { expanded, setExpanded } = useExpandAllControl(!isLong);
   const [viewMode, setViewMode] = useState<"source" | "md">("source");
+  const [copied, setCopied] = useState(false);
   const displayContent = useMemo(
     () => (content.length > 10000 ? content.slice(0, 10000) + "\n... (truncated)" : content),
     [content]
@@ -35,6 +36,18 @@ function OutputBlock({
     () => (content.length > 10000 ? content.slice(0, 10000) + "\n\n... (truncated)" : content),
     [content]
   );
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!content) return;
+    // Copy the full unstripped content to avoid silently dropping lines.
+    const ok = await copyTextToClipboard(content);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   return (
     <div className={`mt-1 border rounded-md overflow-hidden ${
@@ -88,6 +101,25 @@ function OutputBlock({
             <span className="text-[10px]">MD</span>
           </button>
         </div>
+
+        {/* 复制按钮 */}
+        <button
+          onClick={handleCopy}
+          className="ml-1 inline-flex shrink-0 items-center gap-1 rounded border border-border/50 px-1.5 py-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          title="复制全部内容"
+        >
+          {copied ? (
+            <>
+              <Check className="w-3 h-3 text-green-500" />
+              已复制
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" />
+              复制
+            </>
+          )}
+        </button>
       </div>
 
       {/* 内容区 */}

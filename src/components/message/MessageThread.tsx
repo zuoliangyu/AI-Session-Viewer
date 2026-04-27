@@ -38,6 +38,13 @@ const DEFER_RENDER_ROOT_MARGIN = "1400px 0px 1400px 0px";
 const PLACEHOLDER_MIN_HEIGHT = 76;
 const PLACEHOLDER_MAX_HEIGHT = 320;
 
+interface ThreadFoldControl {
+  hasChildren: boolean;
+  expanded: boolean;
+  setExpanded: (next: boolean) => void;
+  childrenCount: number;
+}
+
 function flattenThreadNodes(nodes: ThreadDisplayNode[]): ThreadDisplayNode[] {
   const flat: ThreadDisplayNode[] = [];
 
@@ -236,7 +243,7 @@ function ThreadBranch({
   source,
 }: {
   node: ThreadDisplayNode;
-  renderMessage: (node: ThreadDisplayNode) => ReactNode;
+  renderMessage: (node: ThreadDisplayNode, threadFold?: ThreadFoldControl) => ReactNode;
   source: string;
 }) {
   const hasChildren = node.children.length > 0;
@@ -245,10 +252,19 @@ function ThreadBranch({
   const tone = getThreadLineTone(node);
   const collapsedText = lineText.trim() || "当前分支";
 
+  // For user nodes the bubble itself owns the unified fold control
+  // (collapsing the bubble + all of its replies together), so we hide
+  // the duplicate fold button that ThreadBranch would otherwise render.
+  const isUserNode = node.message.role === "user";
+  const showOwnFoldButton = hasChildren && !isUserNode;
+  const threadFold: ThreadFoldControl | undefined = hasChildren
+    ? { hasChildren, expanded, setExpanded, childrenCount: node.children.length }
+    : undefined;
+
   return (
     <div className="min-w-0">
       <div className="relative min-w-0 rounded-md text-left">
-        {hasChildren && (
+        {showOwnFoldButton && (
           <button
             onClick={() => setExpanded(!expanded)}
             className={`absolute right-full top-0 mr-1 rounded-full border p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
@@ -265,21 +281,23 @@ function ThreadBranch({
         )}
 
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2 py-0.5 text-left">
-            <span
-              className={`min-w-0 truncate text-[13px] leading-5 ${tone.label}`}
-              title={lineText}
-            >
-              {lineText}
-            </span>
-            {hasChildren && (
-              <span className={`shrink-0 text-[11px] ${tone.meta}`}>
-                {node.children.length} 条回复
+          {!isUserNode && (
+            <div className="flex min-w-0 items-center gap-2 py-0.5 text-left">
+              <span
+                className={`min-w-0 truncate text-[13px] leading-5 ${tone.label}`}
+                title={lineText}
+              >
+                {lineText}
               </span>
-            )}
-          </div>
+              {hasChildren && (
+                <span className={`shrink-0 text-[11px] ${tone.meta}`}>
+                  {node.children.length} 条回复
+                </span>
+              )}
+            </div>
+          )}
 
-          <div className="mt-2 min-w-0">{renderMessage(node)}</div>
+          <div className={isUserNode ? "min-w-0" : "mt-2 min-w-0"}>{renderMessage(node, threadFold)}</div>
 
           {hasChildren && expanded && (
             <div className="mt-4 space-y-4">
@@ -294,7 +312,7 @@ function ThreadBranch({
             </div>
           )}
 
-          {hasChildren && !expanded && (
+          {hasChildren && !expanded && !isUserNode && (
             <div className="mt-2 text-xs text-muted-foreground">
               已折叠 {collapsedText}（{node.children.length} 条后续消息）
             </div>
@@ -471,7 +489,7 @@ export const MessageThread = memo(function MessageThread({
     return ids;
   }, [flatNodes, priorityMessageId, renderedFromIndex, shouldDefer]);
 
-  const renderMessageContent = (node: ThreadDisplayNode) => {
+  const renderMessageContent = (node: ThreadDisplayNode, threadFold?: ThreadFoldControl) => {
     const msg = node.message;
     const messageLayout = isThreaded ? "thread" : "default";
 
@@ -499,6 +517,9 @@ export const MessageThread = memo(function MessageThread({
                   ? `通过 ${node.mentionAnchors[0]} 挂到该回复`
                   : null
               }
+              replyCount={threadFold?.childrenCount ?? 0}
+              repliesExpanded={threadFold?.expanded}
+              onToggleReplies={threadFold?.setExpanded}
             />
           </div>
           <div className="flex shrink-0 flex-col gap-0.5">
@@ -574,14 +595,14 @@ export const MessageThread = memo(function MessageThread({
     );
   };
 
-  const renderMessage = (node: ThreadDisplayNode) => (
+  const renderMessage = (node: ThreadDisplayNode, threadFold?: ThreadFoldControl) => (
     <DeferredThreadMessage
       key={node.id}
       node={node}
       eager={!shouldDefer || eagerNodeIds?.has(node.id) === true}
       viewportRef={viewportRef}
       isThreaded={isThreaded}
-      renderContent={() => renderMessageContent(node)}
+      renderContent={() => renderMessageContent(node, threadFold)}
     />
   );
 
