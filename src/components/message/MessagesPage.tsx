@@ -357,9 +357,17 @@ export function MessagesPage() {
   const isLoadingOlderRef = useRef(false);
   const scrolledTargetRef = useRef<string | null>(null);
   const [expandVersion, setExpandVersion] = useState(0);
-  const [allExpanded, setAllExpanded] = useState(true);
+  const [allExpanded, setAllExpanded] = useState<boolean>(
+    () => localStorage.getItem("messagesAllExpanded") === "true"
+  );
+  const setAllExpandedPersist = useCallback((next: boolean) => {
+    setAllExpanded(next);
+    localStorage.setItem("messagesAllExpanded", String(next));
+  }, []);
   const [splitFilePaths, setSplitFilePaths] = useState<string[]>([]);
   const [showSplitPicker, setShowSplitPicker] = useState(false);
+  const [loadingAll, setLoadingAll] = useState(false);
+  const loadAllAbortRef = useRef(false);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
   const [viewMode, setViewMode] = useState<"messages" | "thread">("messages");
   const [tocCollapsed, setTocCollapsed] = useState<boolean>(
@@ -545,6 +553,39 @@ export function MessagesPage() {
     void loadMoreMessages();
   }, [loadMoreMessages, messagesHasMore, messagesLoading]);
 
+  // Sequentially page through everything older than what's currently loaded.
+  // The button is intentionally manual (not auto on mount) since very long
+  // sessions can be 10k+ messages and rendering them all is expensive.
+  const handleLoadAll = useCallback(async () => {
+    if (loadingAll) {
+      // Second click cancels an in-flight load-all run.
+      loadAllAbortRef.current = true;
+      return;
+    }
+    setLoadingAll(true);
+    loadAllAbortRef.current = false;
+    try {
+      // Read latest store state on each iteration to know if we still need
+      // more pages. Cap iterations defensively.
+      for (let i = 0; i < 500; i += 1) {
+        if (loadAllAbortRef.current) break;
+        const state = useAppStore.getState();
+        if (!state.messagesHasMore || state.messagesLoading) {
+          if (state.messagesLoading) {
+            // Yield until the in-flight request settles.
+            await new Promise((r) => setTimeout(r, 80));
+            continue;
+          }
+          break;
+        }
+        await state.loadMoreMessages();
+      }
+    } finally {
+      setLoadingAll(false);
+      loadAllAbortRef.current = false;
+    }
+  }, [loadingAll]);
+
   useEffect(() => {
     if (
       !initialScrollDone ||
@@ -718,11 +759,17 @@ export function MessagesPage() {
     return null;
   }, [messages, chatMessages]);
 
-  useReplyNotification(
+  const { unreadCount: unreadReplyCount, clear: clearUnreadReplies } = useReplyNotification(
     latestReply?.key ?? null,
     `${assistantName} 有新回复`,
     latestReply?.preview || "点击查看最新消息"
   );
+
+  // Drop the unread banner when the user navigates to a different session so
+  // counts don't bleed across sessions.
+  useEffect(() => {
+    clearUnreadReplies();
+  }, [filePath, clearUnreadReplies]);
 
   const [copied, setCopied] = useState(false);
 
@@ -841,12 +888,23 @@ export function MessagesPage() {
             <p className="text-sm font-medium truncate">
               {resolvedSessionTitle}
             </p>
-            <p className="text-xs text-muted-foreground">
-              {messages.length < messagesTotal
-                ? `已加载 ${messages.length} / ${messagesTotal} 条消息`
-                : `${messagesTotal} 条消息`}
-              {session?.gitBranch && ` · ${session.gitBranch}`}
-              {` · ${assistantName}`}
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+              {messages.length < messagesTotal ? (
+                <button
+                  onClick={handleLoadAll}
+                  disabled={!messagesHasMore && !loadingAll}
+                  className="inline-flex items-center gap-1 rounded border border-border/60 bg-background/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-60"
+                  title={loadingAll ? "点击中止加载" : "点击一次性加载全部历史消息"}
+                >
+                  {loadingAll && <Loader2 className="w-3 h-3 animate-spin" />}
+                  已加载 {messages.length} / {messagesTotal}
+                  <span className="text-primary">{loadingAll ? "·中止" : "·加载全部"}</span>
+                </button>
+              ) : (
+                <span>{messagesTotal} 条消息</span>
+              )}
+              {session?.gitBranch && <span>· {session.gitBranch}</span>}
+              <span>· {assistantName}</span>
             </p>
           </div>
         </div>
@@ -933,21 +991,25 @@ export function MessagesPage() {
           </button>
           <button
             onClick={() => {
-              setAllExpanded(true);
+              setAllExpandedPersist(true);
               setExpandVersion((v) => v + 1);
             }}
-            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            title="全部展开"
+            className={`p-1.5 rounded transition-colors ${
+              allExpanded ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+            title="全部展开（默认值已记住）"
           >
             <Rows3 className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={() => {
-              setAllExpanded(false);
+              setAllExpandedPersist(false);
               setExpandVersion((v) => v + 1);
             }}
-            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            title="全部折叠"
+            className={`p-1.5 rounded transition-colors ${
+              !allExpanded ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-accent"
+            }`}
+            title="全部折叠（默认值已记住）"
           >
             <ChevronsUpDown className="w-3.5 h-3.5" />
           </button>
@@ -1037,6 +1099,28 @@ export function MessagesPage() {
       {resumeError && (
         <div className="mx-4 mt-2 px-4 py-2 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive">
           {resumeError}
+        </div>
+      )}
+
+      {/* Unread replies banner — accumulates while the page is hidden, shown on return */}
+      {unreadReplyCount > 0 && (
+        <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm">
+          <span className="text-primary">期间收到 {unreadReplyCount} 条新回复</span>
+          <button
+            onClick={() => {
+              clearUnreadReplies();
+              scrollToBottom();
+            }}
+            className="ml-auto rounded px-2 py-0.5 text-xs text-primary hover:bg-primary/15 transition-colors"
+          >
+            跳到底部
+          </button>
+          <button
+            onClick={clearUnreadReplies}
+            className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            关闭
+          </button>
         </div>
       )}
 
@@ -1239,6 +1323,22 @@ export function MessagesPage() {
 
       {/* Scroll buttons */}
       <div className="absolute bottom-20 right-6 flex flex-col gap-2">
+        {messages.length > 0 && viewMode !== "thread" && (
+          <button
+            onClick={() => {
+              setAllExpandedPersist(!allExpanded);
+              setExpandVersion((v) => v + 1);
+            }}
+            className="p-2.5 rounded-full bg-card border border-border text-foreground shadow-lg hover:bg-accent transition-all hover:scale-105"
+            title={allExpanded ? "全部折叠（默认值已记住）" : "全部展开（默认值已记住）"}
+          >
+            {allExpanded ? (
+              <ChevronsUpDown className="w-4 h-4" />
+            ) : (
+              <Rows3 className="w-4 h-4" />
+            )}
+          </button>
+        )}
         {showScrollUp && (
           <button
             onClick={scrollToTop}

@@ -21,15 +21,23 @@ export function ExpandAllProvider({
   );
 }
 
-export function useExpandAllControl(defaultExpanded = true) {
+export function useExpandAllControl(
+  defaultExpanded = true,
+  options?: { followGlobal?: boolean }
+) {
   const ctx = useContext(ExpandAllContext);
-  const [expanded, setExpanded] = useState(defaultExpanded);
+  const followGlobal = options?.followGlobal ?? false;
+  // When followGlobal=true and a context is present, the *initial* expanded
+  // state mirrors the page-level setting (so persisted "default collapsed"
+  // wins on first paint). Otherwise each block keeps its hard-coded default.
+  const initial = followGlobal && ctx ? ctx.expanded : defaultExpanded;
+  const [expanded, setExpanded] = useState(initial);
   const skipFirstSyncRef = useRef(true);
 
   // Sync to the global expand/collapse state only when the user explicitly
   // toggles it (version bumps). The first effect run at mount is a no-op so
-  // that blocks like thinking can keep their own defaultExpanded=false even
-  // when the surrounding page starts in the "all expanded" state.
+  // blocks like thinking can keep their own defaultExpanded=false even when
+  // the surrounding page starts in the "all expanded" state.
   useEffect(() => {
     if (skipFirstSyncRef.current) {
       skipFirstSyncRef.current = false;

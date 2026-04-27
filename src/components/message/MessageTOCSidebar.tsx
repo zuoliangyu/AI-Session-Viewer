@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { getQuestionHue } from "./questionPalette";
 
 interface TOCItem {
   id: string;
@@ -74,6 +75,7 @@ export function MessageTOCSidebar({
       <div ref={listRef} className="flex-1 overflow-y-auto px-1.5 py-2">
         {items.map((item, index) => {
           const isActive = item.id === activeId;
+          const hue = getQuestionHue(index);
           return (
             <button
               key={item.id}
@@ -81,18 +83,14 @@ export function MessageTOCSidebar({
               data-toc-id={item.id}
               onClick={() => onSelect(item.id)}
               title={item.preview}
-              className={`mb-1 flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+              className={`mb-1 flex w-full items-start gap-2 rounded-md border-l-[3px] px-2 py-1.5 text-left text-sm transition-colors ${hue.border} ${
                 isActive
-                  ? "bg-primary/15 text-primary"
+                  ? `${hue.bubbleBg} ${hue.text}`
                   : "text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
             >
               <span
-                className={`mt-0.5 inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1 font-mono text-[10px] ${
-                  isActive
-                    ? "bg-primary/25 text-primary"
-                    : "bg-muted text-muted-foreground"
-                }`}
+                className={`mt-0.5 inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1 font-mono text-[10px] text-white ${hue.swatch}`}
               >
                 {index + 1}
               </span>

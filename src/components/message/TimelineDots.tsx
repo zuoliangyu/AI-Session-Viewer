@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getQuestionHue } from "./questionPalette";
 
 interface TimelineDot {
   id: string;
@@ -24,6 +25,7 @@ export function TimelineDots({ dots, activeId, onDotClick }: Props) {
         {dots.map((dot, i) => {
           const isActive = dot.id === activeId;
           const isHovered = dot.id === hoveredId;
+          const hue = getQuestionHue(i);
           // Evenly distribute dots across full height by percentage
           const position = dots.length === 1 ? 50 : (i / (dots.length - 1)) * 100;
 
@@ -39,8 +41,8 @@ export function TimelineDots({ dots, activeId, onDotClick }: Props) {
                 onMouseLeave={() => setHoveredId(null)}
                 className={`w-2 h-2 rounded-full transition-all duration-200 block ${
                   isActive
-                    ? "bg-primary scale-150 shadow-sm shadow-primary/30"
-                    : "bg-muted-foreground/30 hover:bg-muted-foreground/60 hover:scale-125"
+                    ? `${hue.swatch} scale-150 shadow-sm shadow-foreground/30`
+                    : `${hue.swatch} opacity-40 hover:opacity-90 hover:scale-125`
                 }`}
                 aria-label={dot.preview}
               />

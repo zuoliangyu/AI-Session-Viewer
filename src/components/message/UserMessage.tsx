@@ -4,12 +4,17 @@ import { Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { formatTime, cleanMessageText, copyTextToClipboard } from "./utils";
 import { MarkdownContent } from "./MarkdownContent";
 import { useExpandAllControl } from "../common/ExpandAllContext";
+import { getQuestionHue } from "./questionPalette";
 
 interface Props {
   message: DisplayMessage;
   showTimestamp: boolean;
   threadHint?: string | null;
   layout?: "default" | "thread";
+  /** 0-based ordinal of this user question in the session. Drives the per-question
+   *  color (bubble tint + ribbon) so adjacent questions stay visually distinct in
+   *  long conversations. -1 / undefined falls back to the default primary tint. */
+  questionIndex?: number;
   /** Replies attached to this user message (assistant + tool messages). When provided
    *  with a toggle callback, the bubble's fold button will collapse them too. */
   replyCount?: number;
@@ -24,12 +29,17 @@ export const UserMessage = memo(function UserMessage({
   showTimestamp,
   threadHint,
   layout = "default",
+  questionIndex,
   replyCount = 0,
   repliesExpanded,
   onToggleReplies,
 }: Props) {
   const [copied, setCopied] = useState(false);
-  const { expanded, setExpanded } = useExpandAllControl(true);
+  const { expanded, setExpanded } = useExpandAllControl(true, { followGlobal: true });
+  const hue = useMemo(
+    () => (questionIndex !== undefined && questionIndex >= 0 ? getQuestionHue(questionIndex) : null),
+    [questionIndex]
+  );
   const textContent = useMemo(
     () => message.content
       .filter((block): block is { type: "text"; text: string } => block.type === "text")
@@ -110,28 +120,49 @@ export const UserMessage = memo(function UserMessage({
         {!expanded ? (
           <button
             onClick={handleExpandFromPreview}
-            className={`group flex w-full items-center gap-2 rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-3 py-2 text-xs text-muted-foreground hover:bg-primary/10 transition-colors ${isThreadLayout ? "text-left" : "text-left"}`}
+            className={`group flex w-full items-center gap-2 rounded-2xl border border-dashed px-3 py-2 text-xs text-muted-foreground transition-colors text-left hover:bg-accent ${
+              hue ? `${hue.border} ${hue.previewBg}` : "border-primary/30 bg-primary/5"
+            }`}
             title={foldTitle}
           >
+            {hue && questionIndex !== undefined && (
+              <span
+                className={`inline-flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1 font-mono text-[10px] text-white ${hue.swatch}`}
+              >
+                {questionIndex + 1}
+              </span>
+            )}
             <ChevronDown className="w-3.5 h-3.5 shrink-0 -rotate-90 transition-transform group-hover:rotate-0" />
             <span className="flex-1 truncate text-left">{previewText}</span>
             {hasReplyControl && (
-              <span className="shrink-0 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] text-primary">
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${hue ? `${hue.bubbleBg} ${hue.text}` : "bg-primary/15 text-primary"}`}>
                 {replyCount} 条回复
               </span>
             )}
           </button>
         ) : (
-          <div className="rounded-2xl bg-primary/10 px-4 py-2.5 text-sm leading-relaxed">
+          <div
+            className={`relative overflow-hidden rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+              hue ? `${hue.bubbleBg} border-l-[3px] ${hue.border}` : "bg-primary/10"
+            }`}
+          >
             <div className="mb-1.5 flex items-center gap-2">
-              <span className="text-[11px] font-medium text-primary/80">用户</span>
+              {hue && questionIndex !== undefined && (
+                <span
+                  className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 font-mono text-[10px] text-white ${hue.swatch}`}
+                  title={`第 ${questionIndex + 1} 个提问`}
+                >
+                  {questionIndex + 1}
+                </span>
+              )}
+              <span className={`text-[11px] font-medium ${hue ? hue.text : "text-primary/80"}`}>用户</span>
               {showTimestamp && message.timestamp && (
                 <span className="text-[11px] text-muted-foreground">
                   {formatTime(message.timestamp)}
                 </span>
               )}
               {hasReplyControl && (
-                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] text-primary">
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${hue ? `${hue.previewBg} ${hue.text}` : "bg-primary/15 text-primary"}`}>
                   {replyCount} 条回复
                 </span>
               )}
@@ -205,6 +236,7 @@ export const UserMessage = memo(function UserMessage({
   prevProps.showTimestamp === nextProps.showTimestamp &&
   prevProps.threadHint === nextProps.threadHint &&
   prevProps.layout === nextProps.layout &&
+  prevProps.questionIndex === nextProps.questionIndex &&
   prevProps.replyCount === nextProps.replyCount &&
   prevProps.repliesExpanded === nextProps.repliesExpanded &&
   prevProps.onToggleReplies === nextProps.onToggleReplies

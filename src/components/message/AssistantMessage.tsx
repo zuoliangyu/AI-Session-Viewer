@@ -31,7 +31,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
   const [copied, setCopied] = useState(false);
-  const { expanded: messageExpanded, setExpanded: setMessageExpanded } = useExpandAllControl(true);
+  const { expanded: messageExpanded, setExpanded: setMessageExpanded } = useExpandAllControl(true, { followGlobal: true });
   const textContent = useMemo(
     () => message.content
       .filter((block): block is { type: "text"; text: string } => block.type === "text")

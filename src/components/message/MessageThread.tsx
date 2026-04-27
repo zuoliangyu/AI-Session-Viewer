@@ -453,6 +453,20 @@ export const MessageThread = memo(function MessageThread({
 
   const showActionButtons = __IS_TAURI__ && source === "claude";
   const { roots, isThreaded } = useMemo(() => buildMessageTree(messages), [messages]);
+  // Map each user-message id (uuid or fallback) to its 0-based ordinal so
+  // UserMessage can paint a question-specific hue. Index is computed from the
+  // raw `messages` order, which matches what the TOC sidebar shows, keeping
+  // colors in sync across surfaces.
+  const userQuestionIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    let i = 0;
+    messages.forEach((msg, idx) => {
+      if (msg.role !== "user") return;
+      map.set(getUserMessageId(msg, idx), i);
+      i += 1;
+    });
+    return map;
+  }, [messages]);
   const flatNodes = useMemo(() => flattenThreadNodes(roots), [roots]);
   const shouldDefer = flatNodes.length > DEFER_RENDER_THRESHOLD;
   const initialRenderedFrom = useMemo(
@@ -512,6 +526,7 @@ export const MessageThread = memo(function MessageThread({
               message={msg}
               showTimestamp={showTimestamp}
               layout={messageLayout}
+              questionIndex={userQuestionIndexMap.get(msgId)}
               threadHint={
                 node.parentSource === "mention" && node.mentionAnchors[0]
                   ? `通过 ${node.mentionAnchors[0]} 挂到该回复`

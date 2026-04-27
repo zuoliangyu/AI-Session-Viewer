@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function pageInactive() {
   if (typeof document === "undefined") return false;
@@ -16,10 +16,35 @@ async function ensurePermission() {
   return Notification.requestPermission();
 }
 
-export function useReplyNotification(messageKey: string | null, title: string, body: string) {
+export interface ReplyNotificationState {
+  /** Replies that arrived while the page was hidden / unfocused. Cleared on
+   *  user-initiated focus *and* on `clear()`. The page can render a toast
+   *  whenever this is > 0. */
+  unreadCount: number;
+  /** Drops the toast back to zero — call from "查看 / 关闭" toast actions. */
+  clear: () => void;
+}
+
+export function useReplyNotification(
+  messageKey: string | null,
+  title: string,
+  body: string
+): ReplyNotificationState {
   const initializedRef = useRef(false);
   const lastKeyRef = useRef<string | null>(null);
   const originalTitleRef = useRef<string>("");
+  const [unreadCount, setUnreadCount] = useState(0);
+  // Track the most recent unread snapshot in a ref so the visibility handler
+  // can decide whether to keep the title prefix or restore it.
+  const unreadCountRef = useRef(0);
+  unreadCountRef.current = unreadCount;
+
+  const clear = useCallback(() => {
+    setUnreadCount(0);
+    if (typeof document !== "undefined" && originalTitleRef.current) {
+      document.title = originalTitleRef.current;
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") {
@@ -33,15 +58,23 @@ export function useReplyNotification(messageKey: string | null, title: string, b
     const resetTitle = () => {
       document.title = originalTitleRef.current;
     };
+    // Page returning to focus is the natural "ack" point: drop the title
+    // prefix immediately so the tab looks normal again. We *keep* the
+    // unread count populated for one more render so MessagesPage can
+    // surface the in-app toast — the toast's actions or auto-dismiss
+    // will call clear() to zero it.
+    const handleFocus = () => {
+      resetTitle();
+    };
     const handleVisibility = () => {
       if (!document.hidden) resetTitle();
     };
 
-    window.addEventListener("focus", resetTitle);
+    window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
-      window.removeEventListener("focus", resetTitle);
+      window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibility);
       resetTitle();
     };
@@ -67,7 +100,12 @@ export function useReplyNotification(messageKey: string | null, title: string, b
     }
     lastKeyRef.current = messageKey;
 
+    // While the user is actively looking at the page, in-flow auto-scroll +
+    // the streaming indicator already communicate the new reply — no need
+    // for a banner. Only accumulate when they're elsewhere.
     if (!pageInactive()) return;
+
+    setUnreadCount((prev) => prev + 1);
 
     document.title = `有新回复 · ${originalTitleRef.current}`;
 
@@ -83,4 +121,6 @@ export function useReplyNotification(messageKey: string | null, title: string, b
       };
     });
   }, [messageKey, title, body]);
+
+  return { unreadCount, clear };
 }
