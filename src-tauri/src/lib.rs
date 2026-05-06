@@ -23,6 +23,7 @@ pub fn run() {
             commands::sessions::get_invalid_sessions,
             commands::sessions::delete_session,
             commands::sessions::update_session_meta,
+            commands::sessions::rename_chat_session,
             commands::sessions::get_all_tags,
             commands::sessions::get_cross_project_tags,
             commands::messages::get_messages,

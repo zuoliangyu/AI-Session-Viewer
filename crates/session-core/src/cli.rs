@@ -58,6 +58,62 @@ fn find_codex() -> Option<String> {
     None
 }
 
+/// Locate the `node` binary so its parent dir can be added to PATH for child CLIs
+/// whose entry script uses `#!/usr/bin/env node`.
+pub fn find_node() -> Option<String> {
+    if let Some(path) = which_binary("node") {
+        return Some(path);
+    }
+
+    let home = dirs::home_dir()?;
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if cfg!(windows) {
+        candidates.push(home.join("AppData/Roaming/npm/node.exe"));
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            let nvm_win_dir = PathBuf::from(&appdata).join("nvm");
+            if nvm_win_dir.exists() {
+                if let Ok(entries) = std::fs::read_dir(&nvm_win_dir) {
+                    for entry in entries.flatten() {
+                        if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                            candidates.push(entry.path().join("node.exe"));
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        let nvm_dir = home.join(".nvm/versions/node");
+        if nvm_dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&nvm_dir) {
+                for entry in entries.flatten() {
+                    candidates.push(entry.path().join("bin/node"));
+                }
+            }
+        }
+        if let Ok(nvm_dir_env) = std::env::var("NVM_DIR") {
+            let nvm_versions = PathBuf::from(&nvm_dir_env).join("versions/node");
+            if nvm_versions.exists() && nvm_versions != nvm_dir {
+                if let Ok(entries) = std::fs::read_dir(&nvm_versions) {
+                    for entry in entries.flatten() {
+                        candidates.push(entry.path().join("bin/node"));
+                    }
+                }
+            }
+        }
+        candidates.push(home.join(".npm-global/bin/node"));
+        candidates.push(home.join(".local/bin/node"));
+        candidates.push(PathBuf::from("/usr/local/bin/node"));
+        candidates.push(PathBuf::from("/opt/homebrew/bin/node"));
+        candidates.push(PathBuf::from("/usr/bin/node"));
+    }
+
+    candidates
+        .into_iter()
+        .find(|p| p.exists())
+        .map(|p| p.to_string_lossy().to_string())
+}
+
 /// Discover installed CLIs (Claude + Codex).
 pub fn discover_installations() -> Vec<CliInstallation> {
     let mut installations = Vec::new();

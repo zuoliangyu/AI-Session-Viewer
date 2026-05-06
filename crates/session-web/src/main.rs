@@ -339,6 +339,10 @@ async fn main() {
             "/api/sessions/meta",
             put(routes::sessions::update_session_meta),
         )
+        .route(
+            "/api/sessions/rename",
+            post(routes::sessions::rename_chat_session),
+        )
         .route("/api/tags", get(routes::sessions::get_all_tags))
         .route("/api/cross-tags", get(routes::sessions::get_cross_project_tags))
         .route("/api/messages", get(routes::messages::get_messages))
@@ -347,6 +351,23 @@ async fn main() {
         .route("/api/bookmarks", get(routes::bookmarks::list_bookmarks))
         .route("/api/bookmarks", post(routes::bookmarks::add_bookmark))
         .route("/api/bookmarks/{id}", delete(routes::bookmarks::remove_bookmark))
+        .route("/api/recyclebin", get(routes::recyclebin::list_items))
+        .route(
+            "/api/recyclebin/{id}/restore",
+            post(routes::recyclebin::restore_item),
+        )
+        .route(
+            "/api/recyclebin/{id}",
+            delete(routes::recyclebin::permanently_delete_item),
+        )
+        .route(
+            "/api/recyclebin/empty",
+            post(routes::recyclebin::empty_recyclebin),
+        )
+        .route(
+            "/api/recyclebin/cleanup-orphans",
+            post(routes::recyclebin::cleanup_orphan_dirs),
+        )
         .layer(middleware::from_fn(check_auth));
 
     // WebSocket route (with auth via query param or header)

@@ -133,6 +133,22 @@ pub fn update_session_meta(
 }
 
 #[tauri::command]
+pub fn rename_chat_session(
+    source: String,
+    project_path: String,
+    session_id: String,
+    alias: Option<String>,
+) -> Result<(), String> {
+    metadata::rename_chat_session(&source, &project_path, &session_id, alias.as_deref())?;
+    if source == "claude" {
+        claude::invalidate_cache();
+    } else if source == "codex" {
+        codex::invalidate_sessions_cache();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_all_tags(source: String, project_id: String) -> Result<Vec<String>, String> {
     Ok(metadata::get_all_tags(&source, &project_id))
 }

@@ -67,4 +67,7 @@ pub struct DailyTokenEntry {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub total_tokens: u64,
+    /// Number of assistant messages produced on this date.
+    #[serde(default)]
+    pub message_count: u64,
 }

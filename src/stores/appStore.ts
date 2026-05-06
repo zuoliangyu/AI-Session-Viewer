@@ -47,7 +47,7 @@ interface AppState {
 
   // Search
   searchQuery: string;
-  searchScope: "all" | "content" | "session";
+  searchScope: "all" | "content" | "session" | "tags";
   searchResults: SearchResult[];
   searchLoading: boolean;
 
@@ -82,7 +82,7 @@ interface AppState {
   setProjectAlias: (projectId: string, alias: string | null) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   search: (query: string) => Promise<void>;
-  setSearchScope: (scope: "all" | "content" | "session") => void;
+  setSearchScope: (scope: "all" | "content" | "session" | "tags") => void;
   loadStats: () => Promise<void>;
   clearSelection: () => void;
   /** Silently refresh projects and current session list without loading states */
@@ -598,6 +598,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       recycledItems: state.recycledItems.filter((item) => item.id !== id),
     }));
+    // Refresh projects/sessions list so the restored item shows up
+    void get().refreshInBackground(true);
   },
 
   permanentlyDeleteItem: async (id: string) => {

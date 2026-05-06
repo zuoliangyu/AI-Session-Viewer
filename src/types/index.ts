@@ -73,6 +73,7 @@ export interface DailyTokenEntry {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  messageCount: number;
 }
 
 export interface SearchResult {

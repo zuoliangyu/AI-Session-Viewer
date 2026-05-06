@@ -13,12 +13,13 @@ import {
 } from "lucide-react";
 
 type SearchMode = "messages" | "sessions";
-type SearchScope = "all" | "content" | "session";
+type SearchScope = "all" | "content" | "session" | "tags";
 
 const SEARCH_SCOPE_OPTIONS: Array<{ key: SearchScope; label: string }> = [
   { key: "all", label: "所有" },
   { key: "content", label: "session 内容" },
   { key: "session", label: "会话名称" },
+  { key: "tags", label: "标签" },
 ];
 
 export function SearchPage() {
@@ -115,6 +116,7 @@ export function SearchPage() {
     if (role === "user") return "用户";
     if (role === "tool") return "Tool";
     if (role === "session") return "会话名";
+    if (role === "tag") return "标签";
     return source === "codex" ? "Codex" : "Claude";
   };
 

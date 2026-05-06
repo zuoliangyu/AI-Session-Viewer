@@ -29,6 +29,13 @@ fn encode_path_segment(segment: &str) -> String {
         .collect()
 }
 
+/// Encode a full filesystem path to Claude's project directory name
+/// (`~/.claude/projects/<encoded>`). Same rule as `encode_path_segment` —
+/// every non-ASCII-alphanumeric char becomes `-`.
+pub fn encode_project_path(path: &str) -> String {
+    encode_path_segment(path)
+}
+
 /// Decode an encoded project directory name back to a path (best-effort fallback)
 /// Prefer using originalPath from sessions-index.json when available
 pub fn decode_project_path(encoded: &str) -> String {

@@ -54,7 +54,7 @@ struct UsageData {
 
 // ── Per-file cache ───────────────────────────────────────────────────────────
 
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize, Default)]
 struct AsvStatsCache {
@@ -76,6 +76,9 @@ struct FileStat {
     daily_input: HashMap<String, u64>,
     /// date (YYYY-MM-DD) → output tokens
     daily_output: HashMap<String, u64>,
+    /// date (YYYY-MM-DD) → assistant message count
+    #[serde(default)]
+    daily_messages: HashMap<String, u64>,
     session_ids: Vec<String>,
     message_count: u64,
 }
@@ -275,6 +278,7 @@ fn scan_file(path: &Path) -> Option<FileStat> {
         if let Some(date) = record.timestamp.as_deref().and_then(|ts| ts.get(..10)) {
             *stat.daily_input.entry(date.to_string()).or_insert(0) += input;
             *stat.daily_output.entry(date.to_string()).or_insert(0) += output;
+            *stat.daily_messages.entry(date.to_string()).or_insert(0) += 1;
 
             if let Some(model) = &msg.model {
                 *stat
@@ -298,6 +302,7 @@ fn merge_into_summary(cache: &AsvStatsCache) -> TokenUsageSummary {
     let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
     let mut daily_input: HashMap<String, u64> = HashMap::new();
     let mut daily_output: HashMap<String, u64> = HashMap::new();
+    let mut daily_messages: HashMap<String, u64> = HashMap::new();
     let mut all_session_ids: HashSet<String> = HashSet::new();
     let mut message_count: u64 = 0;
 
@@ -318,12 +323,16 @@ fn merge_into_summary(cache: &AsvStatsCache) -> TokenUsageSummary {
         for (date, tokens) in &stat.daily_output {
             *daily_output.entry(date.clone()).or_insert(0) += tokens;
         }
+        for (date, count) in &stat.daily_messages {
+            *daily_messages.entry(date.clone()).or_insert(0) += count;
+        }
     }
 
     let mut dates: Vec<String> = {
         let mut set = HashSet::new();
         set.extend(daily_input.keys().cloned());
         set.extend(daily_output.keys().cloned());
+        set.extend(daily_messages.keys().cloned());
         set.into_iter().collect()
     };
     dates.sort();
@@ -333,11 +342,13 @@ fn merge_into_summary(cache: &AsvStatsCache) -> TokenUsageSummary {
         .map(|date| {
             let input = *daily_input.get(date).unwrap_or(&0);
             let output = *daily_output.get(date).unwrap_or(&0);
+            let messages = *daily_messages.get(date).unwrap_or(&0);
             DailyTokenEntry {
                 date: date.clone(),
                 input_tokens: input,
                 output_tokens: output,
                 total_tokens: input + output,
+                message_count: messages,
             }
         })
         .collect();

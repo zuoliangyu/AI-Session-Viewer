@@ -295,6 +295,36 @@ pub async fn update_session_meta(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RenameChatBody {
+    pub source: String,
+    pub project_path: String,
+    pub session_id: String,
+    pub alias: Option<String>,
+}
+
+pub async fn rename_chat_session(
+    Json(body): Json<RenameChatBody>,
+) -> Result<Json<()>, (StatusCode, String)> {
+    SessionSource::parse(&body.source).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    tokio::task::spawn_blocking(move || {
+        metadata::rename_chat_session(
+            &body.source,
+            &body.project_path,
+            &body.session_id,
+            body.alias.as_deref(),
+        )
+        .map(|_| ())
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TagsQuery {
     pub source: String,
     pub project_id: String,

@@ -141,6 +141,7 @@ pub fn list_items() -> Vec<RecycledItem> {
 }
 
 /// 将条目还原到 original_path，自动创建父目录。
+/// 还原成功后失效对应数据源的 sessions 缓存，避免 UI 不刷新。
 pub fn restore_item(id: &str) -> Result<(), String> {
     let mut manifest = load_manifest();
     let pos = manifest.items.iter().position(|i| i.id == id)
@@ -165,12 +166,63 @@ pub fn restore_item(id: &str) -> Result<(), String> {
         return Err(format!("Destination already exists: {:?}", original));
     }
 
-    fs::rename(&stored_path, original)
-        .map_err(|e| format!("Failed to restore item: {}", e))?;
+    // 跨卷的 fs::rename 会失败，回退到 copy + remove
+    if let Err(rename_err) = fs::rename(&stored_path, original) {
+        if cross_device_error(&rename_err) {
+            copy_path(&stored_path, original).map_err(|e| {
+                format!("Failed to restore item across volumes: {}", e)
+            })?;
+            remove_path(&stored_path).map_err(|e| {
+                format!("Restored, but failed to clean recyclebin entry: {}", e)
+            })?;
+        } else {
+            return Err(format!("Failed to restore item: {}", rename_err));
+        }
+    }
 
     manifest.items.remove(pos);
     save_manifest(&manifest)?;
+
+    // 失效 sessions 缓存，让前端列表显示恢复的条目
+    match item.source.as_str() {
+        "claude" => crate::provider::claude::invalidate_cache(),
+        "codex" => crate::provider::codex::invalidate_sessions_cache(),
+        _ => {}
+    }
+
     Ok(())
+}
+
+fn cross_device_error(err: &std::io::Error) -> bool {
+    // EXDEV on Unix; Windows uses a different error string
+    matches!(err.raw_os_error(), Some(18))
+        || err.to_string().to_lowercase().contains("different device")
+        || err.to_string().to_lowercase().contains("different volume")
+}
+
+fn copy_path(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    if src.is_dir() {
+        fs::create_dir_all(dst)?;
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let to = dst.join(entry.file_name());
+            copy_path(&entry.path(), &to)?;
+        }
+        Ok(())
+    } else {
+        if let Some(parent) = dst.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::copy(src, dst).map(|_| ())
+    }
+}
+
+fn remove_path(p: &std::path::Path) -> std::io::Result<()> {
+    if p.is_dir() {
+        fs::remove_dir_all(p)
+    } else {
+        fs::remove_file(p)
+    }
 }
 
 /// 永久删除条目（从 items/ 删文件 + manifest 移除）。

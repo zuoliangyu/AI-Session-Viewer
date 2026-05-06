@@ -110,6 +110,20 @@ export async function updateSessionMeta(
   });
 }
 
+export async function renameChatSession(
+  source: string,
+  projectPath: string,
+  sessionId: string,
+  alias: string | null
+): Promise<void> {
+  return invoke<void>("rename_chat_session", {
+    source,
+    projectPath,
+    sessionId,
+    alias,
+  });
+}
+
 export async function getAllTags(
   source: string,
   projectId: string

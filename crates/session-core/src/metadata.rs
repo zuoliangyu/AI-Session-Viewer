@@ -133,6 +133,72 @@ pub fn update_session_meta(
     save_metadata(source, project_id, &meta)
 }
 
+/// Rename a chat session's alias by project path (used by /rename in ChatInput).
+///
+/// For Claude: encodes the project_path → encoded directory name, finds
+/// `<projects>/<encoded>/<session_id>.jsonl`, and appends a custom-title record
+/// the same way the metadata editor does. Existing tags are preserved.
+///
+/// For Codex: writes the alias to the global metadata file. Existing tags
+/// are preserved.
+///
+/// Returns the encoded project_id used so callers can invalidate caches.
+pub fn rename_chat_session(
+    source: &str,
+    project_path: &str,
+    session_id: &str,
+    new_alias: Option<&str>,
+) -> Result<String, String> {
+    let trimmed = new_alias
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    match source {
+        "claude" => {
+            let encoded = crate::parser::path_encoder::encode_project_path(project_path);
+            let projects_dir = crate::parser::path_encoder::get_projects_dir()
+                .ok_or_else(|| "Cannot resolve Claude projects directory".to_string())?;
+            let project_dir = projects_dir.join(&encoded);
+            if !project_dir.is_dir() {
+                return Err(format!(
+                    "Claude project directory not found for path: {}",
+                    project_path
+                ));
+            }
+            let jsonl_path = project_dir.join(format!("{}.jsonl", session_id));
+            if !jsonl_path.exists() {
+                return Err(format!("Session file not found: {}", jsonl_path.display()));
+            }
+            crate::parser::jsonl::append_custom_title(
+                &jsonl_path,
+                session_id,
+                trimmed.as_deref(),
+            )?;
+
+            let existing = load_metadata("claude", &encoded);
+            let tags = existing
+                .sessions
+                .get(session_id)
+                .map(|s| s.tags.clone())
+                .unwrap_or_default();
+            update_session_meta("claude", &encoded, session_id, None, tags)?;
+            Ok(encoded)
+        }
+        "codex" => {
+            let existing = load_metadata("codex", "");
+            let tags = existing
+                .sessions
+                .get(session_id)
+                .map(|s| s.tags.clone())
+                .unwrap_or_default();
+            update_session_meta("codex", project_path, session_id, trimmed, tags)?;
+            Ok(project_path.to_string())
+        }
+        _ => Err(format!("Unknown source: {}", source)),
+    }
+}
+
 /// Remove metadata for a single session
 pub fn remove_session_meta(
     source: &str,

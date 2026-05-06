@@ -86,6 +86,10 @@ export function StatsPage() {
     const totalTokens = filteredDays.reduce((s, d) => s + d.totalTokens, 0);
     const totalInputTokens = filteredDays.reduce((s, d) => s + d.inputTokens, 0);
     const totalOutputTokens = filteredDays.reduce((s, d) => s + d.outputTokens, 0);
+    const messageCount = filteredDays.reduce(
+      (s, d) => s + (d.messageCount ?? 0),
+      0,
+    );
 
     const ratio =
       tokenSummary && tokenSummary.totalTokens > 0
@@ -98,8 +102,16 @@ export function StatsPage() {
       }
     }
 
-    return { totalTokens, totalInputTokens, totalOutputTokens, tokensByModel };
+    return {
+      totalTokens,
+      totalInputTokens,
+      totalOutputTokens,
+      tokensByModel,
+      messageCount,
+    };
   }, [filteredDays, tokenSummary]);
+
+  const isAllRange = !start && !end;
 
   if (statsLoading) {
     // statsIsFirstBuild === null means "unknown" (loading hasn't finished yet to tell us)
@@ -225,8 +237,11 @@ export function StatsPage() {
         />
         <StatCard
           icon={<MessageSquare className="w-5 h-5" />}
-          label="总消息数（全期）"
-          value={tokenSummary.messageCount.toLocaleString()}
+          label={isAllRange ? "总消息数（全期）" : "区间消息数"}
+          value={(isAllRange
+            ? tokenSummary.messageCount
+            : filteredTotals.messageCount
+          ).toLocaleString()}
         />
         <StatCard
           icon={<Zap className="w-5 h-5" />}

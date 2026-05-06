@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import {
   FolderOpen,
@@ -9,6 +9,9 @@ import {
   Cpu,
   ChevronsUpDown,
   Rows3,
+  Hash,
+  Copy,
+  Check,
 } from "lucide-react";
 
 export function ChatHeader({
@@ -24,7 +27,20 @@ export function ChatHeader({
   const availableClis = useChatStore((state) => state.availableClis);
   const skipPermissions = useChatStore((state) => state.skipPermissions);
   const setSkipPermissions = useChatStore((state) => state.setSkipPermissions);
-  const { projectPath, messages, isStreaming, source } = pane;
+  const { projectPath, messages, isStreaming, source, sessionId } = pane;
+  const [copiedSessionId, setCopiedSessionId] = useState(false);
+
+  const handleCopySessionId = () => {
+    if (!sessionId) return;
+    navigator.clipboard.writeText(sessionId);
+    setCopiedSessionId(true);
+    setTimeout(() => setCopiedSessionId(false), 1500);
+  };
+  const shortSessionId = sessionId ? sessionId.slice(0, 8) : "";
+  const resumeHint =
+    source === "codex"
+      ? `codex resume ${sessionId ?? ""}`
+      : `claude --resume ${sessionId ?? ""}`;
 
   const cliLabel = source === "codex" ? "Codex" : "Claude";
   const cliInfo = availableClis.find((c) => c.cliType === source);
@@ -77,6 +93,24 @@ export function ChatHeader({
             {projectPath.split(/[\\/]/).pop()}
           </span>
         </div>
+      )}
+
+      {/* Session ID (for CLI resume) */}
+      {sessionId && (
+        <button
+          type="button"
+          onClick={handleCopySessionId}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          title={`点击复制完整 ID — ${resumeHint}`}
+        >
+          <Hash className="w-3 h-3 shrink-0" />
+          <span className="font-mono tabular-nums">{shortSessionId}</span>
+          {copiedSessionId ? (
+            <Check className="w-3 h-3 text-green-500" />
+          ) : (
+            <Copy className="w-3 h-3 opacity-60" />
+          )}
+        </button>
       )}
 
       {/* Token stats */}

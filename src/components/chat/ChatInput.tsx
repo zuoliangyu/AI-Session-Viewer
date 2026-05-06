@@ -1,7 +1,9 @@
 import { forwardRef, useImperativeHandle, useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Bot } from "lucide-react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
+import { useAppStore } from "../../stores/appStore";
 import { ModelSelector } from "./ModelSelector";
+import { api } from "../../services/api";
 
 export interface ChatInputHandle {
   /** Insert the given text as a markdown blockquote at the current cursor position, focusing the textarea. */
@@ -33,11 +35,25 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
 }, ref) {
   const [text, setText] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+  const [hint, setHint] = useState<{ kind: "info" | "error"; text: string } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const model = useChatStore((state) => state.getPaneState(paneId).model);
   const setPaneModel = useChatStore((state) => state.setPaneModel);
   const setActivePane = useChatStore((state) => state.setActivePane);
+
+  const showHint = (kind: "info" | "error", message: string) => {
+    setHint({ kind, text: message });
+    if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    hintTimerRef.current = setTimeout(() => setHint(null), 2500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (hintTimerRef.current) clearTimeout(hintTimerRef.current);
+    };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     focus: () => {
@@ -94,6 +110,36 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       return;
     }
 
+    // Slash command: /rename <new alias>  (empty arg = clear alias)
+    if (trimmed === "/rename" || trimmed.startsWith("/rename ")) {
+      const newAlias = trimmed.slice(7).trim();
+      const pane = useChatStore.getState().getPaneState(paneId);
+      if (!pane.sessionId) {
+        showHint("error", "/rename 需要先有活动的 session");
+        return;
+      }
+      if (!pane.projectPath) {
+        showHint("error", "/rename 需要工作目录");
+        return;
+      }
+      const aliasArg = newAlias.length > 0 ? newAlias : null;
+      api
+        .renameChatSession(pane.source, pane.projectPath, pane.sessionId, aliasArg)
+        .then(() => {
+          showHint(
+            "info",
+            aliasArg ? `已重命名为：${aliasArg}` : "已清空别名",
+          );
+          // Trigger silent refresh so sessions list reflects new alias
+          void useAppStore.getState().refreshInBackground(true);
+        })
+        .catch((e: unknown) => {
+          showHint("error", e instanceof Error ? e.message : String(e));
+        });
+      setText("");
+      return;
+    }
+
     if (disabled) return;
     onSend(trimmed);
     setText("");
@@ -138,8 +184,18 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
           </button>
           <span className="text-[10px] text-muted-foreground">
-            Ctrl+K 或 /model 切换
+            Ctrl+K 或 /model 切换 · /rename &lt;名字&gt; 改别名
           </span>
+          {hint && (
+            <span
+              className={`ml-auto text-[10px] truncate max-w-[40%] ${
+                hint.kind === "error" ? "text-red-400" : "text-emerald-500"
+              }`}
+              title={hint.text}
+            >
+              {hint.text}
+            </span>
+          )}
         </div>
 
         {/* Input row */}

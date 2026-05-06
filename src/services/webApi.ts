@@ -326,6 +326,15 @@ export async function updateSessionMeta(
   await apiPut("/api/sessions/meta", { source, projectId, sessionId, alias, tags, filePath });
 }
 
+export async function renameChatSession(
+  source: string,
+  projectPath: string,
+  sessionId: string,
+  alias: string | null
+): Promise<void> {
+  await apiPost("/api/sessions/rename", { source, projectPath, sessionId, alias });
+}
+
 export async function getAllTags(
   source: string,
   projectId: string
@@ -745,23 +754,40 @@ export async function setProjectAlias(
   await apiPut("/api/projects/alias", { source, projectId, alias });
 }
 
-// Recyclebin API (web mode stubs — not supported)
+// Recyclebin API
 export async function listRecycledItems(): Promise<RecycledItem[]> {
-  return [];
+  return apiFetch("/api/recyclebin");
 }
 
-export async function restoreRecycledItem(_id: string): Promise<void> {
-  throw new Error("Recyclebin is not available in web mode");
+export async function restoreRecycledItem(id: string): Promise<void> {
+  await apiPost(`/api/recyclebin/${encodeURIComponent(id)}/restore`, {});
 }
 
-export async function permanentlyDeleteRecycledItem(_id: string): Promise<void> {
-  throw new Error("Recyclebin is not available in web mode");
+export async function permanentlyDeleteRecycledItem(id: string): Promise<void> {
+  const headers = applyAuthHeader({});
+  const resp = await fetch(
+    new URL(`/api/recyclebin/${encodeURIComponent(id)}`, window.location.origin).toString(),
+    { method: "DELETE", headers },
+  );
+  if (resp.status === 401) {
+    notifyAuthRequired();
+    throw new Error("Authentication required");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || resp.statusText);
+  }
 }
 
 export async function emptyRecyclebin(): Promise<number> {
-  throw new Error("Recyclebin is not available in web mode");
+  const result = await apiPost<{ deleted: number }>("/api/recyclebin/empty", {});
+  return result.deleted;
 }
 
-export async function cleanupOrphanDirs(_source: string): Promise<number> {
-  throw new Error("Orphan dir cleanup is not available in web mode");
+export async function cleanupOrphanDirs(source: string): Promise<number> {
+  const result = await apiPost<{ deleted: number }>(
+    `/api/recyclebin/cleanup-orphans?source=${encodeURIComponent(source)}`,
+    {},
+  );
+  return result.deleted;
 }

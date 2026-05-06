@@ -285,7 +285,7 @@ async fn run_cli_process(
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    prepend_cli_dir_to_path(&mut cmd, &cli_path)?;
+    compose_chat_path(&mut cmd, &cli_path)?;
     apply_provider_env(&mut cmd, source, &credentials);
     cmd.current_dir(project_dir);
 
@@ -359,17 +359,42 @@ async fn run_cli_process(
     Ok(())
 }
 
-fn prepend_cli_dir_to_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
-    let Some(cli_dir) = Path::new(cli_path)
-        .parent()
-        .filter(|path| !path.as_os_str().is_empty())
-    else {
-        return Ok(());
-    };
+/// Compose PATH for the spawned CLI: prepend the CLI's own directory (so it
+/// can find sibling scripts) AND node's directory. The latter matters under
+/// minimal PATH environments (systemd, daemons) where `#!/usr/bin/env node`
+/// in the CLI entry script would otherwise fail with `node: No such file`.
+fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
+    let mut paths: Vec<PathBuf> = Vec::new();
 
-    let mut paths = vec![cli_dir.to_path_buf()];
+    if let Some(cli_dir) = Path::new(cli_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+    {
+        paths.push(cli_dir.to_path_buf());
+    }
+
+    if let Some(node_path) = cli::find_node() {
+        if let Some(node_dir) = Path::new(&node_path)
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+        {
+            let node_dir_buf = node_dir.to_path_buf();
+            if !paths.iter().any(|p| p == &node_dir_buf) {
+                paths.push(node_dir_buf);
+            }
+        }
+    }
+
     if let Some(existing_path) = std::env::var_os("PATH") {
-        paths.extend(std::env::split_paths(&existing_path));
+        for p in std::env::split_paths(&existing_path) {
+            if !paths.iter().any(|existing| existing == &p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    if paths.is_empty() {
+        return Ok(());
     }
 
     let joined = std::env::join_paths(paths)

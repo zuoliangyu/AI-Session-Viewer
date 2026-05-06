@@ -13,6 +13,7 @@ pub enum SearchScope {
     All,
     Session,
     Content,
+    Tags,
 }
 
 impl SearchScope {
@@ -20,6 +21,7 @@ impl SearchScope {
         match value {
             "session" => Self::Session,
             "content" => Self::Content,
+            "tags" => Self::Tags,
             _ => Self::All,
         }
     }
@@ -30,6 +32,10 @@ impl SearchScope {
 
     fn includes_content(self) -> bool {
         matches!(self, Self::All | Self::Content)
+    }
+
+    fn includes_tags(self) -> bool {
+        matches!(self, Self::All | Self::Tags)
     }
 }
 
@@ -146,6 +152,37 @@ fn search_messages_for_session(
     let mut session_name_matched = false;
     let mut message_match_count = 0usize;
     let mut first_prompt = None;
+
+    if scope.includes_tags() {
+        if let Some(matched_tag) = ctx
+            .tags
+            .as_ref()
+            .and_then(|tags| tags.iter().find(|t| t.to_lowercase().contains(query_lower)))
+        {
+            if !push_limited_result(
+                &mut results,
+                counter,
+                max_results,
+                SearchResult {
+                    source: ctx.source.clone(),
+                    project_id: ctx.project_id.clone(),
+                    project_name: ctx.project_name.clone(),
+                    session_id: ctx.session_id.clone(),
+                    first_prompt: None,
+                    alias: ctx.alias.clone(),
+                    tags: ctx.tags.clone(),
+                    matched_text: matched_tag.clone(),
+                    role: "tag".to_string(),
+                    timestamp: None,
+                    file_path: ctx.file_path.clone(),
+                    total_message_count,
+                    matched_message_id: None,
+                },
+            ) {
+                return results;
+            }
+        }
+    }
 
     if scope.includes_session() {
         if let Some(matched_alias) = ctx
@@ -336,8 +373,12 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
             let alias_has_query = search_aliases
                 .iter()
                 .any(|candidate| candidate.to_lowercase().contains(query_lower));
+            let tags_has_query = tags
+                .as_ref()
+                .map(|t| t.iter().any(|tag| tag.to_lowercase().contains(query_lower)))
+                .unwrap_or(false);
 
-            if !content_has_query && !alias_has_query {
+            if !content_has_query && !alias_has_query && !tags_has_query {
                 return Vec::new();
             }
 
@@ -423,8 +464,12 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
             let alias_has_query = search_aliases
                 .iter()
                 .any(|candidate| candidate.to_lowercase().contains(query_lower));
+            let tags_has_query = tags
+                .as_ref()
+                .map(|t| t.iter().any(|tag| tag.to_lowercase().contains(query_lower)))
+                .unwrap_or(false);
 
-            if !content_has_query && !alias_has_query {
+            if !content_has_query && !alias_has_query && !tags_has_query {
                 return Vec::new();
             }
 

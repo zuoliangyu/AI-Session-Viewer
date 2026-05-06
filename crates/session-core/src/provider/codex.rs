@@ -1210,17 +1210,24 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
     let mut total_output_tokens: u64 = 0;
     let mut total_tokens: u64 = 0;
     let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
-    let mut daily_map: HashMap<String, (u64, u64, u64)> = HashMap::new();
+    let mut daily_map: HashMap<String, (u64, u64, u64, u64)> = HashMap::new();
     let mut session_count: u64 = 0;
     let mut message_count: u64 = 0;
 
     for file_path in &files {
         session_count += 1;
-        message_count += count_messages(file_path) as u64;
+        let session_messages = count_messages(file_path) as u64;
+        message_count += session_messages;
 
         let model_provider = extract_session_meta(file_path)
             .and_then(|m| m.model_provider)
             .unwrap_or_else(|| "unknown".to_string());
+
+        let session_date = extract_date_from_path(file_path);
+        if let Some(date) = &session_date {
+            let entry = daily_map.entry(date.clone()).or_insert((0, 0, 0, 0));
+            entry.3 += session_messages;
+        }
 
         if let Some(token_info) = extract_token_info(file_path) {
             total_input_tokens += token_info.input_tokens;
@@ -1229,8 +1236,8 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
 
             *tokens_by_model.entry(model_provider).or_insert(0) += token_info.total_tokens;
 
-            if let Some(date) = extract_date_from_path(file_path) {
-                let entry = daily_map.entry(date).or_insert((0, 0, 0));
+            if let Some(date) = session_date {
+                let entry = daily_map.entry(date).or_insert((0, 0, 0, 0));
                 entry.0 += token_info.input_tokens;
                 entry.1 += token_info.output_tokens;
                 entry.2 += token_info.total_tokens;
@@ -1240,11 +1247,12 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
 
     let mut daily_tokens: Vec<DailyTokenEntry> = daily_map
         .into_iter()
-        .map(|(date, (input, output, total))| DailyTokenEntry {
+        .map(|(date, (input, output, total, messages))| DailyTokenEntry {
             date,
             input_tokens: input,
             output_tokens: output,
             total_tokens: total,
+            message_count: messages,
         })
         .collect();
     daily_tokens.sort_by(|a, b| a.date.cmp(&b.date));

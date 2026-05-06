@@ -378,6 +378,7 @@ export function MessagesPage() {
     localStorage.setItem("messageTocCollapsed", String(next));
   }, []);
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
+  const activePaneId = useChatStore((state) => state.activePaneId);
 
   // Chat store for inline continue-chat
   const {
@@ -1155,7 +1156,16 @@ export function MessagesPage() {
             }`}
           >
             <div
-              className={`relative flex flex-col rounded-lg border border-border bg-card ${
+              onMouseDownCapture={() => {
+                if (splitFilePaths.length > 0 && activePaneId !== mainPaneId) {
+                  setActivePane(mainPaneId);
+                }
+              }}
+              className={`relative flex flex-col rounded-lg border bg-card transition-colors ${
+                splitFilePaths.length > 0 && activePaneId === mainPaneId
+                  ? "border-primary ring-1 ring-primary/40 shadow-[0_0_0_1px_hsl(var(--primary)/0.4)]"
+                  : "border-border"
+              } ${
                 splitFilePaths.length === 0
                   ? "min-w-0 flex-1"
                   : isSplitHorizontal
@@ -1218,6 +1228,8 @@ export function MessagesPage() {
                     messages={displayedMessages}
                     source={source}
                     onSelect={handleThreadSelect}
+                    filePath={filePath}
+                    projectPath={chatProjectPath}
                   />
                 ) : (
                   <MessageThread
@@ -1438,8 +1450,11 @@ function SplitSessionPane({
     setPaneProjectPath,
     setPaneModel,
     setPaneSource,
+    setActivePane,
   } = useChatStore();
   const paneState = useChatStore(useCallback((state) => state.panes[paneId], [paneId]));
+  const activePaneId = useChatStore((state) => state.activePaneId);
+  const isActivePane = activePaneId === paneId;
 
   const sessionTitle =
     session?.alias ||
@@ -1608,7 +1623,14 @@ function SplitSessionPane({
 
   return (
     <div
-      className={`flex shrink-0 flex-col rounded-lg border border-border bg-card ${
+      onMouseDownCapture={() => {
+        if (!isActivePane) setActivePane(paneId);
+      }}
+      className={`flex shrink-0 flex-col rounded-lg border bg-card transition-colors ${
+        isActivePane
+          ? "border-primary ring-1 ring-primary/40 shadow-[0_0_0_1px_hsl(var(--primary)/0.4)]"
+          : "border-border"
+      } ${
         splitDirection === "horizontal"
           ? "w-[24rem] min-w-[22rem] max-w-[30rem]"
           : "min-h-[24rem] max-h-[56vh] min-w-0"

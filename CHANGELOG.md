@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] - 2026-05-06
+
+### Added
+
+- **消息页用户体验打磨**（基于 commit `2f916a5` / `4bc739a`，本次 release 一并发布）：
+  - `UserMessage` 折叠 / 复制按钮内联到气泡顶部，折叠按钮可一并收起该提问下的所有 Claude 回复，气泡和折叠预览处显示 "X 条回复" 徽标；复制范围补齐 `text + tool_result` 两类。
+  - `MessageThread` 的 `ThreadBranch` 不再为 user 节点重复渲染折叠按钮，控制权下放给 `UserMessage`。`ToolOutputMessage` 每个工具输出块加复制按钮，复制原始未截断内容。
+  - 顶栏 "全部展开/折叠" 状态持久化到 `localStorage`；新增 `useExpandAllControl` 的 `followGlobal` 选项，用户/助手主气泡跟随全局初始值。新增 6 色 `questionPalette` 循环，用户气泡 / TOC 侧栏 / Timeline dots 按提问序号共享同色。
+  - 页头 "已加载 X / Y" 改为按钮：连续翻页直到加载完成，再次点击中止。`useReplyNotification` 在窗口失焦期间累积 `unreadCount`，回到页面后通过 banner + "跳到底部 / 关闭" 提醒，切换会话自动清零；右下角悬浮按钮组新增 expand/collapse 切换。
+- **续聊体验改进**：
+  - `ChatInput` 新增 `/rename <名字>` 斜杠命令，直接修改当前 session 的别名（空名清空），自动保留已有标签；执行成功后触发 `refreshInBackground(true)` 让侧栏列表立即反映新名称。底部提示行显示 `Ctrl+K 或 /model 切换 · /rename <名字> 改别名`，命令结果以胶囊形式向右滚出 2.5 秒。
+  - `ChatHeader` 在工作目录右侧新增 sessionId 徽标（短 8 位 + Hash 图标），点击复制完整 ID，hover 提示对应的 `claude --resume <id>` / `codex resume <id>` 还原命令；流式中正常显示。
+- **搜索匹配范围扩展**：搜索匹配范围切换条新增第 4 项「标签」，命中时结果以 `role: "tag"` 角色返回，前端展示为「标签」标签。后端 `SearchScope` 同步加 `Tags` 变种，`global_search` 在 Tags 模式下只比对 metadata 标签；All / Session / Content / Tags 四种匹配范围共享同一过滤器。
+- **回收站 Web 模式支持**：`session-web` 新增 5 条 recyclebin 路由（`GET /api/recyclebin`、`POST /api/recyclebin/:id/restore`、`DELETE /api/recyclebin/:id`、`POST /api/recyclebin/empty`、`POST /api/recyclebin/cleanup-orphans`），与 Tauri 桌面端一致；`webApi.ts` 内原本抛 "Recyclebin is not available" 的 stub 全部替换为真实 fetch 调用。
+- **分屏活动窗口高亮**：开启分屏后，活动 pane 通过 `border-primary + ring-primary/40` 描边突出显示；鼠标按下任一 pane 自动同步 `chatStore.activePaneId`，单分屏时不显示边框避免视觉噪音。
+- **Thread 视图支持中间消息分叉**：`ThreadSummaryView` 改为基于 `parentUuid` 的真实树（用 `buildMessageTree` 构造），用户提问按父子层级缩进 + 虚线连接，节点带「回复上一条」、`N 条分叉` 等关系标签；每个节点新增「回复此处」按钮，调用现成的 `forkAndResume` 从该消息分叉新会话并在终端打开。
+- **统计页区间消息数**：新增 `DailyTokenEntry.messageCount` 字段，Claude `FileStat.daily_messages` 按日累加 assistant 消息计数（cache version 1 → 2，首次打开统计页会重建一次缓存）；Codex `daily_map` 同步增加 messages 维度。前端 StatsPage 在选择时间范围（今天 / 本周 / 本月 / 30 天 / 自定义）时，"区间消息数"卡片随之刷新；选择"全部"时显示"总消息数（全期）"。
+
+### Changed
+
+- **滚动条默认更显眼**：`ScrollArea` 的 thumb 由 hover 才高亮改为默认带可见颜色（`muted-foreground/0.55`），hover 加宽 + 切到 primary 配色；track 默认 0.75rem，hover 扩到 0.875rem，单击 track 跳转、拖动 thumb 滚动均保持原行为。
+- **回收站恢复链路**：`recyclebin::restore_item` 成功后根据 `item.source` 失效对应 sessions 缓存（claude / codex），解决"恢复后列表不刷新"的体感 bug；前端 `appStore.restoreItem` 同步触发 `refreshInBackground(true)`；新增跨卷场景的 copy + remove 回退（EXDEV / "different volume"）。
+
+### Fixed
+
+- **Web 模式 `node not found`**：续聊时 `#!/usr/bin/env node` 在 systemd / 容器等最小 PATH 环境下无法解析。`session-core/cli.rs` 新增 `find_node()`（which / nvm / npm-global / 系统路径多重 fallback），`chat_ws.rs` 与 `commands/chat.rs` 的 `compose_chat_path` 把 CLI 自身目录和 node 目录一并加进子进程 PATH。
+- **Rust 1.95 clippy 告警**（commit `4d018f7`）：`model_list.rs` 的 `sort_by(cmp.reverse)` 改为 `sort_by_key(Reverse)`；`provider/codex.rs` `session_summary` 中 `function_call` / `function_call_output` / `reasoning` 三分支的内层 `if` 改写为 match guard，满足 `collapsible_match`。
+
+### Version
+
+- 将工作区版本统一提升到 `2.10.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json`、3 个 Cargo manifest 与 `Cargo.lock` 中的工作区包版本记录。
+
+---
+
 ## [2.9.0] - 2026-04-23
 
 ### Added
