@@ -1,6 +1,6 @@
 [package]
 name = "session-web"
-version = "2.10.0"
+version = "2.11.0"
 edition = "2021"
 
 [dependencies]
@@ -17,5 +17,3 @@ clap = { version = "4", features = ["derive", "env"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 uuid = { version = "1", features = ["v4"] }
-futures-util = "0.3"
-tokio-stream = "0.1"

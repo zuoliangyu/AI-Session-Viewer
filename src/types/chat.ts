@@ -78,8 +78,3 @@ export interface CliConfig {
   apiKeySource: string;
   baseUrlSource: string;
 }
-
-export interface QuickChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}

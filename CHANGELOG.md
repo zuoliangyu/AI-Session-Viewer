@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] - 2026-05-06
+
+### Added
+
+- **Codex 续聊改用 `codex app-server`（JSON-RPC over stdio）**：新增 `crates/session-core/src/codex_app_server.rs`，进程级单例按 `(api_key, base_url)` 指纹复用一条常驻 app-server，对外暴露 `start_thread / resume_thread / start_turn / interrupt_turn / subscribe`。`src-tauri/src/commands/chat.rs` 与 `crates/session-web/src/chat_ws.rs` 的 codex 分支不再每轮 spawn 一次 `codex exec`，新建会话走 `thread/start`，续聊走 `thread/resume`，取消走 `turn/interrupt`，Claude 路径完全不动。
+- **续聊预载历史**：`thread/resume` 返回的 `thread.turns` 通过新增的 `replace_messages` action 注入 `chatStore`，前端进入 `/chat/:sessionId` 续聊后立即看到完整上下文 + 拼回用户的待发气泡，再衔接本轮回复。
+- **codex `app-server` 通知解析**：`parseCodexStreamLine` 重写为消费 `thread/started` / `item/agentMessage/delta` / `item/completed`（agentMessage / reasoning / commandExecution / fileChange / webSearch / mcpToolCall）/ `turn/completed` / `turn/failed` / `error` / `thread/tokenUsage/updated` 等 app-server 事件；流式增量通过新增 `delta` action 折叠回同一条 assistant 气泡，token 用量在 `done` 时拼出"完成 [输入: x · 输出: y · 缓存命中: z]" 系统提示。
+
+### Changed
+
+- **codex 凭据解析支持嵌套 provider**：`cli_config.rs` 新增 `active_codex_provider()`，能识别 `~/.codex/config.toml` 里 `model_provider = "<name>"` + `[model_providers.<name>]` 这种新版嵌套配置（旧版顶层 `[provider]` 仍兼容），不再因 base_url 没读到而回落到 `https://api.openai.com`。
+- **模型列表跟随 codex 配置**：`model_list::list_models` 的 codex 分支从 `cli_config::get_credentials("codex")` 取真实凭据（auth.json + config.toml + env），不再只看 env；同时新增 `join_models_endpoint()` 兼容 base_url 已含 `/v1` 的形态，不再追加成 `/v1/v1/models`。
+- **聊天侧栏 ChatProcessState 扩展**：新增 `codex_turns` 与 `codex_sessions` 两个映射，cancel 路由能区分 Claude（杀进程）vs Codex（发 `turn/interrupt`）。
+
+### Removed
+
+- **删除"快速问答"功能**：移除 `src/components/quick-chat/`、`src/stores/quickChatStore.ts`、`startQuickChat`（tauri/web 两份）+ 相关 SSE 解析帮手、路由 `/quick-chat`、侧栏入口、`QuickChatMessage` 类型。后端同步删除 `crates/session-core/src/quick_chat.rs`、Tauri `quick_chat` 命令与注册、`session-web` 的 `quick_chat_handler` + `/api/quick-chat` 路由；`session-web/Cargo.toml` 顺手清理掉只服务于此的 `futures-util` / `tokio-stream` 依赖。
+
+### Version
+
+- 将工作区版本统一提升到 `2.11.0`，同步 `package.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.10.0] - 2026-05-06
 
 ### Added

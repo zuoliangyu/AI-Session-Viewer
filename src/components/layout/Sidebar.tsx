@@ -30,7 +30,6 @@ import {
   Github,
   ExternalLink,
   MessageSquarePlus,
-  Zap,
   RefreshCw,
   Plus,
   Trash2,
@@ -149,17 +148,6 @@ export function Sidebar() {
           >
             <MessageSquarePlus className="w-4 h-4" />
             CLI 对话
-          </button>
-          <button
-            onClick={() => navigate("/quick-chat")}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-              location.pathname === "/quick-chat"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            }`}
-          >
-            <Zap className="w-4 h-4" />
-            快速问答
           </button>
           <button
             onClick={() => navigate("/search")}

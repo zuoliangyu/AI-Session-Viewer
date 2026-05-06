@@ -68,16 +68,38 @@ struct CodexConfig {
     base_url: Option<String>,
     #[serde(default)]
     api_key: Option<String>,
+    /// Legacy single-provider block: `[provider]`.
     #[serde(default)]
     provider: Option<CodexProvider>,
+    /// Currently selected provider name, used to resolve a key under
+    /// `[model_providers.<name>]`.
+    #[serde(default)]
+    model_provider: Option<String>,
+    /// New nested-provider format: `[model_providers.<name>]`.
+    #[serde(default)]
+    model_providers: Option<HashMap<String, CodexProvider>>,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, Clone)]
 struct CodexProvider {
     #[serde(default)]
     base_url: Option<String>,
     #[serde(default)]
     api_key: Option<String>,
+}
+
+/// Pick the active provider from a Codex config — preferring the new
+/// `[model_providers.<name>]` form keyed by `model_provider`, falling back
+/// to the legacy `[provider]` block.
+fn active_codex_provider(cfg: &CodexConfig) -> Option<CodexProvider> {
+    if let Some(name) = cfg.model_provider.as_deref().filter(|s| !s.is_empty()) {
+        if let Some(map) = cfg.model_providers.as_ref() {
+            if let Some(p) = map.get(name) {
+                return Some(p.clone());
+            }
+        }
+    }
+    cfg.provider.clone()
 }
 
 /// Codex's `~/.codex/auth.json`
@@ -136,7 +158,7 @@ pub fn resolve_credentials(
     Ok(ResolvedCliCredentials { api_key, base_url })
 }
 
-/// Get real credentials for internal use (e.g. model_list, quick_chat).
+/// Get real credentials for internal use (e.g. model_list).
 pub(crate) fn get_credentials(source: &str) -> (String, String) {
     match resolve_credentials(source, None, None) {
         Ok(credentials) => (credentials.api_key, credentials.base_url),
@@ -162,9 +184,10 @@ fn read_codex_cli_config() -> Result<CliConfig, String> {
     let auth: CodexAuth = read_json_file(&auth_path).unwrap_or_default();
 
     // ── Per-file key extraction ──
-    // config.toml key (direct field or under [provider])
+    // config.toml key (direct field, [provider], or active [model_providers.<name>])
+    let active_provider = active_codex_provider(&toml_cfg);
     let toml_key = toml_cfg.api_key.clone().filter(|s| !s.is_empty())
-        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+        .or_else(|| active_provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_default();
 
     // auth.json key: prefer CODEX_API_KEY, fall back to OPENAI_API_KEY
@@ -188,7 +211,7 @@ fn read_codex_cli_config() -> Result<CliConfig, String> {
 
     // ── Base URL: config.toml is primary (it's the dedicated URL store) ──
     let toml_url = toml_cfg.base_url.clone().filter(|s| !s.is_empty())
-        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+        .or_else(|| active_provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_default();
 
     let (base_url, base_url_source) = if !toml_url.is_empty() {
@@ -239,8 +262,9 @@ pub(crate) fn read_codex_credentials() -> (String, String) {
     let auth_key = auth.codex_api_key.filter(|s| !s.is_empty())
         .or_else(|| auth.openai_api_key.filter(|s| !s.is_empty()))
         .unwrap_or_default();
-    let toml_key = toml_cfg.api_key.filter(|s| !s.is_empty())
-        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+    let active_provider = active_codex_provider(&toml_cfg);
+    let toml_key = toml_cfg.api_key.clone().filter(|s| !s.is_empty())
+        .or_else(|| active_provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_default();
     let api_key = if !auth_key.is_empty() {
         auth_key
@@ -253,7 +277,7 @@ pub(crate) fn read_codex_credentials() -> (String, String) {
 
     // Base URL: config.toml first, then env, then default
     let toml_url = toml_cfg.base_url.filter(|s| !s.is_empty())
-        .or_else(|| toml_cfg.provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+        .or_else(|| active_provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
         .unwrap_or_default();
     let base_url = if !toml_url.is_empty() {
         toml_url

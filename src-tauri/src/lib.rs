@@ -38,7 +38,6 @@ pub fn run() {
             commands::chat::start_chat,
             commands::chat::continue_chat,
             commands::chat::cancel_chat,
-            commands::chat::quick_chat,
             commands::bookmarks::list_bookmarks,
             commands::bookmarks::add_bookmark,
             commands::bookmarks::remove_bookmark,

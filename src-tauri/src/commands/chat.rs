@@ -4,24 +4,32 @@ use std::process::Stdio;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
 use session_core::cli;
-use session_core::cli_config::{self, CliConfig};
+use session_core::cli_config::{self, CliConfig, ResolvedCliCredentials};
+use session_core::codex_app_server::{CodexAppServer, CodexNotification};
 use session_core::model_list::{self, ModelInfo};
-use session_core::quick_chat::{self, ChatMsg};
 
-/// State to track active chat processes.
+/// State to track active chat processes (Claude only) and active Codex turns.
 pub struct ChatProcessState {
-    pub processes: Arc<Mutex<HashMap<String, u32>>>, // session_id -> PID
+    /// Claude session_id -> PID of the spawned CLI process
+    pub processes: Arc<Mutex<HashMap<String, u32>>>,
+    /// Codex thread_id -> turn_id (for cancellation via turn/interrupt)
+    pub codex_turns: Arc<Mutex<HashMap<String, String>>>,
+    /// Track which session_ids are codex (for cancel routing)
+    pub codex_sessions: Arc<Mutex<HashMap<String, String>>>, // pending_or_thread_id -> thread_id
 }
 
 impl ChatProcessState {
     pub fn new() -> Self {
         Self {
             processes: Arc::new(Mutex::new(HashMap::new())),
+            codex_turns: Arc::new(Mutex::new(HashMap::new())),
+            codex_sessions: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
@@ -38,41 +46,6 @@ pub async fn get_cli_config(source: String) -> Result<CliConfig, String> {
     tokio::task::spawn_blocking(move || cli_config::read_cli_config(&source))
         .await
         .map_err(|e| format!("get_cli_config task failed: {}", e))?
-}
-
-#[tauri::command]
-pub async fn quick_chat(
-    app: AppHandle,
-    source: String,
-    messages: Vec<ChatMsg>,
-    model: String,
-) -> Result<(), String> {
-    let app_handle = app.clone();
-
-    tokio::spawn(async move {
-        let result = quick_chat::stream_chat(&source, messages, &model, |chunk| {
-            let _ = app_handle.emit("quick-chat-chunk", chunk);
-        })
-        .await;
-
-        match result {
-            Ok(()) => {
-                let _ = app_handle.emit(
-                    "quick-chat-done",
-                    serde_json::json!({ "success": true }).to_string(),
-                );
-            }
-            Err(e) => {
-                let _ = app_handle.emit("quick-chat-error", &e);
-                let _ = app_handle.emit(
-                    "quick-chat-done",
-                    serde_json::json!({ "success": false }).to_string(),
-                );
-            }
-        }
-    });
-
-    Ok(())
 }
 
 #[tauri::command]
@@ -100,14 +73,18 @@ pub async fn start_chat(
 ) -> Result<String, String> {
     let source = cli::normalize_source(&source)?.to_string();
     let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let credentials =
+        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
+
+    if source == "codex" {
+        return run_codex_chat(app, session_id, project_path, prompt, model, credentials, None).await;
+    }
 
     let resolved_cli = if cli_path.is_empty() {
         cli::find_cli(&source)?
     } else {
         cli_path
     };
-    let credentials =
-        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
     let cmd = build_chat_command(BuildChatCommandParams {
         cli_path: &resolved_cli,
@@ -140,13 +117,27 @@ pub async fn continue_chat(
     base_url: String,
 ) -> Result<String, String> {
     let source = cli::normalize_source(&source)?.to_string();
+    let credentials =
+        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
+
+    if source == "codex" {
+        return run_codex_chat(
+            app,
+            session_id.clone(),
+            project_path,
+            prompt,
+            model,
+            credentials,
+            Some(session_id),
+        )
+        .await;
+    }
+
     let resolved_cli = if cli_path.is_empty() {
         cli::find_cli(&source)?
     } else {
         cli_path
     };
-    let credentials =
-        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
     let cmd = build_chat_command(BuildChatCommandParams {
         cli_path: &resolved_cli,
@@ -167,17 +158,241 @@ pub async fn continue_chat(
 #[tauri::command]
 pub async fn cancel_chat(app: AppHandle, session_id: String) -> Result<(), String> {
     let state = app.state::<ChatProcessState>();
+
+    // Codex path: send turn/interrupt via app-server.
+    let codex_target = {
+        let map = state.codex_sessions.lock();
+        map.get(&session_id).cloned()
+    };
+    if let Some(thread_id) = codex_target {
+        let turn_id = state.codex_turns.lock().get(&thread_id).cloned();
+        if let Some(turn_id) = turn_id {
+            // Best-effort interrupt — credentials read from current config.
+            if let Ok(creds) = cli_config::resolve_credentials("codex", None, None) {
+                let server = CodexAppServer::global();
+                let _ = server.interrupt_turn(&creds, &thread_id, &turn_id).await;
+            }
+        }
+        let _ = app.emit(
+            &format!("chat-complete:{}", session_id),
+            json!({ "success": false, "cancelled": true }).to_string(),
+        );
+        return Ok(());
+    }
+
+    // Claude path (original): kill the spawned process by PID.
     let pid = {
         let mut processes = state.processes.lock();
         processes.remove(&session_id)
     };
-
     if let Some(pid) = pid {
         kill_process(pid);
         let _ = app.emit(&format!("chat-complete:{}", session_id), "cancelled");
     }
 
     Ok(())
+}
+
+/// Run a Codex chat turn through the app-server. The `pending_session_id` is
+/// the id the frontend is listening on (`chat-output:{id}`); for new chats
+/// it's a UUID the frontend generated, for resume it's the real thread_id.
+/// Returns the actual thread_id (== pending for resume, new for start).
+async fn run_codex_chat(
+    app: AppHandle,
+    pending_session_id: String,
+    project_path: String,
+    prompt: String,
+    model: String,
+    credentials: ResolvedCliCredentials,
+    resume_thread_id: Option<String>,
+) -> Result<String, String> {
+    let server = CodexAppServer::global();
+    let event_id = pending_session_id.clone();
+    let model_opt = if model.is_empty() { None } else { Some(model.as_str()) };
+
+    // Open the thread (start or resume) and capture metadata.
+    let (thread_id, history_turns) = if let Some(thread_id) = resume_thread_id {
+        let resp = server
+            .resume_thread(&credentials, &thread_id, &project_path, model_opt)
+            .await
+            .map_err(|e| format!("codex thread/resume failed: {}", e))?;
+        let resolved_id = resp
+            .get("thread")
+            .and_then(|t| t.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or(thread_id);
+        let turns = resp
+            .get("thread")
+            .and_then(|t| t.get("turns"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        (resolved_id, turns)
+    } else {
+        let resp = server
+            .start_thread(&credentials, &project_path, model_opt)
+            .await
+            .map_err(|e| format!("codex thread/start failed: {}", e))?;
+        let id = resp
+            .get("thread")
+            .and_then(|t| t.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "codex thread/start: missing thread.id".to_string())?;
+        (id, Value::Null)
+    };
+
+    // Register session for cancel routing.
+    {
+        let state = app.state::<ChatProcessState>();
+        let mut map = state.codex_sessions.lock();
+        map.insert(event_id.clone(), thread_id.clone());
+        if event_id != thread_id {
+            map.insert(thread_id.clone(), thread_id.clone());
+        }
+    }
+
+    // Stream events on `chat-output:{thread_id}`. The frontend's listener
+    // re-subscribes to this channel name as soon as it sees the thread_id
+    // returned by this command, so emitting here is correct for both new
+    // chats (event_id != thread_id) and resume (event_id == thread_id).
+    let stream_channel = thread_id.clone();
+
+    // For new chats only: notify the frontend's *initial* listener (which is
+    // still on `chat-output:{pending}`) that the session_id has changed.
+    // This lets the parser update pane.sessionId, which triggers the
+    // re-subscribe to the new channel.
+    if event_id != thread_id {
+        let _ = app.emit(
+            &format!("chat-output:{}", event_id),
+            json!({
+                "type": "session_id",
+                "data": &thread_id,
+            })
+            .to_string(),
+        );
+    }
+
+    // Emit history (resume only) on the stream channel.
+    if !history_turns.is_null() {
+        let _ = app.emit(
+            &format!("chat-output:{}", stream_channel),
+            json!({
+                "type": "history",
+                "data": history_turns,
+            })
+            .to_string(),
+        );
+    }
+
+    // Subscribe BEFORE starting the turn so we don't miss events.
+    let mut rx = server
+        .subscribe(&credentials, &thread_id)
+        .await
+        .map_err(|e| format!("codex subscribe failed: {}", e))?;
+
+    // Kick off the turn after a short delay so the frontend has time to
+    // re-subscribe to `chat-output:{thread_id}` after receiving the
+    // command's return value.
+    {
+        let server = server.clone();
+        let creds = credentials.clone();
+        let tid = thread_id.clone();
+        let prompt = prompt.clone();
+        let model_owned = model.clone();
+        let cwd = project_path.clone();
+        let app_for_err = app.clone();
+        let stream_channel_for_err = stream_channel.clone();
+        let needs_grace = event_id != thread_id;
+        tokio::spawn(async move {
+            if needs_grace {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            let m = if model_owned.is_empty() { None } else { Some(model_owned.as_str()) };
+            if let Err(e) = server
+                .start_turn(&creds, &tid, &prompt, m, Some(cwd.as_str()))
+                .await
+            {
+                let _ = app_for_err.emit(
+                    &format!("chat-error:{}", stream_channel_for_err),
+                    format!("turn/start failed: {}", e),
+                );
+            }
+        });
+    }
+
+    // Spawn the streaming task on the stream channel.
+    {
+        let app_stream = app.clone();
+        let stream_channel_stream = stream_channel.clone();
+        let thread_id_stream = thread_id.clone();
+        tokio::spawn(async move {
+            stream_codex_notifications(
+                app_stream,
+                stream_channel_stream,
+                thread_id_stream,
+                &mut rx,
+            )
+            .await;
+        });
+    }
+
+    Ok(thread_id)
+}
+
+async fn stream_codex_notifications(
+    app: AppHandle,
+    event_id: String,
+    thread_id: String,
+    rx: &mut tokio::sync::mpsc::Receiver<CodexNotification>,
+) {
+    let mut success = true;
+    while let Some(notif) = rx.recv().await {
+        // Capture turn_id from turn/started for cancel support.
+        if notif.method == "turn/started" {
+            if let Some(tid) = notif
+                .params
+                .get("turn")
+                .and_then(|t| t.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                let state = app.state::<ChatProcessState>();
+                state
+                    .codex_turns
+                    .lock()
+                    .insert(thread_id.clone(), tid.to_string());
+            }
+        }
+
+        let payload = json!({
+            "type": "notification",
+            "method": &notif.method,
+            "params": &notif.params,
+        })
+        .to_string();
+        let _ = app.emit(&format!("chat-output:{}", event_id), &payload);
+
+        let terminal = notif.method == "turn/completed"
+            || notif.method == "turn/failed"
+            || notif.method == "error";
+        if notif.method == "turn/failed" || notif.method == "error" {
+            success = false;
+        }
+        if terminal {
+            break;
+        }
+    }
+
+    // Clear active turn id so cancel won't hit a stale value.
+    {
+        let state = app.state::<ChatProcessState>();
+        state.codex_turns.lock().remove(&thread_id);
+    }
+
+    let _ = app.emit(
+        &format!("chat-complete:{}", event_id),
+        json!({ "success": success }).to_string(),
+    );
 }
 
 struct BuildChatCommandParams<'a> {

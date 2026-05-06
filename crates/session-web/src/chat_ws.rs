@@ -1,14 +1,17 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use serde::Deserialize;
+use serde_json::Value;
 use std::process::Stdio;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 use session_core::cli;
 use session_core::cli_config::{self, ResolvedCliCredentials};
+use session_core::codex_app_server::CodexAppServer;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -97,13 +100,24 @@ fn resolve_project_dir(source: &str, project_path: &str) -> Result<PathBuf, Stri
     }
 }
 
+/// Per-socket Codex turn state (thread_id + active turn_id) for cancel routing.
+#[derive(Default)]
+struct CodexTurnState {
+    thread_id: Option<String>,
+    turn_id: Option<String>,
+    credentials: Option<ResolvedCliCredentials>,
+}
+
 async fn handle_chat_socket(mut socket: WebSocket) {
     // Channel for sending messages back to the client
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
-    // Track the current child process PID for cancellation
+    // Track the current child process PID (Claude) for cancellation
     let cancel_tx = tokio::sync::watch::channel(false);
     let cancel_sender = cancel_tx.0;
+
+    // Track current codex turn for the lifetime of this socket
+    let codex_state: Arc<Mutex<CodexTurnState>> = Arc::new(Mutex::new(CodexTurnState::default()));
 
     loop {
         tokio::select! {
@@ -161,47 +175,89 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                 let session_id = request.session_id
                                     .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-                                // Send session_id to client
-                                let sid_msg = serde_json::json!({
-                                    "type": "session_id",
-                                    "data": &session_id
-                                }).to_string();
-                                let _ = socket.send(Message::Text(sid_msg.into())).await;
+                                // For Claude, send session_id immediately. For codex
+                                // we send it after thread/start returns the real id.
+                                if source != "codex" {
+                                    let sid_msg = serde_json::json!({
+                                        "type": "session_id",
+                                        "data": &session_id
+                                    }).to_string();
+                                    let _ = socket.send(Message::Text(sid_msg.into())).await;
+                                }
 
-                                // Spawn the CLI process
                                 let tx_clone = tx.clone();
                                 let tx_err = tx.clone();
-                                let mut cancel_rx = cancel_sender.subscribe();
 
-                                tokio::spawn(async move {
-                                    if let Err(e) = run_cli_process(
-                                        &source,
-                                        &project_path,
-                                        &prompt,
-                                        &model,
-                                        skip_permissions,
-                                        resume_id.as_deref(),
-                                        &cli_path,
-                                        &api_key,
-                                        &base_url,
-                                        tx_clone,
-                                        &mut cancel_rx,
-                                    ).await {
-                                        tracing::error!("CLI process error: {}", e);
-                                        let err_msg = serde_json::json!({
-                                            "type": "error",
-                                            "data": e
-                                        }).to_string();
-                                        let _ = tx_err.send(err_msg).await;
-                                        let complete_msg = serde_json::json!({
-                                            "type": "complete",
-                                            "success": false
-                                        }).to_string();
-                                        let _ = tx_err.send(complete_msg).await;
-                                    }
-                                });
+                                if source == "codex" {
+                                    let codex_state = codex_state.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = run_codex_chat_via_app_server(
+                                            &project_path,
+                                            &prompt,
+                                            &model,
+                                            resume_id,
+                                            &api_key,
+                                            &base_url,
+                                            tx_clone,
+                                            codex_state,
+                                        ).await {
+                                            tracing::error!("Codex app-server error: {}", e);
+                                            let err_msg = serde_json::json!({
+                                                "type": "error",
+                                                "data": e
+                                            }).to_string();
+                                            let _ = tx_err.send(err_msg).await;
+                                            let complete_msg = serde_json::json!({
+                                                "type": "complete",
+                                                "success": false
+                                            }).to_string();
+                                            let _ = tx_err.send(complete_msg).await;
+                                        }
+                                    });
+                                } else {
+                                    let mut cancel_rx = cancel_sender.subscribe();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = run_cli_process(
+                                            &source,
+                                            &project_path,
+                                            &prompt,
+                                            &model,
+                                            skip_permissions,
+                                            resume_id.as_deref(),
+                                            &cli_path,
+                                            &api_key,
+                                            &base_url,
+                                            tx_clone,
+                                            &mut cancel_rx,
+                                        ).await {
+                                            tracing::error!("CLI process error: {}", e);
+                                            let err_msg = serde_json::json!({
+                                                "type": "error",
+                                                "data": e
+                                            }).to_string();
+                                            let _ = tx_err.send(err_msg).await;
+                                            let complete_msg = serde_json::json!({
+                                                "type": "complete",
+                                                "success": false
+                                            }).to_string();
+                                            let _ = tx_err.send(complete_msg).await;
+                                        }
+                                    });
+                                }
                             }
                             "cancel" => {
+                                // Codex cancel: send turn/interrupt
+                                let codex_snapshot = {
+                                    let s = codex_state.lock().await;
+                                    (s.thread_id.clone(), s.turn_id.clone(), s.credentials.clone())
+                                };
+                                if let (Some(tid), Some(turn), Some(creds)) = codex_snapshot {
+                                    let server = CodexAppServer::global();
+                                    if let Err(e) = server.interrupt_turn(&creds, &tid, &turn).await {
+                                        tracing::warn!("turn/interrupt failed: {}", e);
+                                    }
+                                }
+                                // Claude cancel: kill process
                                 let _ = cancel_sender.send(true);
                             }
                             _ => {
@@ -236,6 +292,9 @@ async fn run_cli_process(
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
     let source = cli::normalize_source(source)?;
+    if source == "codex" {
+        return Err("Codex chat must go through run_codex_chat_via_app_server".to_string());
+    }
     let project_dir = resolve_project_dir(source, project_path)?;
     if !custom_cli_path.trim().is_empty() {
         tracing::warn!("Ignoring client-supplied cli_path for web chat");
@@ -246,39 +305,22 @@ async fn run_cli_process(
 
     let mut cmd = Command::new(&cli_path);
 
-    if source == "codex" {
-        // Codex web chat runs in a non-interactive context, so use the JSON
-        // streaming mode plus full-auto execution to avoid permission prompts.
-        cmd.arg("exec");
-        if let Some(sid) = resume_session_id {
-            cmd.arg("resume").arg(sid);
-        }
-        cmd.arg(prompt);
-        cmd.arg("--json");
-        cmd.arg("--full-auto");
-        if !model.is_empty() {
-            cmd.arg("--model").arg(model);
-        }
-        // Codex normally expects a git repo; allow validated project folders.
-        cmd.arg("--skip-git-repo-check");
-    } else {
-        if let Some(sid) = resume_session_id {
-            cmd.arg("--resume").arg(sid);
-        }
-        cmd.arg("-p").arg(prompt);
-        if !model.is_empty() {
-            // Claude CLI expects CLI model IDs rather than the "-latest" alias.
-            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-            cmd.arg("--model").arg(cli_model);
-        }
-        cmd.arg("--output-format").arg("stream-json");
-        cmd.arg("--include-partial-messages");
-        cmd.arg("--verbose");
-        // Web mode has no interactive terminal for permission prompts,
-        // so always skip permissions to prevent the CLI from hanging.
-        let _ = skip_permissions;
-        cmd.arg("--dangerously-skip-permissions");
+    if let Some(sid) = resume_session_id {
+        cmd.arg("--resume").arg(sid);
     }
+    cmd.arg("-p").arg(prompt);
+    if !model.is_empty() {
+        // Claude CLI expects CLI model IDs rather than the "-latest" alias.
+        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+        cmd.arg("--model").arg(cli_model);
+    }
+    cmd.arg("--output-format").arg("stream-json");
+    cmd.arg("--include-partial-messages");
+    cmd.arg("--verbose");
+    // Web mode has no interactive terminal for permission prompts,
+    // so always skip permissions to prevent the CLI from hanging.
+    let _ = skip_permissions;
+    cmd.arg("--dangerously-skip-permissions");
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
     // waiting for permission confirmation or other interactive prompts
@@ -355,6 +397,170 @@ async fn run_cli_process(
             let _ = tx.send(cancel_msg).await;
         }
     }
+
+    Ok(())
+}
+
+/// Run a Codex chat through the app-server. Sends events to `tx` in the same
+/// envelope shape (`{"type":"output","data":"<json>"}`) used elsewhere on the
+/// socket.
+#[allow(clippy::too_many_arguments)]
+async fn run_codex_chat_via_app_server(
+    project_path: &str,
+    prompt: &str,
+    model: &str,
+    resume_session_id: Option<String>,
+    api_key_override: &str,
+    base_url_override: &str,
+    tx: mpsc::Sender<String>,
+    state: Arc<Mutex<CodexTurnState>>,
+) -> Result<(), String> {
+    let project_dir = resolve_project_dir("codex", project_path)?;
+    let project_dir_str = project_dir.to_string_lossy().to_string();
+    let credentials = cli_config::resolve_credentials(
+        "codex",
+        Some(api_key_override),
+        Some(base_url_override),
+    )?;
+
+    let server = CodexAppServer::global();
+    let model_opt = if model.is_empty() { None } else { Some(model) };
+
+    // Open the thread.
+    let (thread_id, history_turns) = if let Some(sid) = resume_session_id.as_deref() {
+        let resp = server
+            .resume_thread(&credentials, sid, &project_dir_str, model_opt)
+            .await
+            .map_err(|e| format!("codex thread/resume failed: {}", e))?;
+        let id = resp
+            .get("thread")
+            .and_then(|t| t.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .unwrap_or_else(|| sid.to_string());
+        let turns = resp
+            .get("thread")
+            .and_then(|t| t.get("turns"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        (id, turns)
+    } else {
+        let resp = server
+            .start_thread(&credentials, &project_dir_str, model_opt)
+            .await
+            .map_err(|e| format!("codex thread/start failed: {}", e))?;
+        let id = resp
+            .get("thread")
+            .and_then(|t| t.get("id"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "codex thread/start: missing thread.id".to_string())?;
+        (id, Value::Null)
+    };
+
+    // Persist for cancel routing.
+    {
+        let mut s = state.lock().await;
+        s.thread_id = Some(thread_id.clone());
+        s.credentials = Some(credentials.clone());
+    }
+
+    // Emit session_id.
+    let sid_msg = serde_json::json!({
+        "type": "session_id",
+        "data": &thread_id,
+    })
+    .to_string();
+    let _ = tx.send(sid_msg).await;
+
+    // Emit history (resume only).
+    if !history_turns.is_null() {
+        let hist_msg = serde_json::json!({
+            "type": "history",
+            "data": history_turns,
+        })
+        .to_string();
+        let _ = tx.send(hist_msg).await;
+    }
+
+    // Subscribe before kicking off the turn.
+    let mut rx = server
+        .subscribe(&credentials, &thread_id)
+        .await
+        .map_err(|e| format!("codex subscribe failed: {}", e))?;
+
+    // Fire turn/start in the background; events stream through `rx`.
+    {
+        let server = server.clone();
+        let creds = credentials.clone();
+        let tid = thread_id.clone();
+        let prompt_owned = prompt.to_string();
+        let model_owned = model.to_string();
+        let cwd = project_dir_str.clone();
+        let tx_err = tx.clone();
+        tokio::spawn(async move {
+            let m = if model_owned.is_empty() { None } else { Some(model_owned.as_str()) };
+            if let Err(e) = server
+                .start_turn(&creds, &tid, &prompt_owned, m, Some(cwd.as_str()))
+                .await
+            {
+                let err = serde_json::json!({
+                    "type": "error",
+                    "data": format!("turn/start failed: {}", e),
+                })
+                .to_string();
+                let _ = tx_err.send(err).await;
+            }
+        });
+    }
+
+    // Stream notifications until turn/completed | turn/failed | error.
+    let mut success = true;
+    while let Some(notif) = rx.recv().await {
+        if notif.method == "turn/started" {
+            if let Some(tid) = notif
+                .params
+                .get("turn")
+                .and_then(|t| t.get("id"))
+                .and_then(|v| v.as_str())
+            {
+                state.lock().await.turn_id = Some(tid.to_string());
+            }
+        }
+
+        let envelope = serde_json::json!({
+            "type": "output",
+            "data": serde_json::json!({
+                "type": "notification",
+                "method": &notif.method,
+                "params": &notif.params,
+            }).to_string(),
+        })
+        .to_string();
+        if tx.send(envelope).await.is_err() {
+            break;
+        }
+
+        let terminal = notif.method == "turn/completed"
+            || notif.method == "turn/failed"
+            || notif.method == "error";
+        if notif.method == "turn/failed" || notif.method == "error" {
+            success = false;
+        }
+        if terminal {
+            break;
+        }
+    }
+
+    // Reset turn id (thread_id stays for the next message on this socket).
+    state.lock().await.turn_id = None;
+
+    let complete = serde_json::json!({
+        "type": "complete",
+        "success": success,
+    })
+    .to_string();
+    let _ = tx.send(complete).await;
 
     Ok(())
 }

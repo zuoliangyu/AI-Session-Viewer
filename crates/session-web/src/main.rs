@@ -12,7 +12,6 @@ use axum::{
     routing::{delete, get, post, put},
     Json, Router,
 };
-use futures_util::StreamExt;
 use clap::Parser;
 use config::Config;
 use std::path::{Component, Path, PathBuf};
@@ -227,64 +226,8 @@ async fn cli_config_handler(
 }
 
 #[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct QuickChatRequest {
-    source: String,
-    messages: Vec<session_core::quick_chat::ChatMsg>,
-    model: String,
-}
-
-#[derive(serde::Deserialize)]
 struct WsAuthQuery {
     token: Option<String>,
-}
-
-enum QuickChatSseMessage {
-    Chunk(String),
-    Error(String),
-    Done,
-}
-
-async fn quick_chat_handler(
-    Json(req): Json<QuickChatRequest>,
-) -> axum::response::Sse<impl futures_util::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>
-{
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<QuickChatSseMessage>();
-
-    tokio::spawn(async move {
-        let chunk_tx = tx.clone();
-        let result = session_core::quick_chat::stream_chat(
-            &req.source,
-            req.messages,
-            &req.model,
-            |chunk| {
-                let _ = chunk_tx.send(QuickChatSseMessage::Chunk(chunk.to_string()));
-            },
-        )
-        .await;
-
-        if let Err(e) = result {
-            let err_json = serde_json::json!({ "error": e }).to_string();
-            let _ = tx.send(QuickChatSseMessage::Error(err_json));
-        }
-        let _ = tx.send(QuickChatSseMessage::Done);
-    });
-
-    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx).map(|message| {
-        match message {
-            QuickChatSseMessage::Chunk(chunk) => {
-                Ok(axum::response::sse::Event::default().data(chunk))
-            }
-            QuickChatSseMessage::Error(err) => Ok(axum::response::sse::Event::default()
-                .event("error")
-                .data(err)),
-            QuickChatSseMessage::Done => Ok(axum::response::sse::Event::default()
-                .event("done")
-                .data("[DONE]")),
-        }
-    });
-
-    axum::response::Sse::new(stream)
 }
 
 async fn chat_ws_auth_handler(
@@ -384,7 +327,6 @@ async fn main() {
         .route("/api/cli/detect", get(detect_cli_handler))
         .route("/api/cli/config", get(cli_config_handler))
         .route("/api/models", post(list_models_handler))
-        .route("/api/quick-chat", post(quick_chat_handler))
         .layer(middleware::from_fn(check_auth));
 
     // Static file fallback (no auth needed)

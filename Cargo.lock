@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "ai-session-viewer"
-version = "2.10.0"
+version = "2.11.0"
 dependencies = [
  "chrono",
  "libc",
@@ -3911,7 +3911,7 @@ dependencies = [
 
 [[package]]
 name = "session-core"
-version = "2.10.0"
+version = "2.11.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -3930,11 +3930,10 @@ dependencies = [
 
 [[package]]
 name = "session-web"
-version = "2.10.0"
+version = "2.11.0"
 dependencies = [
  "axum",
  "clap",
- "futures-util",
  "mime_guess",
  "notify",
  "rust-embed",
@@ -3942,7 +3941,6 @@ dependencies = [
  "serde_json",
  "session-core",
  "tokio",
- "tokio-stream",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -4793,17 +4791,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls",
- "tokio",
-]
-
-[[package]]
-name = "tokio-stream"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
-dependencies = [
- "futures-core",
- "pin-project-lite",
  "tokio",
 ]
 

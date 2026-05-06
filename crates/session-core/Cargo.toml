@@ -1,6 +1,6 @@
 [package]
 name = "session-core"
-version = "2.10.0"
+version = "2.11.0"
 edition = "2021"
 
 [dependencies]
@@ -12,7 +12,7 @@ parking_lot = "0.12"
 dirs = "6"
 rayon = "1.10"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "process", "io-util", "sync", "macros", "time"] }
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 toml = "0.8"

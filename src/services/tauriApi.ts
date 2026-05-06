@@ -10,7 +10,7 @@ import type {
   DeleteResult,
   RecycledItem,
 } from "../types";
-import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig, QuickChatMessage } from "../types/chat";
+import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
 
 export async function getProjects(source: string): Promise<ProjectEntry[]> {
   return invoke<ProjectEntry[]>("get_projects", { source });
@@ -181,49 +181,6 @@ export async function detectCli(): Promise<CliInstallation[]> {
 
 export async function getCliConfig(source: string): Promise<CliConfig> {
   return invoke<CliConfig>("get_cli_config", { source });
-}
-
-export async function startQuickChat(
-  source: string,
-  messages: QuickChatMessage[],
-  model: string,
-  onChunk: (text: string) => void,
-  onError: (err: string) => void,
-  onDone: () => void,
-): Promise<() => void> {
-  // Invoke the quick_chat command — it streams via Tauri events
-  invoke("quick_chat", { source, messages, model }).catch((e) => {
-    onError(String(e));
-  });
-
-  // We need to listen for the events. The session ID is not known in advance,
-  // so we use a global listener pattern based on event prefix.
-  const { listen } = await import("@tauri-apps/api/event");
-
-  let cancelled = false;
-  const cleanups: (() => void)[] = [];
-
-  // Listen for chunk events on any quick-chat-chunk:* channel
-  // Since we don't know the session ID, use a global event listener
-  const unlistenChunk = await listen<string>("quick-chat-chunk", (event) => {
-    if (!cancelled) onChunk(event.payload);
-  });
-  cleanups.push(unlistenChunk);
-
-  const unlistenError = await listen<string>("quick-chat-error", (event) => {
-    if (!cancelled) onError(event.payload);
-  });
-  cleanups.push(unlistenError);
-
-  const unlistenDone = await listen<string>("quick-chat-done", () => {
-    if (!cancelled) onDone();
-  });
-  cleanups.push(unlistenDone);
-
-  return () => {
-    cancelled = true;
-    cleanups.forEach((fn) => fn());
-  };
 }
 
 export async function listModels(

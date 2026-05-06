@@ -515,80 +515,228 @@ function parseContentValue(content: any): ChatContentBlock[] {
 }
 
 /**
- * Parse a single line from `codex exec --json` stdout.
- * Events: thread.started, item.completed (agent_message/reasoning/command_execution/file_change),
- *         turn.completed, turn.failed
+ * Parse one line emitted by the Rust backend on the codex chat stream. The
+ * line is either an envelope tagged by `type` (session_id / history) or a
+ * `notification` envelope wrapping a raw `codex app-server` JSON-RPC method.
+ *
+ * Supported app-server notification methods (translated):
+ *   thread/started, thread/tokenUsage/updated,
+ *   item/agentMessage/delta, item/completed, item/started,
+ *   turn/started, turn/completed, turn/failed, error.
  */
+interface CodexUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens: number;
+}
+
+type CodexParseResult =
+  | { action: "session_id"; id: string }
+  | { action: "replace_messages"; messages: ChatMessage[] }
+  | { action: "add"; message: ChatMessage }
+  | { action: "delta"; itemId: string; delta: string }
+  | { action: "token_usage"; usage: CodexUsage }
+  | { action: "done" }
+  | { action: "error"; message: string }
+  | null;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function parseCodexStreamLine(line: string): { action: "session_id"; id: string } | { action: "add"; message: ChatMessage } | { action: "done"; usage?: any } | null {
+function buildCodexMessageFromItem(item: any): ChatMessage | null {
+  if (!item || typeof item !== "object") return null;
+  const itemType: string = item.type || "";
+  const id: string = typeof item.id === "string" && item.id ? item.id : generateUUID();
+  const ts = new Date().toISOString();
+
+  if (itemType === "userMessage") {
+    // app-server format: content: [{type:"text", text}|{type:"image",url}|...]
+    const parts: ChatContentBlock[] = [];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const content = Array.isArray(item.content) ? item.content : [];
+    for (const c of content) {
+      if (c?.type === "text" && typeof c.text === "string" && c.text) {
+        parts.push({ type: "text", text: c.text });
+      }
+    }
+    if (parts.length === 0) return null;
+    return { id, role: "user", content: parts, timestamp: ts };
+  }
+
+  if (itemType === "agentMessage") {
+    const text = typeof item.text === "string" ? item.text : "";
+    if (!text) return null;
+    return { id, role: "assistant", content: [{ type: "text", text }], timestamp: ts };
+  }
+
+  if (itemType === "reasoning") {
+    // summary: string[] (concise) — prefer; fall back to content (full)
+    const summaryArr: string[] = Array.isArray(item.summary) ? item.summary : [];
+    const contentArr: string[] = Array.isArray(item.content) ? item.content : [];
+    const text = (summaryArr.length > 0 ? summaryArr : contentArr).join("\n").trim();
+    if (!text) return null;
+    return { id, role: "assistant", content: [{ type: "thinking", text }], timestamp: ts };
+  }
+
+  if (itemType === "commandExecution") {
+    const cmd: string = typeof item.command === "string" ? item.command : "";
+    const output: string = typeof item.aggregatedOutput === "string" ? item.aggregatedOutput : "";
+    const exitCode: number | null = typeof item.exitCode === "number" ? item.exitCode : null;
+    const isError = exitCode !== null && exitCode !== 0;
+    return {
+      id,
+      role: "assistant",
+      content: [
+        { type: "tool_use", id, name: "shell", input: cmd },
+        ...(output ? [{ type: "tool_result" as const, toolUseId: id, content: output, isError }] : []),
+      ],
+      timestamp: ts,
+    };
+  }
+
+  if (itemType === "fileChange") {
+    const changes = Array.isArray(item.changes) ? item.changes : [];
+    return {
+      id,
+      role: "assistant",
+      content: [
+        { type: "tool_use", id, name: "fileChange", input: JSON.stringify(changes, null, 2) },
+      ],
+      timestamp: ts,
+    };
+  }
+
+  if (itemType === "webSearch") {
+    const query = typeof item.query === "string" ? item.query : "";
+    return {
+      id,
+      role: "assistant",
+      content: [{ type: "tool_use", id, name: "webSearch", input: query }],
+      timestamp: ts,
+    };
+  }
+
+  if (itemType === "mcpToolCall") {
+    const server = typeof item.server === "string" ? item.server : "";
+    const tool = typeof item.tool === "string" ? item.tool : "";
+    const args = item.arguments;
+    const inputStr =
+      typeof args === "string" ? args : JSON.stringify(args ?? null, null, 2);
+    const resultText: string =
+      item.result && typeof item.result === "object"
+        ? JSON.stringify(item.result, null, 2)
+        : "";
+    const errText: string =
+      item.error && typeof item.error === "object"
+        ? JSON.stringify(item.error, null, 2)
+        : "";
+    return {
+      id,
+      role: "assistant",
+      content: [
+        { type: "tool_use", id, name: `mcp:${server}/${tool}`, input: inputStr },
+        ...(errText
+          ? [{ type: "tool_result" as const, toolUseId: id, content: errText, isError: true }]
+          : resultText
+          ? [{ type: "tool_result" as const, toolUseId: id, content: resultText, isError: false }]
+          : []),
+      ],
+      timestamp: ts,
+    };
+  }
+
+  // Unknown item type — skip
+  return null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function turnsToMessages(turns: any[]): ChatMessage[] {
+  const out: ChatMessage[] = [];
+  for (const turn of turns) {
+    const items = Array.isArray(turn?.items) ? turn.items : [];
+    for (const item of items) {
+      const msg = buildCodexMessageFromItem(item);
+      if (msg) out.push(msg);
+    }
+  }
+  return out;
+}
+
+function parseCodexStreamLine(line: string): CodexParseResult {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let data: any;
   try { data = JSON.parse(line); } catch { return null; }
   if (!data || typeof data !== "object") return null;
 
-  const type: string = data.type;
+  const envType: string = typeof data.type === "string" ? data.type : "";
 
-  // Session ID comes from thread.started
-  if (type === "thread.started" && data.thread_id) {
-    return { action: "session_id", id: data.thread_id };
+  if (envType === "session_id" && typeof data.data === "string") {
+    return { action: "session_id", id: data.data };
   }
 
-  // Completed items — agent messages and reasoning
-  if (type === "item.completed" && data.item) {
-    const item = data.item;
-    const itemType: string = item.type || "";
+  if (envType === "history" && Array.isArray(data.data)) {
+    return { action: "replace_messages", messages: turnsToMessages(data.data) };
+  }
 
-    if (itemType === "agent_message" && item.text) {
+  if (envType !== "notification" || typeof data.method !== "string") {
+    return null;
+  }
+
+  const method: string = data.method;
+  const params = data.params ?? {};
+
+  if (method === "thread/started") {
+    const id = params?.thread?.id;
+    if (typeof id === "string") return { action: "session_id", id };
+    return null;
+  }
+
+  if (method === "item/agentMessage/delta") {
+    const itemId = typeof params?.itemId === "string" ? params.itemId : "";
+    const delta = typeof params?.delta === "string" ? params.delta : "";
+    if (!itemId || !delta) return null;
+    return { action: "delta", itemId, delta };
+  }
+
+  if (method === "item/completed") {
+    const message = buildCodexMessageFromItem(params?.item);
+    if (message) return { action: "add", message };
+    return null;
+  }
+
+  if (method === "thread/tokenUsage/updated") {
+    const last = params?.tokenUsage?.last;
+    if (last && typeof last === "object") {
       return {
-        action: "add",
-        message: {
-          id: generateUUID(),
-          role: "assistant",
-          content: [{ type: "text", text: item.text }],
-          timestamp: new Date().toISOString(),
+        action: "token_usage",
+        usage: {
+          inputTokens: typeof last.inputTokens === "number" ? last.inputTokens : 0,
+          outputTokens: typeof last.outputTokens === "number" ? last.outputTokens : 0,
+          cachedInputTokens:
+            typeof last.cachedInputTokens === "number" ? last.cachedInputTokens : 0,
         },
       };
     }
-
-    if (itemType === "reasoning" && item.text) {
-      return {
-        action: "add",
-        message: {
-          id: generateUUID(),
-          role: "assistant",
-          content: [{ type: "thinking", text: item.text }],
-          timestamp: new Date().toISOString(),
-        },
-      };
-    }
-
-    if (itemType === "command_execution") {
-      const cmd = item.command || "";
-      const output = item.output || "";
-      return {
-        action: "add",
-        message: {
-          id: item.id || generateUUID(),
-          role: "assistant",
-          content: [
-            { type: "tool_use", id: item.id || "", name: "shell", input: cmd },
-            ...(output ? [{ type: "tool_result" as const, toolUseId: item.id || "", content: output, isError: item.exit_code !== 0 && item.exit_code != null }] : []),
-          ],
-          timestamp: new Date().toISOString(),
-        },
-      };
-    }
+    return null;
   }
 
-  // Turn completed — streaming done, report token usage
-  if (type === "turn.completed") {
-    return { action: "done", usage: data.usage };
+  if (method === "turn/completed") {
+    return { action: "done" };
   }
 
-  // Turn failed — surface error
-  if (type === "turn.failed") {
-    return { action: "done", usage: undefined };
+  if (method === "turn/failed") {
+    const err =
+      params?.turn?.error?.message ||
+      params?.error?.message ||
+      "Codex turn failed";
+    return { action: "error", message: typeof err === "string" ? err : "Codex turn failed" };
   }
 
+  if (method === "error") {
+    const msg = typeof params?.message === "string" ? params.message : "Codex error";
+    return { action: "error", message: msg };
+  }
+
+  // Quietly ignore other notifications (mcpServer status, thread/tokenUsage,
+  // hook/*, turn/diff, turn/plan, account/*, fs/*, model/rerouted, etc.).
   return null;
 }
 
@@ -1115,19 +1263,108 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
       if (parsed.action === "session_id") {
         get().setPaneSessionId(paneId, parsed.id);
+      } else if (parsed.action === "replace_messages") {
+        // Resume: prepend history before the user's pending prompt (which
+        // was optimistically pushed by continueExistingChatInPane and is
+        // always the last message in the pane at this point).
+        get().setPaneState(paneId, (currentPane) => {
+          const last = currentPane.messages[currentPane.messages.length - 1];
+          const pending =
+            last && last.role === "user" && last.content.some((c) => c.type === "text")
+              ? last
+              : null;
+          return {
+            ...currentPane,
+            rawOutput: [...currentPane.rawOutput, line],
+            messages: pending ? [...parsed.messages, pending] : parsed.messages,
+          };
+        });
+      } else if (parsed.action === "delta") {
+        get().setPaneState(paneId, (currentPane) => {
+          const messages = [...currentPane.messages];
+          const lastIdx = messages.length - 1;
+          const last = lastIdx >= 0 ? messages[lastIdx] : null;
+          // Only fold deltas into a streaming assistant message we own.
+          if (last && last.role === "assistant" && last.id === parsed.itemId) {
+            const blocks = [...last.content];
+            const tIdx = blocks.findIndex((b) => b.type === "text");
+            if (tIdx >= 0) {
+              const block = blocks[tIdx];
+              if (block.type === "text") {
+                blocks[tIdx] = { ...block, text: block.text + parsed.delta };
+              }
+            } else {
+              blocks.push({ type: "text", text: parsed.delta });
+            }
+            messages[lastIdx] = { ...last, content: blocks };
+          } else {
+            // Start a new streaming assistant message keyed on the itemId.
+            messages.push({
+              id: parsed.itemId,
+              role: "assistant",
+              content: [{ type: "text", text: parsed.delta }],
+              timestamp: new Date().toISOString(),
+            });
+          }
+          return {
+            ...currentPane,
+            rawOutput: [...currentPane.rawOutput, line],
+            messages,
+          };
+        });
       } else if (parsed.action === "add") {
+        get().setPaneState(paneId, (currentPane) => {
+          const incoming = parsed.message;
+          // If we've been streaming this message via deltas, replace the
+          // placeholder with the finalized version (matched by id).
+          const messages = [...currentPane.messages];
+          const idx = messages.findIndex((m) => m.id === incoming.id);
+          if (idx >= 0) {
+            messages[idx] = incoming;
+          } else {
+            messages.push(incoming);
+          }
+          return {
+            ...currentPane,
+            rawOutput: [...currentPane.rawOutput, line],
+            messages,
+          };
+        });
+      } else if (parsed.action === "error") {
         get().setPaneState(paneId, (currentPane) => ({
           ...currentPane,
+          isStreaming: false,
           rawOutput: [...currentPane.rawOutput, line],
-          messages: [...currentPane.messages, parsed.message],
+          error: parsed.message,
+        }));
+      } else if (parsed.action === "token_usage") {
+        // Stash for the upcoming "done" event. Encoded into rawOutput so we
+        // don't have to grow ChatPaneState.
+        const usageMarker = `__codex_usage__:${JSON.stringify(parsed.usage)}`;
+        get().setPaneState(paneId, (currentPane) => ({
+          ...currentPane,
+          rawOutput: [...currentPane.rawOutput, usageMarker],
         }));
       } else if (parsed.action === "done") {
-        const usageInfo = parsed.usage;
-        if (usageInfo) {
+        // Pull the last usage marker stashed via token_usage above.
+        const stash = (() => {
+          for (let i = pane.rawOutput.length - 1; i >= 0; i -= 1) {
+            const r = pane.rawOutput[i];
+            if (r.startsWith("__codex_usage__:")) {
+              try {
+                return JSON.parse(r.slice("__codex_usage__:".length)) as CodexUsage;
+              } catch {
+                return null;
+              }
+            }
+          }
+          return null;
+        })();
+        if (stash) {
           const parts: string[] = [];
-          if (usageInfo.input_tokens) parts.push(`输入: ${usageInfo.input_tokens.toLocaleString()}`);
-          if (usageInfo.output_tokens) parts.push(`输出: ${usageInfo.output_tokens.toLocaleString()}`);
-          if (usageInfo.cached_input_tokens) parts.push(`缓存命中: ${usageInfo.cached_input_tokens.toLocaleString()}`);
+          if (stash.inputTokens) parts.push(`输入: ${stash.inputTokens.toLocaleString()}`);
+          if (stash.outputTokens) parts.push(`输出: ${stash.outputTokens.toLocaleString()}`);
+          if (stash.cachedInputTokens) parts.push(`缓存命中: ${stash.cachedInputTokens.toLocaleString()}`);
           if (parts.length > 0) {
             get().setPaneState(paneId, (currentPane) => ({
               ...currentPane,

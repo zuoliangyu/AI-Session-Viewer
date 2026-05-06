@@ -64,43 +64,27 @@ fn infer_openai_group(id: &str) -> String {
 }
 
 
-/// Resolve Codex API key: CODEX_API_KEY → OPENAI_API_KEY → shell rc files.
-fn get_codex_api_key() -> String {
-    if let Ok(k) = std::env::var("CODEX_API_KEY") {
-        if !k.is_empty() { return k; }
-    }
-    if let Ok(k) = std::env::var("OPENAI_API_KEY") {
-        if !k.is_empty() { return k; }
-    }
-    // Try shell rc files (Unix only)
-    #[cfg(unix)]
-    if let Some(home) = dirs::home_dir() {
-        use std::collections::HashMap;
-        let mut map: HashMap<String, String> = HashMap::new();
-        for name in &[".bashrc", ".bash_profile", ".zshrc", ".zprofile", ".profile"] {
-            if let Ok(content) = std::fs::read_to_string(home.join(name)) {
-                for line in content.lines() {
-                    let t = line.trim();
-                    let assign = t.strip_prefix("export ").unwrap_or(t);
-                    if let Some(eq) = assign.find('=') {
-                        let key = assign[..eq].trim();
-                        if key == "CODEX_API_KEY" || key == "OPENAI_API_KEY" {
-                            let val = assign[eq + 1..].trim().trim_matches('"').trim_matches('\'').to_string();
-                            map.entry(key.to_string()).or_insert(val);
-                        }
-                    }
-                }
-            }
-        }
-        if let Some(k) = map.get("CODEX_API_KEY") { if !k.is_empty() { return k.clone(); } }
-        if let Some(k) = map.get("OPENAI_API_KEY") { if !k.is_empty() { return k.clone(); } }
-    }
-    String::new()
+/// Resolve Codex credentials by going through `cli_config`, which knows how
+/// to read `~/.codex/auth.json`, `~/.codex/config.toml` (including the new
+/// `[model_providers.<name>]` form), env vars, and shell rc files.
+fn get_codex_credentials() -> (String, String) {
+    cli_config::get_credentials("codex")
 }
 
 
+/// Append `/v1/models` to a base URL, tolerating bases that already end in
+/// `/v1` (e.g. `https://example.com/v1`).
+fn join_models_endpoint(base: &str) -> String {
+    let trimmed = base.trim_end_matches('/');
+    if trimmed.ends_with("/v1") {
+        format!("{}/models", trimmed)
+    } else {
+        format!("{}/v1/models", trimmed)
+    }
+}
+
 async fn fetch_anthropic_models(api_key: &str, base_url: &str) -> Result<Vec<ModelInfo>, String> {
-    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let url = join_models_endpoint(base_url);
     let client = reqwest::Client::new();
     let resp = client
         .get(&url)
@@ -165,7 +149,7 @@ async fn fetch_openai_models(api_key: &str, base_url: &str) -> Result<Vec<ModelI
     }
 
     let effective_base = if base_url.is_empty() { "https://api.openai.com" } else { base_url };
-    let url = format!("{}/v1/models", effective_base.trim_end_matches('/'));
+    let url = join_models_endpoint(effective_base);
     let client = reqwest::Client::new();
     let resp = client
         .get(&url)
@@ -241,11 +225,13 @@ pub async fn list_models(
     base_url: &str,
 ) -> Result<Vec<ModelInfo>, String> {
     if source == "codex" {
-        let key = if api_key.is_empty() { get_codex_api_key() } else { api_key.to_string() };
+        let (cfg_key, cfg_url) = get_codex_credentials();
+        let key = if api_key.is_empty() { cfg_key } else { api_key.to_string() };
         if key.is_empty() {
             return Ok(vec![]);
         }
-        return fetch_openai_models(&key, base_url).await;
+        let url = if base_url.is_empty() { cfg_url } else { base_url.to_string() };
+        return fetch_openai_models(&key, &url).await;
     }
     let (resolved_key, resolved_url) = if api_key.is_empty() && base_url.is_empty() {
         let (cli_key, cli_url) = cli_config::get_credentials("claude");

@@ -26,10 +26,6 @@ const ChatPage = lazy(async () => {
   const module = await import("./components/chat/ChatPage");
   return { default: module.ChatPage };
 });
-const QuickChatPage = lazy(async () => {
-  const module = await import("./components/quick-chat/QuickChatPage");
-  return { default: module.QuickChatPage };
-});
 const BookmarksPage = lazy(async () => {
   const module = await import("./components/bookmark/BookmarksPage");
   return { default: module.BookmarksPage };
@@ -137,14 +133,6 @@ function App() {
           element={
             <LazyRoute>
               <ChatPage />
-            </LazyRoute>
-          }
-        />
-        <Route
-          path="/quick-chat"
-          element={
-            <LazyRoute>
-              <QuickChatPage />
             </LazyRoute>
           }
         />

@@ -26,17 +26,13 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.10.0
+## Latest in v2.11.0
 
-- **续聊改进**：`ChatInput` 新增 `/rename <名字>` 斜杠命令直接修改会话别名（保留标签）；`ChatHeader` 显示当前 sessionId 短码（点击复制完整 ID，可直接 `claude --resume <id>` / `codex resume <id>`）。
-- **Thread 视图改造**：基于 `parentUuid` 渲染真实父子树（缩进 + 虚线连接），节点带「回复上一条」「N 条分叉」标签；每个节点新增「回复此处」按钮，从中间消息分叉新会话。
-- **搜索增加「标签」匹配范围**：「所有 / session 内容 / 会话名称 / 标签」四种范围切换，标签命中以独立 `tag` 角色显示。
-- **回收站修复 + Web 支持**：恢复成功后自动失效缓存并刷新列表（之前看起来"没法恢复"的根因）；跨卷回退到 copy + remove；Web 模式补全 5 条 recyclebin 路由，与桌面端一致。
-- **分屏活动窗口高亮**：开启分屏后活动 pane 会显示 primary 色描边 + 1px ring，鼠标按下任一 pane 即切换活动状态。
-- **统计页区间消息数**：选择时间范围（今天/本周/本月/30 天/自定义）时"区间消息数"卡片随之刷新；后端按日累加 assistant 消息数，缓存版本升至 2。
-- **滚动条默认更显眼**：thumb 默认带可见颜色，hover 加宽变 primary 色，单击 track 跳转 / 拖动 thumb 滚动均保留。
-- **Web 模式 `node not found` 修复**：续聊 spawn 子进程时把 node 二进制目录一并加入 PATH，systemd / 容器最小 PATH 环境下 `#!/usr/bin/env node` 不再失败。
-- **消息页交互打磨**：用户气泡折叠/复制按钮内联化，折叠时联动收起对应回复并显示「X 条回复」徽标；提问按 6 色循环上色（气泡 / TOC / Timeline 同步）；窗口失焦期间未读消息回页面后以 banner 提醒。
+- **Codex 续聊改走 `codex app-server`**：不再每轮 spawn 一次 `codex exec`，进程级单例按 `(api_key, base_url)` 指纹复用一条常驻 app-server 进程，对话之间共享，启动延迟显著降低。新建会话走 `thread/start`，续聊走 `thread/resume`，取消走 `turn/interrupt`。Claude 路径完全不动。
+- **Codex 续聊预载历史**：`thread/resume` 返回的 `thread.turns` 直接注入聊天面板，进入 `/chat/:sessionId` 续聊后立即看到完整上下文 + 拼回的待发气泡，再衔接本轮回复，不再像 `codex exec` 那样只剩一个空对话框。
+- **Codex 嵌套 provider 配置识别**：`~/.codex/config.toml` 里的新版 `model_provider = "<name>"` + `[model_providers.<name>]` 现在能被正确读取（旧版顶层 `[provider]` 仍兼容），自定义 base_url 不再回落到 `https://api.openai.com`。
+- **模型列表跟随 codex 真实凭据**：`/v1/models` 调用从 `auth.json` + `config.toml` + env 三处取凭据（之前只看 env）；同时兼容 base_url 已含 `/v1` 的形态，不再追加成 `/v1/v1/models`。
+- **删除"快速问答"功能**：单独的 quick-chat 页面、SSE 接口、对应 Tauri 命令与 Cargo 依赖一并清理，统一收敛到主对话页。
 
 ## 截图
 
@@ -152,7 +148,6 @@ environment:
 | 恢复会话 | 打开系统终端 | 复制命令到剪贴板 |
 | 会话分叉 | 创建新会话 + 终端打开 | 不适用 |
 | CLI 对话 | 本地 spawn CLI 进程 | WebSocket 转发 |
-| 快速问答 | Tauri 事件流 | SSE 流式响应 |
 | 自动更新 | 应用内更新 | 不适用 |
 | 文件监听 | Tauri 事件 | WebSocket 推送 |
 | 认证 | 不需要 | 可选 Bearer Token |
@@ -299,15 +294,6 @@ environment:
 - 支持 `--resume` 继续已有会话（消息详情页的「继续对话」按钮）
 - **模型智能记忆**：自动记住上次使用的模型，下次打开无需重新选择；历史会话续聊时自动匹配原始会话模型
 - 输入框支持 `/model` 命令或 `Ctrl+K` 切换模型
-
-### 快速问答
-
-不依赖 CLI，直接调用 Anthropic API 进行纯文本对话：
-
-- 侧边栏点击「快速问答」进入
-- 自动读取本地 Claude CLI 配置文件中的 API Key（无需手动输入）
-- SSE 流式输出，Markdown 实时渲染
-- 无需选择工作目录，适合快速提问
 
 ### 无效项管理
 
@@ -465,7 +451,6 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/cli/detect` | — | 检测本地已安装的 CLI 工具 |
 | GET | `/api/cli/config` | `source` | 读取 CLI 配置（API Key 遮罩） |
 | POST | `/api/models` | *(JSON body)* | 获取模型列表 |
-| POST | `/api/quick-chat` | *(JSON body)* | 快速问答（SSE 流式响应） |
 | WS | `/ws` | — | 文件变更实时推送 |
 | WS | `/ws/chat` | — | CLI 对话 WebSocket |
 
@@ -492,7 +477,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 关于作者信息弹窗
 - [x] 会话标签与别名系统 + 跨项目标签筛选
 - [x] 全局搜索会话分组模式 + 应用内使用说明
-- [x] 应用内 CLI 对话 + 快速问答模式
+- [x] 应用内 CLI 对话（Claude `--resume` / Codex `app-server` 协议续聊）
 - [x] CLI 配置自动检测（API Key / Base URL / 默认模型）
 - [x] 工具调用专用查看器（Read/Edit/Write/Bash/Grep/Glob）
 - [x] 对话轮次分组 + Token 详细统计 + 虚拟化滚动
