@@ -26,7 +26,14 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.2
+## Latest in v2.12.3
+
+> 性能优化版本：消息页改成渐进式窗口加载，进会话只先拉尾部 30 条，上滑/下滑各自按需扩窗；全局搜索页首次进入的 5s 卡顿改成 rayon 并行读 metadata，掉到亚秒级。
+
+- **消息渐进式窗口加载**：进会话首屏从 ~1-2s 缩到亚秒级。上滑近顶 200px 自动加载更老的，下滑近底 200px 且未到尾时自动加载更新的。后端新增 `get_messages_range(start, end)` API（Tauri 命令 + `GET /api/messages/range`）配合，命中已缓存范围直接切片返回。
+- **全局搜索页 5s 卡顿修复**：`get_all_cross_project_tags` 的 Claude 分支从顺序读 N 个项目的 `.session-viewer-meta.json` 改成 rayon 并行读，8 核 + 50 项目下从 5s 量级降到亚秒级。
+
+## Highlights in v2.12.2
 
 > 回滚 v2.12.0 引入的一个回归：当时给 `get_install_type` 加的"NSIS 注册表 Uninstall 键必须存在"校验把通过 NSIS 安装的用户**全部误判成 portable**，应用内自动更新被踢去"打开 GitHub Release 页"，等于丢了自动更新能力。本版本恢复到只看 `uninstall.exe` 是否存在的判断。
 
@@ -47,7 +54,7 @@
 - **路径穿越 / shell 注入加固**：`session_id` 入口校验、`session_core::paths::validate_session_file` 把 Tauri 与 Web 的路径白名单收敛到一处；`commands/terminal.rs` 用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn 而非 `cmd /c start`，macOS / Linux 路径里的 `'` 也做了 `'\''` 转义。
 - **Codex 项目列表漏会话**：`extract_session_meta` 扫描行数从 5 提到 50 + 剥离 UTF-8 BOM；`is_interactive` 从白名单改为黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
 
-完整列表见 [CHANGELOG.md](./CHANGELOG.md#2122---2026-05-07)。
+完整列表见 [CHANGELOG.md](./CHANGELOG.md#2123---2026-05-08)。
 
 ## 截图
 

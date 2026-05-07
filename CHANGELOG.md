@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.3] - 2026-05-08
+
+### Added
+
+- **消息渐进式窗口加载**：进会话默认只加载尾部 30 条（之前 100 条），首屏从 ~1-2s 缩到亚秒级。上滑近顶 200px 自动拉更老的，下滑近底 200px 且窗口未到尾时自动拉更新的。
+- **后端 range API**：`session-core` 新增 `parse_messages_range(path, start, end)`（Claude / Codex），命中已缓存范围直接切片返回，否则全文件解析后写缓存复用。同步暴露：
+  - Tauri 命令 `get_messages_range`
+  - Web 路由 `GET /api/messages/range?source=&filePath=&start=&end=`
+- **`appStore` 跳转 action**：新增 `jumpToMessageIndex(targetIndex)`，把窗口替换为 `[target-15, target+16)`。为后续 TOC 跨窗口跳转打底（本版本 TOC 仍只展示已加载窗口内的提问，跨窗口跳转留作 Phase B）。
+
+### Changed
+
+- **`appStore` 状态字段**：删除 `messagesPage`，改为 `loadedStart` / `loadedEnd` / `messagesHasNewer` 三字段维护窗口边界。`messagesHasMore` 语义保留（= `loadedStart > 0`，更老有内容可载）。`selectSession` / `reloadLatestMessages` / `refreshInBackground` / `selectProject` / `deleteProject` / `setSource` 全部对齐到新字段。
+- **`MessagesPage` 滚动加载双向触发**：原来只在近顶时调 `loadMoreMessages`（向前扩窗），现在新增 `requestNewerMessages` 在近底且 `loadedEnd < total` 时触发（向后扩窗），让用户从中段往后滚也能继续加载。
+
+### Fixed
+
+- **全局搜索页首次进入卡 5s**：`get_all_cross_project_tags` 的 Claude 分支之前顺序遍历 `~/.claude/projects/` 下每个目录读 `.session-viewer-meta.json`，N 个项目就是 N 次串行磁盘 IO。改用 rayon `into_par_iter`，并行读 metadata 文件。8 核机器 + 50 个项目下从 5s 量级回到亚秒级。Codex 分支只有一个全局 metadata 文件，无需并行。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.3`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.2] - 2026-05-07
 
 ### Fixed
