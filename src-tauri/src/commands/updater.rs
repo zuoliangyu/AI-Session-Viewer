@@ -5,54 +5,34 @@ use tauri::command;
 /// auto-update; portable → just open the GitHub release page), so being
 /// wrong here breaks updates.
 ///
-/// - Windows: confirm via **both** signals before claiming "installed":
-///   1. the NSIS-managed registry uninstall key exists for our identifier,
-///   2. there's an `uninstall.exe` next to the running exe.
-///   Either signal alone is too easy to forge by dropping a stub file.
+/// - Windows: check if an NSIS uninstaller exists next to the exe →
+///   "installed", otherwise "portable".
 /// - macOS / Linux: always "installed" (no portable distribution shipped).
+///
+/// History: v2.12.0 tried to additionally cross-check a registry uninstall
+/// key under the bundle identifier. That broke real NSIS-installed users
+/// because Tauri's NSIS template doesn't write the key under exactly that
+/// name across all Tauri versions, so the check returned `false` for
+/// genuine installs and silently downgraded everyone to the
+/// "open GitHub Release page" path. Reverted in v2.12.2 — the
+/// hypothetical "drop a fake uninstall.exe to fool the updater" attack
+/// is not worth breaking the working majority.
 #[command]
 pub fn get_install_type() -> String {
     #[cfg(target_os = "windows")]
     {
-        if windows_is_installed() {
-            "installed".to_string()
-        } else {
-            "portable".to_string()
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(dir) = exe_path.parent() {
+                let uninstaller = dir.join("uninstall.exe");
+                if uninstaller.exists() {
+                    return "installed".to_string();
+                }
+            }
         }
+        "portable".to_string()
     }
     #[cfg(not(target_os = "windows"))]
     {
         "installed".to_string()
     }
-}
-
-#[cfg(target_os = "windows")]
-fn windows_is_installed() -> bool {
-    // Signal 1: uninstall.exe sibling. Necessary but easy to forge.
-    let exe_dir = match std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
-        Some(dir) => dir,
-        None => return false,
-    };
-    if !exe_dir.join("uninstall.exe").is_file() {
-        return false;
-    }
-
-    // Signal 2: NSIS writes an uninstall key under
-    //   HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\<identifier>
-    // (and HKLM for per-machine installs). Drop a portable build into
-    // a directory with a fake uninstall.exe and this lookup still returns
-    // false, so we don't misroute the in-app updater.
-    const IDENTIFIER: &str = "com.zuolan.ai-session-viewer";
-    let subkey = format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
-        IDENTIFIER
-    );
-    registry_key_exists(winreg::enums::HKEY_CURRENT_USER, &subkey)
-        || registry_key_exists(winreg::enums::HKEY_LOCAL_MACHINE, &subkey)
-}
-
-#[cfg(target_os = "windows")]
-fn registry_key_exists(hive: winreg::HKEY, subkey: &str) -> bool {
-    use winreg::RegKey;
-    RegKey::predef(hive).open_subkey(subkey).is_ok()
 }

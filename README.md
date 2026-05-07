@@ -26,7 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.1
+## Latest in v2.12.2
+
+> 回滚 v2.12.0 引入的一个回归：当时给 `get_install_type` 加的"NSIS 注册表 Uninstall 键必须存在"校验把通过 NSIS 安装的用户**全部误判成 portable**，应用内自动更新被踢去"打开 GitHub Release 页"，等于丢了自动更新能力。本版本恢复到只看 `uninstall.exe` 是否存在的判断。
+
+## Highlights in v2.12.1
 
 > 紧跟 v2.12.0 的安全 / 正确性大扫除发布的小补丁：把 codex 项目列表的磁盘缓存版本号从 2 升到 3，让 v2.12.0 的"项目漏会话"修复**对已经升级过的用户也自动生效**，不用再手删 `%APPDATA%\ai-session-viewer\codex-list-cache.json`。
 
@@ -43,7 +47,7 @@
 - **路径穿越 / shell 注入加固**：`session_id` 入口校验、`session_core::paths::validate_session_file` 把 Tauri 与 Web 的路径白名单收敛到一处；`commands/terminal.rs` 用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn 而非 `cmd /c start`，macOS / Linux 路径里的 `'` 也做了 `'\''` 转义。
 - **Codex 项目列表漏会话**：`extract_session_meta` 扫描行数从 5 提到 50 + 剥离 UTF-8 BOM；`is_interactive` 从白名单改为黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
 
-完整列表见 [CHANGELOG.md](./CHANGELOG.md#2121---2026-05-07)。
+完整列表见 [CHANGELOG.md](./CHANGELOG.md#2122---2026-05-07)。
 
 ## 截图
 

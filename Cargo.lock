@@ -25,7 +25,7 @@ dependencies = [
 
 [[package]]
 name = "ai-session-viewer"
-version = "2.12.1"
+version = "2.12.2"
 dependencies = [
  "chrono",
  "libc",
@@ -43,7 +43,6 @@ dependencies = [
  "tauri-plugin-updater",
  "tokio",
  "uuid",
- "winreg",
 ]
 
 [[package]]
@@ -3912,7 +3911,7 @@ dependencies = [
 
 [[package]]
 name = "session-core"
-version = "2.12.1"
+version = "2.12.2"
 dependencies = [
  "chrono",
  "dirs",
@@ -3931,7 +3930,7 @@ dependencies = [
 
 [[package]]
 name = "session-web"
-version = "2.12.1"
+version = "2.12.2"
 dependencies = [
  "axum",
  "clap",

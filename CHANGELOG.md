@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.2] - 2026-05-07
+
+### Fixed
+
+- **NSIS 安装版被错认成 portable，应用内自动更新失效**：v2.12.0 给 `get_install_type()` 加了一道"必须同时存在 NSIS 注册表 Uninstall 键"的校验，硬编码用 bundle identifier (`com.zuolan.ai-session-viewer`) 作为子键名。但 Tauri NSIS 模板在不同版本里写注册表用的可能是 `MAINBINARYNAME` / `PRODUCTNAME` 等，这个校验**对真实通过 NSIS 安装的用户全员误判**为 portable，应用内更新流程直接被踢去"打开 GitHub Release 页面手动下载"。本版本**回退到只看 `uninstall.exe` 是否存在**，恢复到 v2.11 及之前的行为。原本想防御的"伪造 uninstall.exe 骗过去走 NSIS 更新管线"是非常小众的本地攻击场景，不值得让所有正版用户失去自动更新。
+- **移除 `winreg` 依赖**：v2.12.0 为上面那道校验在 `src-tauri/Cargo.toml` 加的 Windows-only `winreg = "0.55"` 也一并清理掉。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.2`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.1] - 2026-05-07
 
 ### Fixed
