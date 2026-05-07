@@ -1,8 +1,11 @@
 //! JSON-RPC client for `codex app-server` (NDJSON over stdio).
 //!
-//! Maintains a singleton process keyed by (api_key, base_url) credentials so
-//! every Codex chat shares one long-running app-server. Spawns lazily on
-//! first use, restarts if credentials change or the child dies.
+//! Keeps **one runtime per (api_key, base_url) fingerprint** so multiple
+//! concurrent panes / users with different credentials never invalidate each
+//! other's in-flight requests. Each runtime spawns lazily on first use and is
+//! replaced only if its child dies. Each thread can have multiple subscribers
+//! — notifications fan out to all of them and disconnected receivers are
+//! pruned automatically.
 //!
 //! Higher layers (`commands::chat`, `chat_ws`) call:
 //!   1. `subscribe(thread_id)` → mpsc::Receiver<Notification>
@@ -14,11 +17,14 @@
 //! frontend parses them.
 
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+use lru::LruCache;
 
 use parking_lot::Mutex as PlMutex;
 use serde::{Deserialize, Serialize};
@@ -34,6 +40,13 @@ use crate::cli_config::ResolvedCliCredentials;
 const SUBSCRIBER_BUFFER: usize = 512;
 const STDIN_BUFFER: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+/// Cap the number of concurrent codex app-server runtimes per process. Each
+/// runtime is a separate codex CLI child; without a cap, rotating
+/// credentials (or many users with distinct keys on the web server) would
+/// spawn unbounded child processes. Hitting the cap evicts the
+/// least-recently-used runtime; closing its stdin makes the codex CLI exit
+/// gracefully, which then drains all the helper tasks.
+const MAX_RUNTIMES: usize = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CodexNotification {
@@ -43,16 +56,19 @@ pub struct CodexNotification {
 
 type RpcResultSender = oneshot::Sender<Result<Value, String>>;
 type PendingMap = Arc<PlMutex<HashMap<u64, RpcResultSender>>>;
-type SubscriberMap = Arc<PlMutex<HashMap<String, mpsc::Sender<CodexNotification>>>>;
+/// Each thread can have multiple subscribers (e.g. two panes resuming the
+/// same thread). Disconnected senders are pruned during dispatch.
+type SubscriberMap = Arc<PlMutex<HashMap<String, Vec<mpsc::Sender<CodexNotification>>>>>;
 
 /// One spawned app-server process plus its plumbing.
 struct Runtime {
     next_id: AtomicU64,
     pending: PendingMap,
-    /// thread_id -> subscriber. Notifications without a thread_id (e.g. server-wide
-    /// errors) fan out to *all* current subscribers.
+    /// thread_id -> subscribers. Notifications without a thread_id (e.g.
+    /// server-wide errors) fan out to *all* current subscribers.
     subscribers: SubscriberMap,
     stdin_tx: mpsc::Sender<String>,
+    #[allow(dead_code)]
     creds_fingerprint: String,
     alive: Arc<AtomicBool>,
 }
@@ -72,7 +88,12 @@ impl Runtime {
 
 /// Public manager. One instance per process; share via `Arc`.
 pub struct CodexAppServer {
-    inner: AsyncMutex<Option<Arc<Runtime>>>,
+    /// fingerprint -> runtime, capped at MAX_RUNTIMES with LRU eviction.
+    /// A separate runtime is kept for every distinct (api_key, base_url)
+    /// pair so cancels / new turns from one credential set never tear down
+    /// another's process. When the cap is reached, the least-recently-used
+    /// runtime is evicted (its stdin closes, codex CLI exits gracefully).
+    inner: AsyncMutex<LruCache<String, Arc<Runtime>>>,
 }
 
 impl Default for CodexAppServer {
@@ -84,7 +105,9 @@ impl Default for CodexAppServer {
 impl CodexAppServer {
     pub fn new() -> Self {
         Self {
-            inner: AsyncMutex::new(None),
+            inner: AsyncMutex::new(LruCache::new(
+                NonZeroUsize::new(MAX_RUNTIMES).expect("MAX_RUNTIMES must be > 0"),
+            )),
         }
     }
 
@@ -97,28 +120,41 @@ impl CodexAppServer {
             .clone()
     }
 
-    /// Spawn (or reuse) the runtime for these credentials.
+    /// Look up (or spawn) the runtime for these credentials. Other
+    /// fingerprints' runtimes are untouched, except for whichever entry the
+    /// LRU evicts when adding a new one beyond MAX_RUNTIMES.
     async fn ensure(&self, creds: &ResolvedCliCredentials) -> Result<Arc<Runtime>, String> {
         let fingerprint = format!("{}|{}", creds.api_key, creds.base_url);
         let mut guard = self.inner.lock().await;
 
-        if let Some(rt) = guard.as_ref() {
-            if rt.creds_fingerprint == fingerprint && rt.alive.load(Ordering::Relaxed) {
-                return Ok(rt.clone());
+        if let Some(rt) = guard.get(&fingerprint).cloned() {
+            if rt.alive.load(Ordering::Relaxed) {
+                return Ok(rt);
             }
-            // Stale: kill + replace.
-            rt.fail_pending("codex app-server replaced");
-            *guard = None;
+            // Dead child — drop the stale entry and respawn below.
+            rt.fail_pending("codex app-server exited");
+            guard.pop(&fingerprint);
         }
 
         let cli_path = cli::find_cli("codex")?;
-        let rt = spawn_runtime(&cli_path, creds, fingerprint).await?;
-        *guard = Some(rt.clone());
+        let rt = spawn_runtime(&cli_path, creds, fingerprint.clone()).await?;
+        // `LruCache::push` returns the entry that was bumped out (if any) so
+        // we can fail its in-flight requests; otherwise their callers would
+        // hang on dropped oneshots until the request timeout.
+        if let Some((_evicted_key, evicted_rt)) = guard.push(fingerprint, rt.clone()) {
+            evicted_rt.fail_pending("codex app-server evicted by LRU");
+            // Dropping the Arc here closes stdin (via the stdin_tx mpsc
+            // sender being dropped from the Runtime), which makes the codex
+            // CLI exit; the watchdog task then flips `alive=false` and drains
+            // any straggler pending requests.
+        }
         Ok(rt)
     }
 
-    /// Subscribe to notifications for a thread. Replacing an existing
-    /// subscription drops the old receiver.
+    /// Subscribe to notifications for a thread. Multiple subscribers per
+    /// thread are supported; each receives every notification independently.
+    /// When the returned receiver is dropped, its sender is pruned on the
+    /// next dispatch to that thread.
     pub async fn subscribe(
         &self,
         creds: &ResolvedCliCredentials,
@@ -126,12 +162,20 @@ impl CodexAppServer {
     ) -> Result<mpsc::Receiver<CodexNotification>, String> {
         let rt = self.ensure(creds).await?;
         let (tx, rx) = mpsc::channel(SUBSCRIBER_BUFFER);
-        rt.subscribers.lock().insert(thread_id.to_string(), tx);
+        rt.subscribers
+            .lock()
+            .entry(thread_id.to_string())
+            .or_default()
+            .push(tx);
         Ok(rx)
     }
 
-    pub async fn unsubscribe(&self, thread_id: &str) {
-        if let Some(rt) = self.inner.lock().await.as_ref() {
+    /// Drop *all* subscribers for a thread. Currently unused — kept for API
+    /// completeness; subscribers normally rely on Receiver-drop pruning.
+    #[allow(dead_code)]
+    pub async fn unsubscribe_all(&self, thread_id: &str) {
+        let guard = self.inner.lock().await;
+        for (_, rt) in guard.iter() {
             rt.subscribers.lock().remove(thread_id);
         }
     }
@@ -449,17 +493,43 @@ fn handle_inbound_line(line: &str, pending: &PendingMap, subscribers: &Subscribe
                 .map(str::to_string)
         });
 
-    let subs = subscribers.lock();
+    let mut subs = subscribers.lock();
     if let Some(thread_id) = target {
-        if let Some(tx) = subs.get(&thread_id) {
-            let _ = tx.try_send(notification);
+        if let Some(list) = subs.get_mut(&thread_id) {
+            dispatch_and_prune(list, &notification);
+            // Drop the bucket entirely if its last subscriber went away.
+            if list.is_empty() {
+                subs.remove(&thread_id);
+            }
             return;
         }
     }
-    // No threadId match — broadcast.
-    for tx in subs.values() {
-        let _ = tx.try_send(notification.clone());
+    // No threadId match — broadcast to every subscriber and prune dead ones.
+    let keys: Vec<String> = subs.keys().cloned().collect();
+    for key in keys {
+        if let Some(list) = subs.get_mut(&key) {
+            dispatch_and_prune(list, &notification);
+            if list.is_empty() {
+                subs.remove(&key);
+            }
+        }
     }
+}
+
+/// Send `notification` to every sender in `list`, dropping any that the
+/// receiver has already closed. A full channel is treated as "still alive"
+/// so a slow consumer doesn't get silently unsubscribed.
+fn dispatch_and_prune(
+    list: &mut Vec<mpsc::Sender<CodexNotification>>,
+    notification: &CodexNotification,
+) {
+    list.retain(
+        |tx| match tx.try_send(notification.clone()) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => true,
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        },
+    );
 }
 
 fn apply_path_and_env(cmd: &mut Command, cli_path: &str, creds: &ResolvedCliCredentials) {

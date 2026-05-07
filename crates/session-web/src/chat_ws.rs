@@ -2,12 +2,13 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::process::Stdio;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, watch, Mutex};
 
 use session_core::cli;
 use session_core::cli_config::{self, ResolvedCliCredentials};
@@ -100,24 +101,25 @@ fn resolve_project_dir(source: &str, project_path: &str) -> Result<PathBuf, Stri
     }
 }
 
-/// Per-socket Codex turn state (thread_id + active turn_id) for cancel routing.
-#[derive(Default)]
+/// Per-session Codex turn state (thread_id + active turn_id) for cancel routing.
+#[derive(Default, Clone)]
 struct CodexTurnState {
     thread_id: Option<String>,
     turn_id: Option<String>,
     credentials: Option<ResolvedCliCredentials>,
 }
 
+type ClaudeCancelMap = Arc<Mutex<HashMap<String, watch::Sender<bool>>>>;
+type CodexStateMap = Arc<Mutex<HashMap<String, CodexTurnState>>>;
+
 async fn handle_chat_socket(mut socket: WebSocket) {
     // Channel for sending messages back to the client
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
-    // Track the current child process PID (Claude) for cancellation
-    let cancel_tx = tokio::sync::watch::channel(false);
-    let cancel_sender = cancel_tx.0;
-
-    // Track current codex turn for the lifetime of this socket
-    let codex_state: Arc<Mutex<CodexTurnState>> = Arc::new(Mutex::new(CodexTurnState::default()));
+    // Per-session cancel watches for Claude tasks.
+    let claude_cancels: ClaudeCancelMap = Arc::new(Mutex::new(HashMap::new()));
+    // Per-session Codex turn state for cancel routing.
+    let codex_states: CodexStateMap = Arc::new(Mutex::new(HashMap::new()));
 
     loop {
         tokio::select! {
@@ -172,52 +174,74 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                     None
                                 };
 
-                                let session_id = request.session_id
+                                // The routing id is the client-supplied stream key
+                                // (or a fresh one if absent). Every frame emitted
+                                // for this turn carries `sessionId: routing_id` so
+                                // the client can demux concurrent panes.
+                                let routing_id = request.session_id
                                     .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
-                                // For Claude, send session_id immediately. For codex
-                                // we send it after thread/start returns the real id.
+                                // Echo session_id immediately so the caller's
+                                // start/continue Promise can resolve. Codex will
+                                // overwrite `data` with the real thread_id once
+                                // thread/start (or thread/resume) returns.
                                 if source != "codex" {
                                     let sid_msg = serde_json::json!({
                                         "type": "session_id",
-                                        "data": &session_id
+                                        "data": &routing_id,
+                                        "sessionId": &routing_id,
                                     }).to_string();
                                     let _ = socket.send(Message::Text(sid_msg.into())).await;
                                 }
 
-                                let tx_clone = tx.clone();
-                                let tx_err = tx.clone();
+                                let tx_task = tx.clone();
+                                let routing_for_task = routing_id.clone();
 
                                 if source == "codex" {
-                                    let codex_state = codex_state.clone();
+                                    let codex_states_clone = codex_states.clone();
                                     tokio::spawn(async move {
-                                        if let Err(e) = run_codex_chat_via_app_server(
+                                        let outcome = run_codex_chat_via_app_server(
+                                            routing_for_task.clone(),
                                             &project_path,
                                             &prompt,
                                             &model,
                                             resume_id,
                                             &api_key,
                                             &base_url,
-                                            tx_clone,
-                                            codex_state,
-                                        ).await {
+                                            tx_task.clone(),
+                                            codex_states_clone.clone(),
+                                        ).await;
+                                        if let Err(e) = outcome {
                                             tracing::error!("Codex app-server error: {}", e);
                                             let err_msg = serde_json::json!({
                                                 "type": "error",
-                                                "data": e
+                                                "data": e,
+                                                "sessionId": &routing_for_task,
                                             }).to_string();
-                                            let _ = tx_err.send(err_msg).await;
+                                            let _ = tx_task.send(err_msg).await;
                                             let complete_msg = serde_json::json!({
                                                 "type": "complete",
-                                                "success": false
+                                                "success": false,
+                                                "sessionId": &routing_for_task,
                                             }).to_string();
-                                            let _ = tx_err.send(complete_msg).await;
+                                            let _ = tx_task.send(complete_msg).await;
                                         }
+                                        // Always drop per-session state at the
+                                        // end of the turn so it can't haunt the
+                                        // next request on this socket.
+                                        codex_states_clone.lock().await.remove(&routing_for_task);
                                     });
                                 } else {
-                                    let mut cancel_rx = cancel_sender.subscribe();
+                                    // Allocate a per-session cancel watch so a
+                                    // cancel on one pane never kills another.
+                                    let (cancel_tx, mut cancel_rx) = watch::channel(false);
+                                    claude_cancels
+                                        .lock()
+                                        .await
+                                        .insert(routing_id.clone(), cancel_tx);
+                                    let claude_cancels_clone = claude_cancels.clone();
                                     tokio::spawn(async move {
-                                        if let Err(e) = run_cli_process(
+                                        let outcome = run_cli_process(
                                             &source,
                                             &project_path,
                                             &prompt,
@@ -227,38 +251,67 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                             &cli_path,
                                             &api_key,
                                             &base_url,
-                                            tx_clone,
+                                            routing_for_task.clone(),
+                                            tx_task.clone(),
                                             &mut cancel_rx,
-                                        ).await {
+                                        ).await;
+                                        if let Err(e) = outcome {
                                             tracing::error!("CLI process error: {}", e);
                                             let err_msg = serde_json::json!({
                                                 "type": "error",
-                                                "data": e
+                                                "data": e,
+                                                "sessionId": &routing_for_task,
                                             }).to_string();
-                                            let _ = tx_err.send(err_msg).await;
+                                            let _ = tx_task.send(err_msg).await;
                                             let complete_msg = serde_json::json!({
                                                 "type": "complete",
-                                                "success": false
+                                                "success": false,
+                                                "sessionId": &routing_for_task,
                                             }).to_string();
-                                            let _ = tx_err.send(complete_msg).await;
+                                            let _ = tx_task.send(complete_msg).await;
                                         }
+                                        claude_cancels_clone
+                                            .lock()
+                                            .await
+                                            .remove(&routing_for_task);
                                     });
                                 }
                             }
                             "cancel" => {
-                                // Codex cancel: send turn/interrupt
-                                let codex_snapshot = {
-                                    let s = codex_state.lock().await;
-                                    (s.thread_id.clone(), s.turn_id.clone(), s.credentials.clone())
+                                let target = match request.session_id.clone() {
+                                    Some(id) if !id.is_empty() => id,
+                                    _ => {
+                                        tracing::warn!("cancel received without sessionId; ignoring");
+                                        continue;
+                                    }
                                 };
-                                if let (Some(tid), Some(turn), Some(creds)) = codex_snapshot {
-                                    let server = CodexAppServer::global();
-                                    if let Err(e) = server.interrupt_turn(&creds, &tid, &turn).await {
-                                        tracing::warn!("turn/interrupt failed: {}", e);
+
+                                // Codex cancel: per-session lookup → turn/interrupt.
+                                let codex_snapshot = {
+                                    let states = codex_states.lock().await;
+                                    states.get(&target).cloned()
+                                };
+                                if let Some(state) = codex_snapshot {
+                                    if let (Some(tid), Some(turn), Some(creds)) =
+                                        (state.thread_id, state.turn_id, state.credentials)
+                                    {
+                                        let server = CodexAppServer::global();
+                                        if let Err(e) =
+                                            server.interrupt_turn(&creds, &tid, &turn).await
+                                        {
+                                            tracing::warn!("turn/interrupt failed: {}", e);
+                                        }
                                     }
                                 }
-                                // Claude cancel: kill process
-                                let _ = cancel_sender.send(true);
+
+                                // Claude cancel: signal only the matching session.
+                                let cancel_sender = {
+                                    let map = claude_cancels.lock().await;
+                                    map.get(&target).cloned()
+                                };
+                                if let Some(sender) = cancel_sender {
+                                    let _ = sender.send(true);
+                                }
                             }
                             _ => {
                                 let err_msg = serde_json::json!({
@@ -288,6 +341,7 @@ async fn run_cli_process(
     custom_cli_path: &str,
     api_key_override: &str,
     base_url_override: &str,
+    routing_id: String,
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
@@ -317,10 +371,12 @@ async fn run_cli_process(
     cmd.arg("--output-format").arg("stream-json");
     cmd.arg("--include-partial-messages");
     cmd.arg("--verbose");
-    // Web mode has no interactive terminal for permission prompts,
-    // so always skip permissions to prevent the CLI from hanging.
-    let _ = skip_permissions;
-    cmd.arg("--dangerously-skip-permissions");
+    // Honor the client's skip_permissions choice. When false the CLI may hang
+    // waiting on a permission prompt that web mode has no terminal to answer
+    // — that's the user's call.
+    if skip_permissions {
+        cmd.arg("--dangerously-skip-permissions");
+    }
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
     // waiting for permission confirmation or other interactive prompts
@@ -339,6 +395,7 @@ async fn run_cli_process(
     let stderr = child.stderr.take();
 
     let tx_stdout = tx.clone();
+    let routing_stdout = routing_id.clone();
     let stdout_task = tokio::spawn(async move {
         if let Some(stdout) = stdout {
             let reader = BufReader::new(stdout);
@@ -346,7 +403,8 @@ async fn run_cli_process(
             while let Ok(Some(line)) = lines.next_line().await {
                 let msg = serde_json::json!({
                     "type": "output",
-                    "data": line
+                    "data": line,
+                    "sessionId": &routing_stdout,
                 })
                 .to_string();
                 if tx_stdout.send(msg).await.is_err() {
@@ -357,6 +415,7 @@ async fn run_cli_process(
     });
 
     let tx_stderr = tx.clone();
+    let routing_stderr = routing_id.clone();
     let stderr_task = tokio::spawn(async move {
         if let Some(stderr) = stderr {
             let reader = BufReader::new(stderr);
@@ -364,7 +423,8 @@ async fn run_cli_process(
             while let Ok(Some(line)) = lines.next_line().await {
                 let msg = serde_json::json!({
                     "type": "error",
-                    "data": line
+                    "data": line,
+                    "sessionId": &routing_stderr,
                 })
                 .to_string();
                 if tx_stderr.send(msg).await.is_err() {
@@ -382,7 +442,8 @@ async fn run_cli_process(
             let success = status.map(|s| s.success()).unwrap_or(false);
             let complete_msg = serde_json::json!({
                 "type": "complete",
-                "success": success
+                "success": success,
+                "sessionId": &routing_id,
             }).to_string();
             let _ = tx.send(complete_msg).await;
         }
@@ -392,7 +453,8 @@ async fn run_cli_process(
             let _ = stderr_task.await;
             let cancel_msg = serde_json::json!({
                 "type": "complete",
-                "success": false
+                "success": false,
+                "sessionId": &routing_id,
             }).to_string();
             let _ = tx.send(cancel_msg).await;
         }
@@ -402,10 +464,12 @@ async fn run_cli_process(
 }
 
 /// Run a Codex chat through the app-server. Sends events to `tx` in the same
-/// envelope shape (`{"type":"output","data":"<json>"}`) used elsewhere on the
-/// socket.
+/// envelope shape (`{"type":"output","data":"<json>","sessionId":<routing>}`)
+/// used elsewhere on the socket. `routing_id` is the per-pane stream key the
+/// client uses to demux concurrent turns.
 #[allow(clippy::too_many_arguments)]
 async fn run_codex_chat_via_app_server(
+    routing_id: String,
     project_path: &str,
     prompt: &str,
     model: &str,
@@ -413,7 +477,7 @@ async fn run_codex_chat_via_app_server(
     api_key_override: &str,
     base_url_override: &str,
     tx: mpsc::Sender<String>,
-    state: Arc<Mutex<CodexTurnState>>,
+    states: CodexStateMap,
 ) -> Result<(), String> {
     let project_dir = resolve_project_dir("codex", project_path)?;
     let project_dir_str = project_dir.to_string_lossy().to_string();
@@ -458,17 +522,21 @@ async fn run_codex_chat_via_app_server(
         (id, Value::Null)
     };
 
-    // Persist for cancel routing.
+    // Register per-session state for cancel routing.
     {
-        let mut s = state.lock().await;
-        s.thread_id = Some(thread_id.clone());
-        s.credentials = Some(credentials.clone());
+        let mut map = states.lock().await;
+        let entry = map.entry(routing_id.clone()).or_default();
+        entry.thread_id = Some(thread_id.clone());
+        entry.credentials = Some(credentials.clone());
     }
 
-    // Emit session_id.
+    // Emit session_id. `data` is the real thread_id (used by the client for
+    // resume / URL); `sessionId` is the stable routing key the client used
+    // to subscribe.
     let sid_msg = serde_json::json!({
         "type": "session_id",
         "data": &thread_id,
+        "sessionId": &routing_id,
     })
     .to_string();
     let _ = tx.send(sid_msg).await;
@@ -478,6 +546,7 @@ async fn run_codex_chat_via_app_server(
         let hist_msg = serde_json::json!({
             "type": "history",
             "data": history_turns,
+            "sessionId": &routing_id,
         })
         .to_string();
         let _ = tx.send(hist_msg).await;
@@ -489,6 +558,14 @@ async fn run_codex_chat_via_app_server(
         .await
         .map_err(|e| format!("codex subscribe failed: {}", e))?;
 
+    // Signal used to wake the streaming loop below if turn/start fails
+    // before any notification arrives — otherwise it would block on
+    // rx.recv() forever. Using `Notify` rather than a oneshot because the
+    // oneshot Receiver also fires (with `Err(RecvError)`) when the Sender
+    // drops without sending, which would prematurely abort every successful
+    // turn. `Notify::notify_one` only fires on the explicit call.
+    let abort = Arc::new(tokio::sync::Notify::new());
+
     // Fire turn/start in the background; events stream through `rx`.
     {
         let server = server.clone();
@@ -498,6 +575,8 @@ async fn run_codex_chat_via_app_server(
         let model_owned = model.to_string();
         let cwd = project_dir_str.clone();
         let tx_err = tx.clone();
+        let routing_for_err = routing_id.clone();
+        let abort_for_err = abort.clone();
         tokio::spawn(async move {
             let m = if model_owned.is_empty() { None } else { Some(model_owned.as_str()) };
             if let Err(e) = server
@@ -507,16 +586,35 @@ async fn run_codex_chat_via_app_server(
                 let err = serde_json::json!({
                     "type": "error",
                     "data": format!("turn/start failed: {}", e),
+                    "sessionId": &routing_for_err,
                 })
                 .to_string();
                 let _ = tx_err.send(err).await;
+                abort_for_err.notify_one();
             }
+            // Success path: drop the Arc; no notification fires and the
+            // streaming loop continues until turn/completed.
         });
     }
 
-    // Stream notifications until turn/completed | turn/failed | error.
+    // Stream notifications until turn/completed | turn/failed | error, or
+    // until turn/start failure short-circuits the loop. The error frame for
+    // a turn/start failure is emitted by the spawned task above; here we
+    // just drive the loop to a clean exit so the post-loop `complete`
+    // frame still fires.
     let mut success = true;
-    while let Some(notif) = rx.recv().await {
+    loop {
+        let notif = tokio::select! {
+            maybe = rx.recv() => match maybe {
+                Some(n) => n,
+                None => break,
+            },
+            _ = abort.notified() => {
+                success = false;
+                break;
+            }
+        };
+
         if notif.method == "turn/started" {
             if let Some(tid) = notif
                 .params
@@ -524,7 +622,10 @@ async fn run_codex_chat_via_app_server(
                 .and_then(|t| t.get("id"))
                 .and_then(|v| v.as_str())
             {
-                state.lock().await.turn_id = Some(tid.to_string());
+                let mut map = states.lock().await;
+                if let Some(entry) = map.get_mut(&routing_id) {
+                    entry.turn_id = Some(tid.to_string());
+                }
             }
         }
 
@@ -535,6 +636,7 @@ async fn run_codex_chat_via_app_server(
                 "method": &notif.method,
                 "params": &notif.params,
             }).to_string(),
+            "sessionId": &routing_id,
         })
         .to_string();
         if tx.send(envelope).await.is_err() {
@@ -552,12 +654,18 @@ async fn run_codex_chat_via_app_server(
         }
     }
 
-    // Reset turn id (thread_id stays for the next message on this socket).
-    state.lock().await.turn_id = None;
+    // Clear turn id so a stale one can't fire on the next cancel.
+    {
+        let mut map = states.lock().await;
+        if let Some(entry) = map.get_mut(&routing_id) {
+            entry.turn_id = None;
+        }
+    }
 
     let complete = serde_json::json!({
         "type": "complete",
         "success": success,
+        "sessionId": &routing_id,
     })
     .to_string();
     let _ = tx.send(complete).await;

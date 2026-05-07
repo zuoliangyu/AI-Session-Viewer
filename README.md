@@ -26,13 +26,20 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.11.0
+## Latest in v2.12.0
 
-- **Codex 续聊改走 `codex app-server`**：不再每轮 spawn 一次 `codex exec`，进程级单例按 `(api_key, base_url)` 指纹复用一条常驻 app-server 进程，对话之间共享，启动延迟显著降低。新建会话走 `thread/start`，续聊走 `thread/resume`，取消走 `turn/interrupt`。Claude 路径完全不动。
-- **Codex 续聊预载历史**：`thread/resume` 返回的 `thread.turns` 直接注入聊天面板，进入 `/chat/:sessionId` 续聊后立即看到完整上下文 + 拼回的待发气泡，再衔接本轮回复，不再像 `codex exec` 那样只剩一个空对话框。
-- **Codex 嵌套 provider 配置识别**：`~/.codex/config.toml` 里的新版 `model_provider = "<name>"` + `[model_providers.<name>]` 现在能被正确读取（旧版顶层 `[provider]` 仍兼容），自定义 base_url 不再回落到 `https://api.openai.com`。
-- **模型列表跟随 codex 真实凭据**：`/v1/models` 调用从 `auth.json` + `config.toml` + env 三处取凭据（之前只看 env）；同时兼容 base_url 已含 `/v1` 的形态，不再追加成 `/v1/v1/models`。
-- **删除"快速问答"功能**：单独的 quick-chat 页面、SSE 接口、对应 Tauri 命令与 Cargo 依赖一并清理，统一收敛到主对话页。
+> 安全 / 正确性大扫除版本。修复了一批可能影响多 pane 并发、跨用户隔离、路径合法性、以及 Codex 子进程生命周期的问题；引入登录态弹窗 + WebSocket 一次性票据。
+
+- **Web 多 pane 流式不再串话**：服务端给每帧打 `sessionId`，客户端按 `streamId` 路由；并发请求各自的 promise 不再互相覆盖；cancel 改成 per-session 精准命中（按 sessionId 维护 `watch::Sender` / `CodexTurnState`），停一个 pane 不再误杀别的 pane。
+- **Tauri 新会话 pending → real session_id 切换不再丢流**：引入 `pane.streamId`（turn 内绝不变），监听器始终订阅它；`sessionId` 仅作展示 / 续聊用。Codex 端把 `chat-output:{thread_id}` 也改成稳定的 `chat-output:{event_id}`。
+- **Codex `CodexAppServer` 改为 per-fingerprint LRU runtime**：之前单 runtime + 凭据替换会让正在跑的别的 pane 全部失败；现在按 `(api_key, base_url)` 指纹隔离最多 4 个 runtime，超量按 LRU 淘汰；`subscribers` 从 `Map<thread, Sender>` 升级为 `Map<thread, Vec<Sender>>`，多个 pane resume 同一 thread_id 不再互相顶替。
+- **`tauri-plugin-updater` 安装类型检测加固**：从仅看 `uninstall.exe` 存在改为**同时**校验 NSIS 注册表 Uninstall 键，便携包里造个同名空文件不再能骗到自动更新管线。
+- **WebSocket 凭据改为一次性票据**：新增 `POST /api/auth/ws-ticket`（30 秒 TTL，单次消费），`buildAuthenticatedWebSocketUrl` 先取票再升级，长期 token 不再走 query string、不再落到反代日志。
+- **登录态弹窗 `<AuthGate />`**：401 时弹出 token 输入框；输入 / 取消都通过事件回到正在等的 fetch，自动重试一次，多个并发 401 共享同一 promise。
+- **路径穿越 / shell 注入加固**：`session_id` 入口校验、`session_core::paths::validate_session_file` 把 Tauri 与 Web 的路径白名单收敛到一处；`commands/terminal.rs` 用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn 而非 `cmd /c start`，macOS / Linux 路径里的 `'` 也做了 `'\''` 转义。
+- **Codex 项目列表漏会话**：`extract_session_meta` 扫描行数从 5 提到 50 + 剥离 UTF-8 BOM；`is_interactive` 从白名单改为黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
+
+完整列表见 [CHANGELOG.md](./CHANGELOG.md#2120---2026-05-07)。
 
 ## 截图
 

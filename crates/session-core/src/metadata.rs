@@ -50,6 +50,32 @@ fn is_single_normal_component(value: &str) -> bool {
     matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none()
 }
 
+/// Reject session ids that could escape a project directory or otherwise be
+/// abused to address arbitrary files on disk. Real session ids are UUIDs (or
+/// codex thread ids); anything containing a path separator, `..`, NUL, or an
+/// outright empty string is bogus and likely an attack.
+pub fn validate_session_id(session_id: &str) -> Result<(), String> {
+    if session_id.is_empty() {
+        return Err("session_id is empty".to_string());
+    }
+    if session_id.len() > 256 {
+        return Err("session_id is too long".to_string());
+    }
+    if session_id.contains('/')
+        || session_id.contains('\\')
+        || session_id.contains('\0')
+        || session_id == "."
+        || session_id == ".."
+        || session_id.starts_with("..")
+    {
+        return Err(format!("invalid session_id: {}", session_id));
+    }
+    if !is_single_normal_component(session_id) {
+        return Err(format!("invalid session_id: {}", session_id));
+    }
+    Ok(())
+}
+
 fn resolve_claude_project_dir(project_id: &str) -> Option<PathBuf> {
     if !is_single_normal_component(project_id) {
         return None;
@@ -149,6 +175,10 @@ pub fn rename_chat_session(
     session_id: &str,
     new_alias: Option<&str>,
 ) -> Result<String, String> {
+    // Reject any session_id that could escape the project directory before
+    // it's joined into a filesystem path.
+    validate_session_id(session_id)?;
+
     let trimmed = new_alias
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())

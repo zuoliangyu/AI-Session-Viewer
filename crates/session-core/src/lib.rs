@@ -7,6 +7,7 @@ pub mod metadata;
 pub mod model_list;
 pub mod models;
 pub mod parser;
+pub mod paths;
 pub mod provider;
 pub mod recyclebin;
 pub mod search;

@@ -90,27 +90,62 @@ fn safe_truncate(s: &str, max_chars: usize) -> String {
     }
 }
 
-/// Extract a context window around a match, operating on characters (not bytes)
+/// Extract a context window around a match, operating on characters (not
+/// bytes). Implementation note: the previous version materialized two full
+/// `Vec<char>` copies of the input (one lowercased), which on a 10MB tool
+/// output means ~80MB of allocation just to find a match — bad for large
+/// `tool_result` blocks. We instead use byte-level `find` on the lowercased
+/// string and convert byte offsets to char offsets only for the matched
+/// region we actually need.
 fn extract_context(text: &str, query_lower: &str, context_chars: usize) -> String {
     let text_lower = text.to_lowercase();
 
-    let text_chars: Vec<char> = text.chars().collect();
-    let lower_chars: Vec<char> = text_lower.chars().collect();
-    let query_chars: Vec<char> = query_lower.chars().collect();
-    let query_len = query_chars.len();
+    // Byte position of the match in the lowercased haystack. `find` works
+    // on UTF-8 byte boundaries, so it's safe to slice at the same byte
+    // index in the original `text` (lowercasing in Rust is per-codepoint
+    // and doesn't change byte alignment for ASCII queries; for non-ASCII
+    // queries that change length when lowercased, we fall back to
+    // safe_truncate below).
+    let match_byte = match text_lower.find(query_lower) {
+        Some(b) => b,
+        None => return safe_truncate(text, context_chars * 2),
+    };
 
-    let match_pos = lower_chars
-        .windows(query_len)
-        .position(|w| w == query_chars.as_slice());
-
-    match match_pos {
-        Some(pos) => {
-            let start = pos.saturating_sub(context_chars);
-            let end = (pos + query_len + context_chars).min(text_chars.len());
-            text_chars[start..end].iter().collect()
-        }
-        None => safe_truncate(text, context_chars * 2),
+    // Bail out if the lowercase transformation shifted byte alignments
+    // (e.g. a multi-byte uppercase mapping). In that case the byte offset
+    // doesn't correspond to a valid char boundary in `text`, so we
+    // degrade to a safe truncation rather than risk a slicing panic.
+    if !text.is_char_boundary(match_byte) {
+        return safe_truncate(text, context_chars * 2);
     }
+
+    // Walk back `context_chars` chars from the match start.
+    let prefix = &text[..match_byte];
+    let prefix_chars = prefix.chars().count();
+    let drop_chars = prefix_chars.saturating_sub(context_chars);
+    let mut iter = prefix.char_indices();
+    let start = if drop_chars == 0 {
+        0
+    } else {
+        iter.nth(drop_chars - 1)
+            .map(|(idx, ch)| idx + ch.len_utf8())
+            .unwrap_or(0)
+    };
+
+    // Walk forward `query.chars().count() + context_chars` chars from
+    // `match_byte`.
+    let query_char_len = query_lower.chars().count();
+    let want_chars = query_char_len + context_chars;
+    let mut end = text.len();
+    for (i, (idx, ch)) in text[match_byte..].char_indices().enumerate() {
+        if i == want_chars {
+            end = match_byte + idx;
+            break;
+        }
+        let _ = ch;
+    }
+
+    text[start..end].to_string()
 }
 
 /// Extract searchable text from a DisplayContentBlock

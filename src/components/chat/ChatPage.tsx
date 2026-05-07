@@ -44,13 +44,19 @@ interface ChatDerivedState {
   latestAssistantMessage: LatestAssistantMessagePreview | null;
 }
 
-function usePaneChatStream(paneId: string, sessionId: string | null) {
+function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
+  const paneStreamId = useChatStore(
+    useCallback((state) => state.panes[paneId]?.streamId ?? null, [paneId])
+  );
+  // Prefer the pane's live streamId; fall back to the URL-derived override
+  // so a freshly navigated pane can still receive its first frames.
+  const targetStreamId = paneStreamId ?? streamIdOverride;
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (__IS_TAURI__) {
-      if (!sessionId) return;
+    if (!targetStreamId) return;
 
+    if (__IS_TAURI__) {
       const { addStreamLineToPane, setPaneStreaming, setPaneError } = useChatStore.getState();
       let cancelled = false;
 
@@ -59,7 +65,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
         if (cancelled) return;
 
         const unlistenOutput = await listen<string>(
-          `chat-output:${sessionId}`,
+          `chat-output:${targetStreamId}`,
           (event) => {
             if (!cancelled) {
               addStreamLineToPane(paneId, event.payload);
@@ -72,7 +78,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
         }
 
         const unlistenError = await listen<string>(
-          `chat-error:${sessionId}`,
+          `chat-error:${targetStreamId}`,
           (event) => {
             if (!cancelled && isActualChatError(event.payload)) {
               setPaneError(paneId, event.payload);
@@ -86,7 +92,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
         }
 
         const unlistenComplete = await listen<string>(
-          `chat-complete:${sessionId}`,
+          `chat-complete:${targetStreamId}`,
           () => {
             if (!cancelled) {
               setPaneStreaming(paneId, false);
@@ -130,6 +136,19 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
             : typeof data?.payload === "string"
               ? data.payload
               : "";
+        const eventSessionId =
+          typeof data?.sessionId === "string"
+            ? data.sessionId
+            : typeof data?.session_id === "string"
+              ? data.session_id
+              : null;
+
+        // Strict per-stream routing: untagged frames or other panes' frames
+        // are dropped here so multiple chat panes on the same socket can run
+        // concurrently without crosstalk.
+        if (!eventSessionId || eventSessionId !== targetStreamId) {
+          return;
+        }
 
         if (type === "output" || type === "chunk") {
           if (payload) {
@@ -154,7 +173,7 @@ function usePaneChatStream(paneId: string, sessionId: string | null) {
     return () => {
       unsubscribe();
     };
-  }, [paneId, sessionId]);
+  }, [paneId, targetStreamId]);
 }
 
 function getNormalizedCommandInput(input: string): string {
@@ -357,8 +376,9 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   // Re-fetch model list whenever source changes (setSource clears modelList first)
   useEffect(() => { fetchModelList(); }, [appSource, fetchModelList]);
 
-  // Listen for stream events in the target pane
-  usePaneChatStream(paneId, activeSessionId);
+  // Listen for stream events in the target pane. The hook falls back to the
+  // URL session id only until a live turn sets the pane's own streamId.
+  usePaneChatStream(paneId, urlSessionId ?? null);
 
   const handleSend = useCallback((prompt: string) => {
     if (!projectPath) return;

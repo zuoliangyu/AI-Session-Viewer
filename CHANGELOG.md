@@ -4,6 +4,42 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] - 2026-05-07
+
+### Security
+
+- **路径穿越加固**：新增 `session_core::paths::validate_session_file` 共用 helper，把"路径必须 canonicalize 到 `~/.claude/projects/` 或 `~/.codex/sessions/` 之内 + 必须是 `.jsonl` + 必须符合源对应的目录层级"逻辑收敛到 session-core；Tauri 的 `delete_session` / `update_session_meta` 改成先走它，session-web 的 `resolve_session_file_path` 改成委托过来。`metadata::rename_chat_session` 入口新增 `validate_session_id`，拒绝 `..`、路径分隔符、空字符等会让 `<encoded-project>/<session_id>.jsonl` 逃出 project_dir 的 session_id。
+- **终端 shell 注入修复**：`commands/terminal.rs` 之前把 `session_id` / `project_path` 直接拼进 `bash -c '…'`、`cmd /c start /d …`、`osascript "do script \"cd '…' && …\""`，恶意 session 文件可注入命令。修复：入口校验 `session_id`；macOS / Linux 用新 `posix_single_quote` 把路径里的 `'` 转义为 `'\''` 并对 AppleScript 外层做 `\` / `"` 转义；Windows 改用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn `cmd /k` / `powershell -NoExit`，不再走 `cmd /c start`，路径里的 `&` / `|` / `^` 不再会被 cmd.exe 二次解析。
+- **WebSocket 凭据不再走 query string**：原本 `?token=<long-lived-secret>` 会落到反代 access log。新增 `POST /api/auth/ws-ticket`（需 Bearer 认证）签发 30 秒一次性票据，`require_ws_auth` 校验票据后即消费；`buildAuthenticatedWebSocketUrl` 现在先去拿 ticket 再拼到 `?ticket=…`。Bearer header 路径保留供非浏览器客户端使用。
+
+### Fixed
+
+- **Web 多 pane 流式串消息 / 串 cancel**：`startChat` / `continueChat` 之前共享一个全局 `chatWsResolve`，并发请求会互相覆盖；`output` / `error` / `complete` 帧没有顶层 `sessionId`，分屏会互相收对方的事件；`cancelChat` 直接发 `{action:"cancel"}` 全局广播。修复：服务端给所有帧打 `sessionId`，客户端用 `pendingChatStarts: Map<routingId, {resolve,reject}>` 路由，cancel 携带 sessionId，后端按 sessionId 维护 per-session `watch::Sender` / `CodexTurnState`。
+- **Tauri 新会话 pending → real session_id 切换丢流**：Claude system_init 把 pane.sessionId 改成真实 id，hook 重新订阅新事件名，但后端仍在 pending 通道发事件 → 后续 stdout 全部掉地上。引入 `pane.streamId`（turn 内绝不变）作为路由键，`sessionId` 仅作展示/续聊用。Codex Tauri 端同步把 `chat-output:{thread_id}` 改成稳定的 `chat-output:{event_id}`。
+- **Codex `CodexAppServer` 单 runtime 误杀其它 pane**：之前 `inner: Option<Runtime>`，凭据指纹一不一样就 `fail_pending` + 替换 runtime，会让正在跑的别的 pane 全部失败。改为 `LruCache<fingerprint, Arc<Runtime>>`（容量 4），按指纹隔离；超量时 LRU 淘汰最旧的，关闭其 stdin 让 codex CLI 自然退出。`subscribers` 同步从 `HashMap<thread, Sender>` 升到 `HashMap<thread, Vec<Sender>>` + `dispatch_and_prune`，两个 pane 同时 resume 同一 thread_id 不再互相顶掉。
+- **Tauri `cancel_chat` 错用磁盘凭据**：之前 `resolve_credentials("codex", None, None)` 重新从磁盘 config 取 creds，跟 turn 启动时的 override 凭据不一致就会让 `interrupt_turn` 触发 runtime 替换、连带杀别的 turn。`codex_sessions` 现在存 `CodexSessionEntry { thread_id, credentials }`，cancel 用启动时缓存的凭据。
+- **Tauri `codex_sessions` 永久泄漏**：之前只插入不删除。`stream_codex_notifications` 末尾、`cancel_chat` 路径、`turn/start` 失败分支都补上 `drop_codex_session_entries` 清理；`turn/start` 失败时还会主动 emit `chat-complete` 让前端从 streaming 状态退出。
+- **`oneshot::Receiver` drop 误中断成功 turn**（自查发现的回归）：上一版引入的 abort 机制用 oneshot，start_turn 成功路径的 `drop(abort_tx)` 会让 `select!` 的 `_ = &mut abort_rx` 解析为 `Err(RecvError)` 触发 — **每次 Codex 成功 turn 都会被立刻误中断**。换成 `Arc<tokio::sync::Notify>` + `notify_one`（drop 不触发 waiter）。
+- **切换数据源时未取消 in-flight 流**：从 Claude 切到 Codex（或反向）时旧流事件还在到达，但前端 parser 已切换 → 整段对话被错误解析成乱码且 `isStreaming` 不会被清。`setPaneSource` 现在检测 streaming 时先 `cancelPane`，再用 `clearPane` 的方式重置消息/sessionId/streamId/error。
+- **`asv-auth-required` 没有监听器**：事件 dispatch 了但全代码没人监听，401 时 UI 静默无反应。新增 `<AuthGate />` 全局组件，弹窗收集 token 写入 localStorage；新增 `withAuthRetry` + `awaitAuthRestoration`，所有 fetch wrapper（apiFetch / apiDelete / apiPut / apiPost / probeWebSocketAuth / fetchWebSocketTicket / permanentlyDeleteRecycledItem）在 401 后会等用户填完 token 自动重试一次，多个并发 401 共享同一 promise。
+- **Codex 项目列表漏会话（搜得到但项目里没有）**：`extract_session_meta` 之前只读 JSONL 前 5 行找 `session_meta`，新版本 codex / app-server 在 session_meta 之前夹的几行 housekeeping 会让它返回 None；`is_interactive` 又是白名单（只认 `cli` / `vscode`），未知 source 直接被隐藏。改：扫描行数提到 50 + 剥离 UTF-8 BOM；`is_interactive` 改成黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
+- **Web `loadAllTags` / `loadCrossProjectTags` 旧请求结果污染新视图**：source 切换瞬间 inflight 的旧请求回来后会把旧 source 的 tag 写进新 source 的 view。两个 loader 都加 source/project 旧值快照对比，不一致直接丢弃结果。
+- **Web 文件监听线程不会重启**：`std::thread::spawn` 出去的 watcher 一旦失败/通道关闭就静默退出，整个进程后续没文件变更推送。改成监督循环（5s 退避后重启）。
+- **Web `skipPermissions` 设置被忽略**：之前不论前端怎么配，Claude CLI 都强制带 `--dangerously-skip-permissions`，跟 UI 不一致也加大权限风险。改为尊重前端值（false 时不加）；提醒：web 模式无终端，关闭后 CLI 可能因等待权限提示而 hang，是用户的选择。
+- **NSIS 安装类型检测可被骗**：之前只看 `uninstall.exe` 是否存在，便携包目录里造一个空 `uninstall.exe` 就能让应用走"已安装版"自动更新流程拉错管线。改为同时校验 `HKCU` / `HKLM\…\Uninstall\<identifier>` 注册表项存在；新增 `winreg` 依赖（仅 Windows target）。
+
+### Changed
+
+- **`paths.rs` 模块新增**：把 session 文件路径校验从 `session-web/src/main.rs` 移到 `session-core/src/paths.rs`，Tauri 与 Web 共享一份实现，两边逻辑不再可能漂移。
+- **`scripts/sync-version.mjs`**：把 `package-lock.json` 的两个 version 字段（顶层 + `packages[""]`）也加进 sync / check 范围，避免 lock 与 manifest 漂移阻塞构建。
+- **`tsconfig.tsbuildinfo`** 加进 `.gitignore` 并 `git rm --cached`：构建产物不再进版本管理。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.11.0] - 2026-05-06
 
 ### Added

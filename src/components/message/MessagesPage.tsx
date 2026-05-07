@@ -165,7 +165,7 @@ function isActualChatError(line: string): boolean {
 
 function handlePaneWebChatMessage(
   paneId: string,
-  targetSessionId: string | null | undefined,
+  targetStreamId: string | null | undefined,
   rawMessage: string
 ): void {
   const {
@@ -191,9 +191,14 @@ function handlePaneWebChatMessage(
           ? data.session_id
           : null;
     const pane = getPaneState(paneId);
-    const paneSessionId = pane.sessionId ?? targetSessionId ?? null;
+    const routingKey = pane.streamId ?? targetStreamId ?? null;
 
-    if (eventSessionId && paneSessionId && eventSessionId !== paneSessionId) {
+    // Strict per-stream routing: a frame must carry our routing key (the
+    // server tags every frame with sessionId) and our pane must have one to
+    // compare against. Untagged frames or mismatches are dropped.
+    if (!eventSessionId || !routingKey || eventSessionId !== routingKey) {
+      // The handshake echo for `session_id` is consumed in webApi.ts; we can
+      // safely ignore everything else that doesn't carry our routing key.
       return;
     }
 
@@ -216,22 +221,25 @@ function handlePaneWebChatMessage(
     }
 
     if (type === "complete" || type === "done") {
-      if (!eventSessionId || !paneSessionId || eventSessionId === paneSessionId) {
-        setPaneStreaming(paneId, false);
-      }
+      setPaneStreaming(paneId, false);
     }
   } catch {
     // ignore non-JSON frames
   }
 }
 
-function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
-  const paneSessionId = useChatStore(useCallback((state) => state.panes[paneId]?.sessionId ?? null, [paneId]));
-  const targetSessionId = sessionIdOverride ?? paneSessionId;
+function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
+  const paneStreamId = useChatStore(
+    useCallback((state) => state.panes[paneId]?.streamId ?? null, [paneId])
+  );
+  // Prefer the pane's own streamId once a turn is live; fall back to the
+  // override (the URL session id) so we still receive frames after a fresh
+  // navigation, before the user has typed anything.
+  const targetStreamId = paneStreamId ?? streamIdOverride ?? null;
   const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    if (!targetSessionId) return;
+    if (!targetStreamId) return;
 
     if (__IS_TAURI__) {
       const addStreamLineToPane = useChatStore.getState().addStreamLineToPane;
@@ -244,7 +252,7 @@ function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
         if (cancelled) return;
 
         const unlistenOutput = await listen<string>(
-          `chat-output:${targetSessionId}`,
+          `chat-output:${targetStreamId}`,
           (event) => {
             if (!cancelled) {
               addStreamLineToPane(paneId, event.payload);
@@ -257,7 +265,7 @@ function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
         }
 
         const unlistenError = await listen<string>(
-          `chat-error:${targetSessionId}`,
+          `chat-error:${targetStreamId}`,
           (event) => {
             if (!cancelled && event.payload && isActualChatError(event.payload)) {
               setPaneError(paneId, event.payload);
@@ -271,7 +279,7 @@ function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
         }
 
         const unlistenComplete = await listen<string>(
-          `chat-complete:${targetSessionId}`,
+          `chat-complete:${targetStreamId}`,
           () => {
             if (!cancelled) {
               setPaneStreaming(paneId, false);
@@ -304,13 +312,13 @@ function usePaneChatStream(paneId: string, sessionIdOverride?: string | null) {
     }
 
     const unsubscribe = subscribeToChatWebSocketMessages((rawMessage) => {
-      handlePaneWebChatMessage(paneId, targetSessionId, rawMessage);
+      handlePaneWebChatMessage(paneId, targetStreamId, rawMessage);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [paneId, targetSessionId]);
+  }, [paneId, targetStreamId]);
 }
 
 export function MessagesPage() {
@@ -414,7 +422,7 @@ export function MessagesPage() {
     (source === "codex" ? searchHit?.projectId : "") ||
     "";
 
-  usePaneChatStream(mainPaneId, mainChatPane?.sessionId ?? resolvedSessionId);
+  usePaneChatStream(mainPaneId, resolvedSessionId);
   const cliAvailable = availableClis.some((c) => c.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
@@ -1476,7 +1484,7 @@ function SplitSessionPane({
   }, [messages]);
   const chatModel = paneState?.model ?? sessionModel ?? "";
 
-  usePaneChatStream(paneId, paneState?.sessionId ?? resolvedSessionId);
+  usePaneChatStream(paneId, resolvedSessionId);
 
   const loadMessages = useCallback(
     async (nextPage: number, mode: "replace" | "prepend") => {

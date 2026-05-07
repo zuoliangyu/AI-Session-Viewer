@@ -267,16 +267,26 @@ pub struct SessionMeta {
     pub is_interactive: bool,
 }
 
+/// How far into a rollout file we'll scan looking for the `session_meta`
+/// row. Most rollouts have it on line 1, but newer codex builds and the
+/// app-server can prepend a handful of housekeeping rows. Reading a few
+/// dozen lines up front is cheap and avoids "session is searchable but
+/// missing from the project list" mismatches.
+const SESSION_META_SCAN_LINES: usize = 50;
+
 pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::new(file);
 
-    for line in reader.lines().take(5) {
+    for line in reader.lines().take(SESSION_META_SCAN_LINES) {
         let line = match line {
             Ok(l) => l,
             Err(_) => continue,
         };
-        let trimmed = line.trim();
+        // Strip a UTF-8 BOM that can sneak in if a tool re-wrote the file
+        // through a Windows text editor; serde_json would otherwise fail
+        // on the leading `\u{feff}`.
+        let trimmed = line.trim_start_matches('\u{feff}').trim();
         if trimmed.is_empty() {
             continue;
         }
@@ -313,13 +323,20 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
                     .and_then(|v| v.as_str())
                     .map(String::from);
 
-                // Determine if this is an interactive session.
-                // Codex uses rename_all="lowercase": Cli→"cli", VSCode→"vscode",
-                // SubAgent→{"subagent":{...}} (object), Exec→"exec", Mcp→"mcp"
+                // Use a *blocklist* rather than an allowlist for the
+                // `source` field. Anything we know is non-interactive
+                // (`exec`, `mcp`, the `subagent` object) gets hidden from
+                // the project list, but new/unknown source names default
+                // to "interactive" so the user still sees them. This
+                // matches the global-search behaviour, which always
+                // indexes the file — keeping the two views in sync.
                 let is_interactive = match payload.get("source") {
-                    Some(Value::String(s)) => s == "cli" || s == "vscode",
-                    None => true, // missing source → assume interactive (old format)
-                    _ => false,   // object (subagent) or other → non-interactive
+                    Some(Value::String(s)) => {
+                        let s = s.as_str();
+                        s != "exec" && s != "mcp"
+                    }
+                    Some(Value::Object(_)) => false, // subagent object
+                    _ => true, // missing / unknown shape → assume interactive
                 };
 
                 return Some(SessionMeta {

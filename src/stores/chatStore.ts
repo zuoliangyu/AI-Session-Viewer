@@ -20,7 +20,17 @@ interface ChatPaneModelListState {
 
 export interface ChatPaneState {
   isActive: boolean;
+  /**
+   * The session id displayed to the user (URL, resume, etc). Updated mid-stream
+   * when the CLI's system init / codex thread/start announces the real id.
+   */
   sessionId: string | null;
+  /**
+   * Stable routing key for the active stream. Set when a turn starts and used
+   * to filter incoming WS frames / Tauri events. Never updated mid-stream so
+   * listeners don't have to re-subscribe and miss data.
+   */
+  streamId: string | null;
   projectPath: string;
   model: string;
   source: ChatSource;
@@ -149,6 +159,7 @@ function createChatPaneState(
   return {
     isActive: false,
     sessionId: null,
+    streamId: null,
     projectPath: "",
     model: localStorage.getItem("chat_lastUsedModel") || "",
     source: "claude",
@@ -872,9 +883,13 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   cancelPane: async (paneId) => {
     const pane = get().getPaneState(paneId);
-    if (pane.sessionId) {
+    // Cancel by streamId — the routing key the backend uses for this turn.
+    // Falls back to sessionId only if streamId hasn't been set yet (e.g. very
+    // early failure before the start handshake).
+    const target = pane.streamId ?? pane.sessionId;
+    if (target) {
       try {
-        await api.cancelChat(pane.sessionId);
+        await api.cancelChat(target);
       } catch (e) {
         console.error("Failed to cancel chat:", e);
       }
@@ -1011,9 +1026,13 @@ export const useChatStore = create<ChatState>((set, get) => {
     const overrides = getSourceOverrides(state, pane.source);
     const pendingSessionId = generateUUID();
     localStorage.setItem("chat_lastUsedModel", model);
+    // streamId is the stable routing key for this turn — listeners subscribe
+    // by streamId, not sessionId, so the mid-stream sessionId swap (Claude
+    // system init / Codex thread/start) never reroutes the live stream.
     get().setPaneState(paneId, {
       isActive: true,
       sessionId: pendingSessionId,
+      streamId: pendingSessionId,
       isStreaming: true,
       projectPath,
       model,
@@ -1047,6 +1066,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     } catch (e) {
       get().setPaneState(paneId, {
         sessionId: null,
+        streamId: null,
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
       });
@@ -1068,6 +1088,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       isActive: true,
       isStreaming: true,
       sessionId,
+      streamId: sessionId,
       projectPath,
       model,
       error: null,
@@ -1501,11 +1522,23 @@ export const useChatStore = create<ChatState>((set, get) => {
   setPaneSource: (paneId, source) => {
     const pane = get().getPaneState(paneId);
     if (pane.source === source) return;
+    // Cancel any in-flight turn first — the new source uses a different
+    // stream parser, so leftover events from the old turn would be parsed
+    // wrong (e.g. Codex notifications fed to the Claude parser produce
+    // garbled messages).
+    if (pane.isStreaming) {
+      void get().cancelPane(paneId);
+    }
+    // Reset the chat history along with the source change. Previous messages
+    // were produced by the old CLI and don't belong to the new one's view.
     set((state) => {
-      const updates = applyPaneStateUpdate(state, paneId, {
-        source,
-        model: "",
-      });
+      const updates = applyPaneStateUpdate(state, paneId, () =>
+        createChatPaneState({
+          projectPath: pane.projectPath,
+          model: "",
+          source,
+        })
+      );
       const nextPaneModelList = createChatPaneModelListState();
       return {
         ...updates,

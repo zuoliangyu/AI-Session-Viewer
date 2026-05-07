@@ -5,6 +5,7 @@ node_modules/
 dist/
 target/
 src-tauri/target/
+tsconfig.tsbuildinfo
 
 # IDE
 .vscode/

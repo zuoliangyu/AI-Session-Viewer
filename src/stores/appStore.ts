@@ -522,6 +522,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!selectedProject) return;
     try {
       const allTags = await api.getAllTags(source, selectedProject);
+      // Drop the result if the user switched source/project while we were
+      // waiting — otherwise stale tags would land on the new view.
+      const latest = get();
+      if (latest.source !== source || latest.selectedProject !== selectedProject) {
+        return;
+      }
       set({ allTags });
     } catch (e) {
       console.error("Failed to load tags:", e);
@@ -533,8 +539,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadCrossProjectTags: async () => {
+    const source = get().source;
     try {
-      const crossProjectTags = await api.getCrossProjectTags(get().source);
+      const crossProjectTags = await api.getCrossProjectTags(source);
+      // Drop stale result if the user switched source while waiting.
+      if (get().source !== source) return;
       set({ crossProjectTags });
     } catch (e) {
       console.error("Failed to load cross-project tags:", e);

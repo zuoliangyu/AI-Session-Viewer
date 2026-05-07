@@ -1,6 +1,7 @@
 import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
+import { AuthGate } from "./components/auth/AuthGate";
 
 const ProjectsPage = lazy(async () => {
   const module = await import("./components/project/ProjectsPage");
@@ -53,8 +54,10 @@ function LazyRoute({ children }: { children: ReactNode }) {
 
 function App() {
   return (
-    <Routes>
-      <Route element={<AppLayout />}>
+    <>
+      <AuthGate />
+      <Routes>
+        <Route element={<AppLayout />}>
         <Route path="/" element={<Navigate to="/projects" replace />} />
         <Route
           path="/projects"
@@ -136,8 +139,9 @@ function App() {
             </LazyRoute>
           }
         />
-      </Route>
-    </Routes>
+        </Route>
+      </Routes>
+    </>
   );
 }
 

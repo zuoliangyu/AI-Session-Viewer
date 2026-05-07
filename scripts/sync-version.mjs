@@ -15,8 +15,19 @@ const cargoTomlPaths = [
   resolve(root, "crates/session-core/Cargo.toml"),
   resolve(root, "crates/session-web/Cargo.toml"),
 ];
+const lockfilePath = resolve(root, "package-lock.json");
 
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf-8"));
+
+function readLockfileVersion() {
+  if (!existsSync(lockfilePath)) return { topLevel: null, rootPkg: null };
+  const lock = JSON.parse(readFileSync(lockfilePath, "utf-8"));
+  return {
+    topLevel: lock.version ?? null,
+    rootPkg: lock.packages?.[""]?.version ?? null,
+    raw: lock,
+  };
+}
 
 function readCargoVersion(path) {
   if (!existsSync(path)) return null;
@@ -43,6 +54,19 @@ if (mode === "check") {
       );
       mismatch = true;
     }
+  }
+  const lock = readLockfileVersion();
+  if (lock.topLevel && lock.topLevel !== version) {
+    console.error(
+      `[sync-version] MISMATCH: package-lock.json (root) "${lock.topLevel}" != package.json "${version}"`,
+    );
+    mismatch = true;
+  }
+  if (lock.rootPkg && lock.rootPkg !== version) {
+    console.error(
+      `[sync-version] MISMATCH: package-lock.json (packages."") "${lock.rootPkg}" != package.json "${version}"`,
+    );
+    mismatch = true;
   }
   if (mismatch) {
     console.error(
@@ -74,6 +98,27 @@ if (mode === "check") {
       writeFileSync(cargoPath, updated);
       const rel = cargoPath.replace(root + "/", "").replace(root + "\\", "");
       console.log(`[sync-version] ${rel} -> ${version}`);
+      changed = true;
+    }
+  }
+
+  // Sync the two version slots in package-lock.json (top-level and the
+  // root package entry under packages[""]). Avoids running `npm install`
+  // here so we don't perturb dependency resolution as a side effect.
+  const lock = readLockfileVersion();
+  if (lock.raw) {
+    let lockChanged = false;
+    if (lock.topLevel && lock.topLevel !== version) {
+      lock.raw.version = version;
+      lockChanged = true;
+    }
+    if (lock.rootPkg && lock.rootPkg !== version) {
+      lock.raw.packages[""].version = version;
+      lockChanged = true;
+    }
+    if (lockChanged) {
+      writeFileSync(lockfilePath, JSON.stringify(lock.raw, null, 2) + "\n");
+      console.log(`[sync-version] package-lock.json -> ${version}`);
       changed = true;
     }
   }

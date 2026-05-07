@@ -14,12 +14,58 @@ use axum::{
 };
 use clap::Parser;
 use config::Config;
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tower_http::cors::CorsLayer;
 
 #[derive(Clone)]
 pub(crate) struct AppToken(pub(crate) Option<String>);
+
+/// Time-to-live for a freshly minted WebSocket auth ticket. Long enough for
+/// a slow client to redeem, short enough that a leaked log line stops being
+/// useful very quickly.
+const WS_TICKET_TTL: Duration = Duration::from_secs(30);
+
+/// Single-use, short-lived tickets used to authenticate WebSocket upgrades.
+/// Browsers can't attach `Authorization: Bearer` headers to `new WebSocket`,
+/// so the client mints a ticket via an authenticated POST and then includes
+/// it as a query param on the upgrade request. The ticket is consumed on
+/// first use, so even if it lands in a reverse-proxy access log it can't be
+/// replayed.
+#[derive(Clone)]
+pub(crate) struct WsTicketStore {
+    inner: Arc<Mutex<HashMap<String, Instant>>>,
+}
+
+impl WsTicketStore {
+    pub(crate) fn new() -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Mint a fresh ticket. Also opportunistically prunes expired tickets so
+    /// a misbehaving client can't grow the map without bound.
+    pub(crate) fn issue(&self) -> String {
+        let ticket = uuid::Uuid::new_v4().to_string();
+        let now = Instant::now();
+        let expires = now + WS_TICKET_TTL;
+        let mut guard = self.inner.lock().expect("ws ticket store poisoned");
+        guard.retain(|_, exp| *exp > now);
+        guard.insert(ticket.clone(), expires);
+        ticket
+    }
+
+    /// Atomically consume a ticket. Returns true iff it existed and hadn't
+    /// expired. Subsequent calls with the same ticket return false.
+    pub(crate) fn consume(&self, ticket: &str) -> bool {
+        let now = Instant::now();
+        let mut guard = self.inner.lock().expect("ws ticket store poisoned");
+        matches!(guard.remove(ticket), Some(exp) if exp > now)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SessionSource {
@@ -48,47 +94,38 @@ pub(crate) fn require_auth(
     headers: &HeaderMap,
     expected: &AppToken,
 ) -> Result<(), StatusCode> {
-    require_auth_with_query(headers, None, expected)
+    let Some(expected_token) = expected.0.as_deref() else {
+        return Ok(());
+    };
+    if bearer_token(headers) == Some(expected_token) {
+        return Ok(());
+    }
+    Err(StatusCode::UNAUTHORIZED)
 }
 
-pub(crate) fn require_auth_with_query(
+/// Authenticate a WebSocket upgrade. Either the standard Bearer header (some
+/// non-browser clients can set it) or a single-use ticket (for browsers).
+pub(crate) fn require_ws_auth(
     headers: &HeaderMap,
-    query_token: Option<&str>,
+    query_ticket: Option<&str>,
     expected: &AppToken,
+    tickets: &WsTicketStore,
 ) -> Result<(), StatusCode> {
     let Some(expected_token) = expected.0.as_deref() else {
         return Ok(());
     };
 
-    if bearer_token(headers) == Some(expected_token) || query_token == Some(expected_token) {
+    if bearer_token(headers) == Some(expected_token) {
         return Ok(());
     }
 
-    Err(StatusCode::UNAUTHORIZED)
-}
-
-fn canonicalize_dir(path: PathBuf, label: &str) -> Result<PathBuf, String> {
-    let canonical = path
-        .canonicalize()
-        .map_err(|e| format!("Failed to resolve {}: {}", label, e))?;
-
-    if !canonical.is_dir() {
-        return Err(format!("{} is not a directory", label));
+    if let Some(ticket) = query_ticket {
+        if tickets.consume(ticket) {
+            return Ok(());
+        }
     }
 
-    Ok(canonical)
-}
-
-fn canonical_projects_dir() -> Result<PathBuf, String> {
-    let path = session_core::parser::path_encoder::get_projects_dir()
-        .ok_or_else(|| "Could not find Claude projects directory".to_string())?;
-    canonicalize_dir(path, "Claude projects directory")
-}
-
-fn canonical_codex_sessions_dir() -> Result<PathBuf, String> {
-    let path = session_core::provider::codex::get_sessions_dir()
-        .ok_or_else(|| "Could not find Codex sessions directory".to_string())?;
-    canonicalize_dir(path, "Codex sessions directory")
+    Err(StatusCode::UNAUTHORIZED)
 }
 
 fn is_single_normal_component(value: &str) -> bool {
@@ -101,7 +138,10 @@ pub(crate) fn resolve_claude_project_dir(project_id: &str) -> Result<PathBuf, St
         return Err(format!("Invalid project id: {}", project_id));
     }
 
-    let base = canonical_projects_dir()?;
+    let base = session_core::parser::path_encoder::get_projects_dir()
+        .ok_or_else(|| "Could not find Claude projects directory".to_string())?
+        .canonicalize()
+        .map_err(|e| format!("Failed to resolve Claude projects directory: {}", e))?;
     let candidate = base.join(project_id);
 
     if !candidate.exists() {
@@ -125,72 +165,13 @@ pub(crate) fn resolve_claude_project_dir(project_id: &str) -> Result<PathBuf, St
     Ok(canonical)
 }
 
-fn validate_claude_session_layout(path: &Path, base: &Path) -> Result<(), String> {
-    let relative = path
-        .strip_prefix(base)
-        .map_err(|_| "Session file is outside the Claude projects directory".to_string())?;
-
-    if relative.components().count() != 2 {
-        return Err("Claude session file must live directly under a project directory".to_string());
-    }
-
-    Ok(())
-}
-
-fn validate_codex_session_layout(path: &Path, base: &Path) -> Result<(), String> {
-    let relative = path
-        .strip_prefix(base)
-        .map_err(|_| "Session file is outside the Codex sessions directory".to_string())?;
-    let components: Vec<_> = relative.components().collect();
-
-    if components.len() != 4 || components.iter().any(|c| !matches!(c, Component::Normal(_))) {
-        return Err("Codex session file must live under sessions/<year>/<month>/<day>/".to_string());
-    }
-
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "Invalid session file name".to_string())?;
-    if !file_name.starts_with("rollout-") {
-        return Err("Codex session file name must start with 'rollout-'".to_string());
-    }
-
-    Ok(())
-}
-
+/// Validate a session file path. Delegates to `session_core::paths` so the
+/// Tauri and web codepaths share a single source of truth.
 pub(crate) fn resolve_session_file_path(
     source: &str,
     file_path: &str,
 ) -> Result<PathBuf, String> {
-    if file_path.trim().is_empty() {
-        return Err("Session file path is required".to_string());
-    }
-
-    let source = SessionSource::parse(source)?;
-    let requested = PathBuf::from(file_path);
-    let canonical = requested
-        .canonicalize()
-        .map_err(|e| format!("Failed to resolve session file: {}", e))?;
-
-    if !canonical.is_file() {
-        return Err(format!("Session file not found: {}", file_path));
-    }
-    if canonical.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-        return Err("Session file must be a .jsonl file".to_string());
-    }
-
-    match source {
-        SessionSource::Claude => {
-            let base = canonical_projects_dir()?;
-            validate_claude_session_layout(&canonical, &base)?;
-        }
-        SessionSource::Codex => {
-            let base = canonical_codex_sessions_dir()?;
-            validate_codex_session_layout(&canonical, &base)?;
-        }
-    }
-
-    Ok(canonical)
+    session_core::paths::validate_session_file(source, file_path)
 }
 
 /// Auth check middleware — reads token from AppToken extension
@@ -227,16 +208,29 @@ async fn cli_config_handler(
 
 #[derive(serde::Deserialize)]
 struct WsAuthQuery {
-    token: Option<String>,
+    /// Single-use ticket previously issued via POST /api/auth/ws-ticket.
+    ticket: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct WsTicketResponse {
+    ticket: String,
+}
+
+async fn issue_ws_ticket(
+    axum::extract::Extension(store): axum::extract::Extension<WsTicketStore>,
+) -> Json<WsTicketResponse> {
+    Json(WsTicketResponse { ticket: store.issue() })
 }
 
 async fn chat_ws_auth_handler(
     ws: axum::extract::ws::WebSocketUpgrade,
     axum::extract::Extension(app_token): axum::extract::Extension<AppToken>,
+    axum::extract::Extension(tickets): axum::extract::Extension<WsTicketStore>,
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<WsAuthQuery>,
 ) -> Result<Response, StatusCode> {
-    require_auth_with_query(&headers, query.token.as_deref(), &app_token)?;
+    require_ws_auth(&headers, query.ticket.as_deref(), &app_token, &tickets)?;
     Ok(chat_ws::chat_ws_handler(ws).await)
 }
 
@@ -269,6 +263,7 @@ async fn main() {
     let fs_tx = ws::start_file_watcher();
 
     let app_token = AppToken(config.token.clone());
+    let ws_tickets = WsTicketStore::new();
 
     // API routes (with auth middleware)
     let api_routes = Router::new()
@@ -311,6 +306,10 @@ async fn main() {
             "/api/recyclebin/cleanup-orphans",
             post(routes::recyclebin::cleanup_orphan_dirs),
         )
+        // Single-use ticket endpoint — must be authenticated with the
+        // standard Bearer header. Used by browsers to upgrade to WebSocket
+        // without leaking the long-lived token through the URL.
+        .route("/api/auth/ws-ticket", post(issue_ws_ticket))
         .layer(middleware::from_fn(check_auth));
 
     // WebSocket route (with auth via query param or header)
@@ -339,7 +338,8 @@ async fn main() {
         .merge(chat_ws_routes)
         .merge(static_routes)
         .layer(CorsLayer::permissive())
-        .layer(axum::Extension(app_token));
+        .layer(axum::Extension(app_token))
+        .layer(axum::Extension(ws_tickets));
 
     let addr = format!("{}:{}", config.host, config.port);
     let listener = tokio::net::TcpListener::bind(&addr)

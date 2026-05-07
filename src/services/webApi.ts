@@ -27,13 +27,59 @@ function applyAuthHeader(headers: Record<string, string>): Record<string, string
   return headers;
 }
 
-async function probeWebSocketAuth(): Promise<void> {
-  const resp = await fetch(new URL("/api/cli/detect", window.location.origin).toString(), {
-    headers: applyAuthHeader({}),
+/**
+ * Wait until the user either updates the token (via AuthGate) or cancels
+ * the prompt. Resolves with `true` if the token was saved, `false` if the
+ * user dismissed the dialog. Multiple concurrent waiters share a single
+ * promise so they all unblock together when the event fires.
+ */
+let pendingAuthRestoration: Promise<boolean> | null = null;
+
+function awaitAuthRestoration(): Promise<boolean> {
+  if (pendingAuthRestoration) return pendingAuthRestoration;
+  pendingAuthRestoration = new Promise<boolean>((resolve) => {
+    const settle = (value: boolean) => {
+      window.removeEventListener("asv-auth-updated", onUpdated);
+      window.removeEventListener("asv-auth-cancelled", onCancel);
+      pendingAuthRestoration = null;
+      resolve(value);
+    };
+    const onUpdated = () => settle(true);
+    const onCancel = () => settle(false);
+    window.addEventListener("asv-auth-updated", onUpdated, { once: true });
+    window.addEventListener("asv-auth-cancelled", onCancel, { once: true });
   });
+  return pendingAuthRestoration;
+}
+
+/**
+ * Run a fetch executor and, if it returns 401, prompt the user for a token
+ * (via AuthGate) and retry exactly once. Multiple in-flight requests
+ * collapse onto one prompt — when the user saves the token, every waiter
+ * retries with the new credentials. If the user cancels the prompt, the
+ * original 401 response is returned so the caller can throw.
+ *
+ * The executor is called fresh each attempt so headers (including the
+ * Bearer token) are rebuilt with whatever's in localStorage at the moment
+ * of the request.
+ */
+async function withAuthRetry(execute: () => Promise<Response>): Promise<Response> {
+  const resp = await execute();
+  if (resp.status !== 401) return resp;
+  notifyAuthRequired();
+  const restored = await awaitAuthRestoration();
+  if (!restored) return resp;
+  return execute();
+}
+
+async function probeWebSocketAuth(): Promise<void> {
+  const resp = await withAuthRetry(() =>
+    fetch(new URL("/api/cli/detect", window.location.origin).toString(), {
+      headers: applyAuthHeader({}),
+    }),
+  );
 
   if (resp.status === 401) {
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
 
@@ -42,13 +88,54 @@ async function probeWebSocketAuth(): Promise<void> {
   }
 }
 
-export function buildAuthenticatedWebSocketUrl(path: string): string {
+/**
+ * Mint a single-use WebSocket auth ticket from the server. The ticket is
+ * embedded in the upgrade URL and consumed on first use, so even if it lands
+ * in a reverse-proxy access log it can't be replayed (compared to passing
+ * the long-lived token directly in the query string).
+ *
+ * Returns null when the server has no token configured (i.e. unauthenticated
+ * deployment) — the caller can then connect without any query param.
+ */
+async function fetchWebSocketTicket(): Promise<string | null> {
+  const resp = await withAuthRetry(() =>
+    fetch(new URL("/api/auth/ws-ticket", window.location.origin).toString(), {
+      method: "POST",
+      headers: applyAuthHeader({ "Content-Type": "application/json" }),
+      body: "{}",
+    }),
+  );
+
+  if (resp.status === 401) {
+    throw new Error("Authentication required");
+  }
+  if (resp.status === 404) {
+    // Older server build without ticket support — caller should fall back to
+    // the unauthenticated codepath.
+    return null;
+  }
+  if (!resp.ok) {
+    throw new Error(`Failed to obtain WebSocket ticket: ${resp.statusText}`);
+  }
+
+  const body = (await resp.json()) as { ticket?: string };
+  return typeof body.ticket === "string" && body.ticket ? body.ticket : null;
+}
+
+export async function buildAuthenticatedWebSocketUrl(path: string): Promise<string> {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const url = new URL(path, `${protocol}//${window.location.host}`);
-  const token = getToken();
-  if (token) {
-    url.searchParams.set("token", token);
+
+  // Only attempt to mint a ticket when a token is configured client-side.
+  // Otherwise the server is in unauthenticated mode and a missing ticket
+  // is fine.
+  if (getToken()) {
+    const ticket = await fetchWebSocketTicket();
+    if (ticket) {
+      url.searchParams.set("ticket", ticket);
+    }
   }
+
   return url.toString();
 }
 
@@ -60,13 +147,11 @@ async function apiFetch<T>(path: string, params?: Record<string, string>): Promi
     }
   }
 
-  const headers: Record<string, string> = applyAuthHeader({});
-
-  const resp = await fetch(url.toString(), { headers });
+  const resp = await withAuthRetry(() =>
+    fetch(url.toString(), { headers: applyAuthHeader({}) }),
+  );
 
   if (resp.status === 401) {
-    // Trigger auth prompt
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
 
@@ -86,12 +171,11 @@ async function apiDelete<T>(path: string, params?: Record<string, string>): Prom
     }
   }
 
-  const headers: Record<string, string> = applyAuthHeader({});
-
-  const resp = await fetch(url.toString(), { method: "DELETE", headers });
+  const resp = await withAuthRetry(() =>
+    fetch(url.toString(), { method: "DELETE", headers: applyAuthHeader({}) }),
+  );
 
   if (resp.status === 401) {
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
 
@@ -183,16 +267,17 @@ export async function deleteProject(
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = applyAuthHeader({ "Content-Type": "application/json" });
-
-  const resp = await fetch(new URL(path, window.location.origin).toString(), {
-    method: "PUT",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const url = new URL(path, window.location.origin).toString();
+  const payload = JSON.stringify(body);
+  const resp = await withAuthRetry(() =>
+    fetch(url, {
+      method: "PUT",
+      headers: applyAuthHeader({ "Content-Type": "application/json" }),
+      body: payload,
+    }),
+  );
 
   if (resp.status === 401) {
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
 
@@ -270,16 +355,17 @@ export async function getInstallType(): Promise<"installed" | "portable"> {
 }
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = applyAuthHeader({ "Content-Type": "application/json" });
-
-  const resp = await fetch(new URL(path, window.location.origin).toString(), {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const url = new URL(path, window.location.origin).toString();
+  const payload = JSON.stringify(body);
+  const resp = await withAuthRetry(() =>
+    fetch(url, {
+      method: "POST",
+      headers: applyAuthHeader({ "Content-Type": "application/json" }),
+      body: payload,
+    }),
+  );
 
   if (resp.status === 401) {
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
 
@@ -310,11 +396,73 @@ export async function listModels(
 
 // Chat WebSocket connection — managed externally by useChatStream
 let chatWs: WebSocket | null = null;
-let chatWsResolve: ((sessionId: string) => void) | null = null;
 const chatWsSubscribers = new Set<(rawMessage: string) => void>();
 let chatWsOpenPromise: Promise<WebSocket> | null = null;
 
+// Per-routing-id pending start/continue handshakes. The handshake completes
+// when the server echoes `{ type: "session_id", sessionId: <routingId> }`,
+// at which point we resolve with the real session id from `data` (which
+// equals the routingId for Claude, and the codex thread_id for Codex).
+type PendingChatHandshake = {
+  resolve: (sessionId: string) => void;
+  reject: (error: Error) => void;
+};
+const pendingChatStarts = new Map<string, PendingChatHandshake>();
+
+function rejectAllPendingHandshakes(reason: string): void {
+  if (pendingChatStarts.size === 0) return;
+  const err = new Error(reason);
+  for (const handshake of pendingChatStarts.values()) {
+    handshake.reject(err);
+  }
+  pendingChatStarts.clear();
+}
+
+function dispatchHandshakeFrame(rawMessage: string): void {
+  try {
+    const data = JSON.parse(rawMessage);
+    const type = typeof data?.type === "string" ? data.type : "";
+    const routingId =
+      typeof data?.sessionId === "string"
+        ? data.sessionId
+        : typeof data?.session_id === "string"
+          ? data.session_id
+          : null;
+
+    if (type === "auth_required") {
+      // The server hasn't tagged auth_required with a sessionId. We can't
+      // tell which pending start this belongs to, so fail every outstanding
+      // handshake and let each pane re-enter auth.
+      notifyAuthRequired();
+      rejectAllPendingHandshakes("Authentication required");
+      return;
+    }
+
+    if (!routingId) return;
+
+    const handshake = pendingChatStarts.get(routingId);
+    if (!handshake) return;
+
+    if (type === "session_id") {
+      pendingChatStarts.delete(routingId);
+      const resolved =
+        typeof data.data === "string" && data.data ? data.data : routingId;
+      handshake.resolve(resolved);
+    } else if (type === "error") {
+      pendingChatStarts.delete(routingId);
+      const message =
+        typeof data.data === "string" && data.data ? data.data : "Chat stream error";
+      handshake.reject(new Error(message));
+    }
+  } catch {
+    // not JSON; ignore
+  }
+}
+
 function dispatchChatWsMessage(rawMessage: string): void {
+  // Resolve pending start/continue handshakes first so callers see the
+  // session id before any output frame fan-out to subscribers.
+  dispatchHandshakeFrame(rawMessage);
   for (const subscriber of chatWsSubscribers) {
     subscriber(rawMessage);
   }
@@ -331,6 +479,7 @@ function attachChatWebSocketListeners(ws: WebSocket): void {
     if (chatWs === ws) {
       chatWs = null;
       chatWsOpenPromise = null;
+      rejectAllPendingHandshakes("WebSocket closed");
     }
   });
 
@@ -338,6 +487,7 @@ function attachChatWebSocketListeners(ws: WebSocket): void {
     if (chatWs === ws && ws.readyState !== WebSocket.OPEN) {
       chatWs = null;
       chatWsOpenPromise = null;
+      rejectAllPendingHandshakes("WebSocket error");
     }
   });
 }
@@ -358,7 +508,8 @@ async function openChatWebSocket(): Promise<WebSocket> {
       return chatWs;
     }
 
-    const ws = new WebSocket(buildAuthenticatedWebSocketUrl("/ws/chat"));
+    const wsUrl = await buildAuthenticatedWebSocketUrl("/ws/chat");
+    const ws = new WebSocket(wsUrl);
     attachChatWebSocketListeners(ws);
     chatWs = ws;
 
@@ -410,7 +561,8 @@ export function subscribeToChatWebSocketMessages(listener: (rawMessage: string) 
 
 export async function connectFileWatcherWebSocket(): Promise<WebSocket> {
   await probeWebSocketAuth();
-  return new WebSocket(buildAuthenticatedWebSocketUrl("/ws"));
+  const url = await buildAuthenticatedWebSocketUrl("/ws");
+  return new WebSocket(url);
 }
 
 export function closeChatWebSocket(): void {
@@ -419,18 +571,40 @@ export function closeChatWebSocket(): void {
     chatWs = null;
   }
   chatWsOpenPromise = null;
+  rejectAllPendingHandshakes("WebSocket closed");
+}
+
+function generateRoutingId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (
+      Number(c) ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))
+    ).toString(16)
+  );
 }
 
 export async function startChat(params: StartChatParams): Promise<string> {
   const ws = await openChatWebSocket();
+  const routingId = params.sessionId || generateRoutingId();
 
-  return new Promise((resolve, reject) => {
-    const onOpen = () => {
+  return new Promise<string>((resolve, reject) => {
+    if (pendingChatStarts.has(routingId)) {
+      // Two concurrent starts for the same routing id would race; the caller
+      // should never do this, but fail loudly rather than silently overwrite.
+      reject(new Error(`Duplicate chat start for sessionId ${routingId}`));
+      return;
+    }
+    pendingChatStarts.set(routingId, { resolve, reject });
+
+    try {
       ws.send(
         JSON.stringify({
           action: "start",
           source: params.source,
-          ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+          sessionId: routingId,
           projectPath: params.projectPath,
           prompt: params.prompt,
           model: params.model,
@@ -439,48 +613,33 @@ export async function startChat(params: StartChatParams): Promise<string> {
           baseUrl: params.baseUrl || "",
         })
       );
-    };
-
-    chatWsResolve = resolve;
-
-    const onMessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "session_id") {
-          ws.removeEventListener("message", onMessage);
-          if (chatWsResolve) {
-            chatWsResolve(data.data);
-            chatWsResolve = null;
-          }
-        } else if (data.type === "auth_required") {
-          ws.removeEventListener("message", onMessage);
-          notifyAuthRequired();
-          reject(new Error("Authentication required"));
-        } else if (data.type === "error") {
-          ws.removeEventListener("message", onMessage);
-          reject(new Error(data.data || "Chat stream error"));
-        }
-      } catch {
-        // not JSON, ignore
-      }
-    };
-
-    ws.addEventListener("message", onMessage);
-
-    onOpen();
+    } catch (err) {
+      pendingChatStarts.delete(routingId);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
 
 export async function continueChat(params: ContinueChatParams): Promise<string> {
   const ws = await openChatWebSocket();
+  const routingId = params.sessionId;
+  if (!routingId) {
+    throw new Error("continueChat requires a sessionId");
+  }
 
-  return new Promise((resolve, reject) => {
-    const sendMsg = () => {
+  return new Promise<string>((resolve, reject) => {
+    if (pendingChatStarts.has(routingId)) {
+      reject(new Error(`Duplicate chat continue for sessionId ${routingId}`));
+      return;
+    }
+    pendingChatStarts.set(routingId, { resolve, reject });
+
+    try {
       ws.send(
         JSON.stringify({
           action: "continue",
           source: params.source,
-          sessionId: params.sessionId,
+          sessionId: routingId,
           projectPath: params.projectPath,
           prompt: params.prompt,
           model: params.model,
@@ -489,41 +648,17 @@ export async function continueChat(params: ContinueChatParams): Promise<string> 
           baseUrl: params.baseUrl || "",
         })
       );
-    };
-
-    chatWsResolve = resolve;
-
-    const onMessage = (event: MessageEvent) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "session_id") {
-          ws.removeEventListener("message", onMessage);
-          if (chatWsResolve) {
-            chatWsResolve(data.data);
-            chatWsResolve = null;
-          }
-        } else if (data.type === "auth_required") {
-          ws.removeEventListener("message", onMessage);
-          notifyAuthRequired();
-          reject(new Error("Authentication required"));
-        } else if (data.type === "error") {
-          ws.removeEventListener("message", onMessage);
-          reject(new Error(data.data || "Chat stream error"));
-        }
-      } catch {
-        // ignore
-      }
-    };
-
-    ws.addEventListener("message", onMessage);
-
-    sendMsg();
+    } catch (err) {
+      pendingChatStarts.delete(routingId);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
 
-export async function cancelChat(_sessionId: string): Promise<void> {
+export async function cancelChat(sessionId: string): Promise<void> {
+  if (!sessionId) return;
   if (chatWs && chatWs.readyState === WebSocket.OPEN) {
-    chatWs.send(JSON.stringify({ action: "cancel" }));
+    chatWs.send(JSON.stringify({ action: "cancel", sessionId }));
   }
 }
 
@@ -560,13 +695,14 @@ export async function restoreRecycledItem(id: string): Promise<void> {
 }
 
 export async function permanentlyDeleteRecycledItem(id: string): Promise<void> {
-  const headers = applyAuthHeader({});
-  const resp = await fetch(
-    new URL(`/api/recyclebin/${encodeURIComponent(id)}`, window.location.origin).toString(),
-    { method: "DELETE", headers },
+  const url = new URL(
+    `/api/recyclebin/${encodeURIComponent(id)}`,
+    window.location.origin,
+  ).toString();
+  const resp = await withAuthRetry(() =>
+    fetch(url, { method: "DELETE", headers: applyAuthHeader({}) }),
   );
   if (resp.status === 401) {
-    notifyAuthRequired();
     throw new Error("Authentication required");
   }
   if (!resp.ok) {

@@ -1,5 +1,7 @@
 use session_core::metadata;
+use session_core::metadata::validate_session_id;
 use session_core::models::session::SessionIndexEntry;
+use session_core::paths::validate_session_file;
 use session_core::provider::{claude, codex};
 use session_core::recyclebin;
 
@@ -73,14 +75,17 @@ pub fn delete_session(
     project_id: String,
     session_id: String,
 ) -> Result<(), String> {
-    let path = std::path::Path::new(&file_path);
-    if !path.exists() {
-        return Err(format!("File not found: {}", file_path));
-    }
+    // Reject paths that aren't an actual `.jsonl` under the source's
+    // allowed root, plus session_ids with path-traversal characters. Without
+    // this, the frontend (or anything that can talk to Tauri's IPC) could
+    // hand us a path like `~/.ssh/id_rsa` and we'd happily move it to the
+    // recycle bin.
+    let path = validate_session_file(&source, &file_path)?;
+    validate_session_id(&session_id)?;
 
     // 移入回收站而非直接删除
     recyclebin::move_to_recyclebin(
-        path,
+        &path,
         "session",
         "ManualDelete",
         &source,
@@ -109,17 +114,19 @@ pub fn update_session_meta(
     tags: Vec<String>,
     file_path: Option<String>,
 ) -> Result<(), String> {
+    validate_session_id(&session_id)?;
     if source == "claude" {
-        // Write alias to JSONL (same format as CC /rename)
+        // Write alias to JSONL (same format as CC /rename). Only honor the
+        // path if it resolves into the Claude projects directory, so a
+        // misbehaving caller can't trick us into appending lines to e.g.
+        // `~/.bashrc` via the alias write.
         if let Some(ref fp) = file_path {
-            let path = std::path::Path::new(fp);
-            if path.exists() {
-                session_core::parser::jsonl::append_custom_title(
-                    path,
-                    &session_id,
-                    alias.as_deref(),
-                )?;
-            }
+            let path = validate_session_file(&source, fp)?;
+            session_core::parser::jsonl::append_custom_title(
+                &path,
+                &session_id,
+                alias.as_deref(),
+            )?;
         }
         // Only persist tags to metadata (alias is now in JSONL for Claude)
         let result = metadata::update_session_meta(&source, &project_id, &session_id, None, tags);
