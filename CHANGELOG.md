@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.1] - 2026-05-07
+
+### Fixed
+
+- **Codex 项目列表升级后仍漏会话**：v2.12.0 把 `extract_session_meta` 的扫描范围从 5 行扩到 50 行、把 `is_interactive` 改成黑名单，但旧版本扫出来的结果会持久化到 `dirs::config_dir()/ai-session-viewer/codex-list-cache.json`。`DISK_CACHE_VERSION` 没动 → 新版启动时检测版本一致就直接读老缓存 → 修复对**已经升级的用户不生效**。本版本把 `DISK_CACHE_VERSION` 从 `2` 提升到 `3`，触发首次启动自动重扫；旧缓存被丢弃重建，DSP 这种之前漏掉的项目会自动出现在项目列表里，不用再手删缓存文件或等 10 分钟后台刷新。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.1`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.0] - 2026-05-07
 
 ### Security

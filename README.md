@@ -26,7 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.0
+## Latest in v2.12.1
+
+> 紧跟 v2.12.0 的安全 / 正确性大扫除发布的小补丁：把 codex 项目列表的磁盘缓存版本号从 2 升到 3，让 v2.12.0 的"项目漏会话"修复**对已经升级过的用户也自动生效**，不用再手删 `%APPDATA%\ai-session-viewer\codex-list-cache.json`。
+
+## Highlights in v2.12.0
 
 > 安全 / 正确性大扫除版本。修复了一批可能影响多 pane 并发、跨用户隔离、路径合法性、以及 Codex 子进程生命周期的问题；引入登录态弹窗 + WebSocket 一次性票据。
 
@@ -39,7 +43,7 @@
 - **路径穿越 / shell 注入加固**：`session_id` 入口校验、`session_core::paths::validate_session_file` 把 Tauri 与 Web 的路径白名单收敛到一处；`commands/terminal.rs` 用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn 而非 `cmd /c start`，macOS / Linux 路径里的 `'` 也做了 `'\''` 转义。
 - **Codex 项目列表漏会话**：`extract_session_meta` 扫描行数从 5 提到 50 + 剥离 UTF-8 BOM；`is_interactive` 从白名单改为黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
 
-完整列表见 [CHANGELOG.md](./CHANGELOG.md#2120---2026-05-07)。
+完整列表见 [CHANGELOG.md](./CHANGELOG.md#2121---2026-05-07)。
 
 ## 截图
 

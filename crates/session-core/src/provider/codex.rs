@@ -18,7 +18,15 @@ use crate::state::{
     store_full_messages, store_partial_messages, tail_window_len,
 };
 
-const DISK_CACHE_VERSION: u32 = 2;
+// Bumped to 3 in v2.12.1 to invalidate stale caches built by v2.12.0 and
+// earlier — those builds' `extract_session_meta` only scanned the first 5
+// JSONL lines and had a too-narrow `is_interactive` allowlist, so projects
+// whose `session_meta` row landed past line 5 (or whose `source` field was
+// anything other than "cli" / "vscode") silently dropped out of the project
+// list. Bumping the version number forces a full rescan on first launch of
+// 2.12.1 so the fix actually takes effect without users having to delete
+// the cache file by hand.
+const DISK_CACHE_VERSION: u32 = 3;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
