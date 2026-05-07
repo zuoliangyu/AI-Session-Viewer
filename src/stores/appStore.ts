@@ -11,7 +11,16 @@ import type {
 } from "../types";
 import { api } from "../services/api";
 
-const MAIN_MESSAGES_PAGE_SIZE = 100;
+/**
+ * Window size for the progressive message view: how many messages we
+ * load on initial entry and how many we tack on per scroll-driven extension.
+ * Smaller = faster first paint at the cost of more round-trips when the user
+ * scrolls a lot. 30 keeps a typical viewport saturated while finishing the
+ * first paint in well under a second even on long sessions.
+ */
+const MAIN_MESSAGES_PAGE_SIZE = 30;
+/** Half-window when jumping to a specific message (e.g. via TOC). */
+const JUMP_HALF_WINDOW = 15;
 
 interface AppState {
   // Source
@@ -38,12 +47,18 @@ interface AppState {
   sessionsLoading: boolean;
   selectedFilePath: string | null;
 
-  // Messages
+  // Messages — progressive (windowed) loading
   messages: DisplayMessage[];
   messagesLoading: boolean;
   messagesTotal: number;
-  messagesPage: number;
+  /** Index of the first loaded message in the full session (inclusive). */
+  loadedStart: number;
+  /** Exclusive index of the last loaded message + 1. */
+  loadedEnd: number;
+  /** True iff there are more messages older than the current window. */
   messagesHasMore: boolean;
+  /** True iff there are more messages newer than the current window. */
+  messagesHasNewer: boolean;
 
   // Search
   searchQuery: string;
@@ -80,7 +95,16 @@ interface AppState {
   deleteSession: (filePath: string, sessionId?: string) => Promise<void>;
   deleteProject: (projectId: string, level?: DeleteLevel) => Promise<void>;
   setProjectAlias: (projectId: string, alias: string | null) => Promise<void>;
+  /** Extend the loaded window backwards by one page. */
   loadMoreMessages: () => Promise<void>;
+  /** Extend the loaded window forwards by one page (only meaningful when loadedEnd < total). */
+  loadNewerMessages: () => Promise<void>;
+  /**
+   * Replace the loaded window with one centered on `targetIndex`. Used when
+   * the user clicks a TOC entry whose message isn't currently in the
+   * window.
+   */
+  jumpToMessageIndex: (targetIndex: number) => Promise<void>;
   search: (query: string) => Promise<void>;
   setSearchScope: (scope: "all" | "content" | "session" | "tags") => void;
   loadStats: () => Promise<void>;
@@ -167,8 +191,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   messages: [],
   messagesLoading: false,
   messagesTotal: 0,
-  messagesPage: 0,
+  loadedStart: 0,
+  loadedEnd: 0,
   messagesHasMore: false,
+  messagesHasNewer: false,
 
   searchQuery: "",
   searchScope: "all",
@@ -215,7 +241,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedFilePath: null,
       messages: [],
       messagesTotal: 0,
-      messagesPage: 0,
+      loadedStart: 0,
+      loadedEnd: 0,
+      messagesHasMore: false,
+      messagesHasNewer: false,
       tagFilter: [],
     });
     try {
@@ -256,9 +285,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       messagesLoading: true,
       messages: [],
       messagesTotal: 0,
-      messagesPage: 0,
+      loadedStart: 0,
+      loadedEnd: 0,
+      messagesHasMore: false,
+      messagesHasNewer: false,
     });
     try {
+      // Initial load: the tail window — same code path as before, just
+      // with a smaller page size. The result tells us `total`, which we
+      // use to seed loadedStart / loadedEnd.
       const result = await api.getMessages(requestSource, filePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
       if (
         get().source !== requestSource ||
@@ -266,11 +301,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       ) {
         return;
       }
+      const loadedStart = Math.max(0, result.total - result.messages.length);
+      const loadedEnd = result.total;
       set({
         messages: result.messages,
         messagesTotal: result.total,
-        messagesPage: 0,
-        messagesHasMore: result.hasMore,
+        loadedStart,
+        loadedEnd,
+        messagesHasMore: loadedStart > 0,
+        messagesHasNewer: false,
         messagesLoading: false,
       });
     } catch (e) {
@@ -306,8 +345,10 @@ export const useAppStore = create<AppState>((set, get) => ({
           sessions: [],
           messages: [],
           messagesTotal: 0,
-          messagesPage: 0,
+          loadedStart: 0,
+          loadedEnd: 0,
           messagesHasMore: false,
+          messagesHasNewer: false,
         };
       }
       return { projects: filtered };
@@ -330,24 +371,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   loadMoreMessages: async () => {
+    // Extend the loaded window backwards (towards older messages).
     const state = get();
     if (
       !state.selectedFilePath ||
       !state.messagesHasMore ||
-      state.messagesLoading
+      state.messagesLoading ||
+      state.loadedStart <= 0
     ) {
       return;
     }
 
-    const nextPage = state.messagesPage + 1;
+    const requestEnd = state.loadedStart;
+    const requestStart = Math.max(0, requestEnd - MAIN_MESSAGES_PAGE_SIZE);
     set({ messagesLoading: true });
     try {
-      const result = await api.getMessages(
+      const result = await api.getMessagesRange(
         state.source,
         state.selectedFilePath,
-        nextPage,
-        MAIN_MESSAGES_PAGE_SIZE,
-        true
+        requestStart,
+        requestEnd,
       );
       const current = get();
       if (
@@ -356,15 +399,120 @@ export const useAppStore = create<AppState>((set, get) => ({
       ) {
         return;
       }
+      // Defensive: if the file grew under us, the backend's `total` is the
+      // source of truth.
+      const total = result.total;
+      const newStart = result.start;
       set({
         messages: [...result.messages, ...current.messages],
-        messagesTotal: result.total,
-        messagesPage: nextPage,
-        messagesHasMore: result.hasMore,
+        messagesTotal: total,
+        loadedStart: newStart,
+        messagesHasMore: newStart > 0,
+        messagesHasNewer: current.loadedEnd < total,
         messagesLoading: false,
       });
     } catch (e) {
       console.error("Failed to load more messages:", e);
+      set({ messagesLoading: false });
+    }
+  },
+
+  loadNewerMessages: async () => {
+    // Extend the loaded window forwards (towards newer messages). Only
+    // meaningful after a `jumpToMessageIndex` since selectSession starts
+    // at the tail.
+    const state = get();
+    if (
+      !state.selectedFilePath ||
+      !state.messagesHasNewer ||
+      state.messagesLoading ||
+      state.loadedEnd >= state.messagesTotal
+    ) {
+      return;
+    }
+
+    const requestStart = state.loadedEnd;
+    const requestEnd = Math.min(
+      state.messagesTotal,
+      state.loadedEnd + MAIN_MESSAGES_PAGE_SIZE,
+    );
+    set({ messagesLoading: true });
+    try {
+      const result = await api.getMessagesRange(
+        state.source,
+        state.selectedFilePath,
+        requestStart,
+        requestEnd,
+      );
+      const current = get();
+      if (
+        current.source !== state.source ||
+        current.selectedFilePath !== state.selectedFilePath
+      ) {
+        return;
+      }
+      const total = result.total;
+      const newEnd = result.end;
+      set({
+        messages: [...current.messages, ...result.messages],
+        messagesTotal: total,
+        loadedEnd: newEnd,
+        messagesHasMore: current.loadedStart > 0,
+        messagesHasNewer: newEnd < total,
+        messagesLoading: false,
+      });
+    } catch (e) {
+      console.error("Failed to load newer messages:", e);
+      set({ messagesLoading: false });
+    }
+  },
+
+  jumpToMessageIndex: async (targetIndex: number) => {
+    // Replace the loaded window with one centered on `targetIndex`. Used
+    // by TOC navigation when the target message is currently outside the
+    // loaded range.
+    const state = get();
+    if (!state.selectedFilePath) return;
+
+    const total = state.messagesTotal;
+    if (total <= 0) return;
+
+    const clampedTarget = Math.max(0, Math.min(targetIndex, total - 1));
+    const requestStart = Math.max(0, clampedTarget - JUMP_HALF_WINDOW);
+    const requestEnd = Math.min(total, clampedTarget + JUMP_HALF_WINDOW + 1);
+
+    // Already covered? Nothing to do.
+    if (state.loadedStart <= requestStart && state.loadedEnd >= requestEnd) {
+      return;
+    }
+
+    set({ messagesLoading: true });
+    try {
+      const result = await api.getMessagesRange(
+        state.source,
+        state.selectedFilePath,
+        requestStart,
+        requestEnd,
+      );
+      const current = get();
+      if (
+        current.source !== state.source ||
+        current.selectedFilePath !== state.selectedFilePath
+      ) {
+        return;
+      }
+      const newTotal = result.total;
+      set({
+        messages: result.messages,
+        messagesTotal: newTotal,
+        loadedStart: result.start,
+        loadedEnd: result.end,
+        messagesHasMore: result.start > 0,
+        messagesHasNewer: result.end < newTotal,
+        messagesLoading: false,
+      });
+    } catch (e) {
+      console.error("Failed to jump to message:", e);
       set({ messagesLoading: false });
     }
   },
@@ -424,11 +572,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       ) {
         return;
       }
+      const loadedStart = Math.max(0, result.total - result.messages.length);
       set({
         messages: result.messages,
         messagesTotal: result.total,
-        messagesPage: 0,
-        messagesHasMore: result.hasMore,
+        loadedStart,
+        loadedEnd: result.total,
+        messagesHasMore: loadedStart > 0,
+        messagesHasNewer: false,
       });
     } catch {
       // silent
@@ -472,22 +623,28 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.error("Background refresh failed:", e);
     }
 
-    // 静默刷新当前会话消息（仅当 page=0，不打断用户上翻历史）
-    const { selectedFilePath, messagesPage, source: currentSource } = get();
-    if (selectedFilePath && messagesPage === 0) {
+    // 静默刷新当前会话消息（仅当窗口贴在尾部，不打断用户上翻历史/跳转后正在浏览中段）
+    const { selectedFilePath, loadedEnd, messagesTotal, source: currentSource } = get();
+    const atTail = loadedEnd >= messagesTotal && messagesTotal > 0;
+    if (selectedFilePath && atTail) {
       try {
         const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+        const after = get();
         if (
-          get().source !== currentSource ||
-          get().selectedFilePath !== selectedFilePath ||
-          get().messagesPage !== 0
+          after.source !== currentSource ||
+          after.selectedFilePath !== selectedFilePath ||
+          after.loadedEnd < after.messagesTotal
         ) {
           return;
         }
+        const newStart = Math.max(0, result.total - result.messages.length);
         set({
           messages: result.messages,
           messagesTotal: result.total,
-          messagesHasMore: result.hasMore,
+          loadedStart: newStart,
+          loadedEnd: result.total,
+          messagesHasMore: newStart > 0,
+          messagesHasNewer: false,
         });
       } catch {
         // 静默失败

@@ -121,3 +121,15 @@ pub struct PaginatedMessages {
     pub page_size: usize,
     pub has_more: bool,
 }
+
+/// Result of a range-based message load: returns the slice
+/// `messages[start..end)` along with the total count so the frontend can
+/// extend the loaded window in either direction.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeMessages {
+    pub messages: Vec<DisplayMessage>,
+    pub total: usize,
+    pub start: usize,
+    pub end: usize,
+}

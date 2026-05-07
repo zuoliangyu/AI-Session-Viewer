@@ -427,6 +427,15 @@ pub fn parse_session_messages(
     claude_parser::parse_session_messages(path, page, page_size, from_end)
 }
 
+/// Load `[start, end)` slice for the windowed message view.
+pub fn parse_messages_range(
+    path: &std::path::Path,
+    start: usize,
+    end: usize,
+) -> Result<crate::models::message::RangeMessages, String> {
+    claude_parser::parse_messages_range(path, start, end)
+}
+
 /// Parse all messages (for search)
 pub fn parse_all_messages(path: &std::path::Path) -> Result<Vec<DisplayMessage>, String> {
     claude_parser::parse_all_messages(path)

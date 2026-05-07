@@ -284,6 +284,10 @@ async fn main() {
         .route("/api/tags", get(routes::sessions::get_all_tags))
         .route("/api/cross-tags", get(routes::sessions::get_cross_project_tags))
         .route("/api/messages", get(routes::messages::get_messages))
+        .route(
+            "/api/messages/range",
+            get(routes::messages::get_messages_range),
+        )
         .route("/api/search", get(routes::search::global_search))
         .route("/api/stats", get(routes::stats::get_stats))
         .route("/api/bookmarks", get(routes::bookmarks::list_bookmarks))

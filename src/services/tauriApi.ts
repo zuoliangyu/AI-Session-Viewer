@@ -3,6 +3,7 @@ import type {
   ProjectEntry,
   SessionIndexEntry,
   PaginatedMessages,
+  RangeMessages,
   SearchResult,
   TokenUsageSummary,
   Bookmark,
@@ -54,6 +55,21 @@ export async function getMessages(
     page,
     pageSize,
     fromEnd,
+  });
+}
+
+/** Load `[start, end)` slice for the windowed (progressive) message view. */
+export async function getMessagesRange(
+  source: string,
+  filePath: string,
+  start: number,
+  end: number,
+): Promise<RangeMessages> {
+  return invoke<RangeMessages>("get_messages_range", {
+    source,
+    filePath,
+    start,
+    end,
   });
 }
 

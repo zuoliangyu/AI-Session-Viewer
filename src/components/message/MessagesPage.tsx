@@ -338,10 +338,15 @@ export function MessagesPage() {
     messages,
     messagesLoading,
     messagesHasMore,
+    messagesHasNewer,
     messagesTotal,
+    loadedStart,
+    loadedEnd,
     selectSession,
     selectProject,
     loadMoreMessages,
+    loadNewerMessages,
+    jumpToMessageIndex,
     sessions,
     projects,
     searchResults,
@@ -642,6 +647,11 @@ export function MessagesPage() {
     }
   }, []);
 
+  const requestNewerMessages = useCallback(() => {
+    if (!containerRef.current || messagesLoading || !messagesHasNewer) return;
+    void loadNewerMessages();
+  }, [loadNewerMessages, messagesHasNewer, messagesLoading]);
+
   const handleScroll = useCallback(() => {
     if (!containerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
@@ -654,7 +664,20 @@ export function MessagesPage() {
     if (!messagesLoading && messagesHasMore && scrollTop < 200) {
       requestOlderMessages();
     }
-  }, [messagesHasMore, messagesLoading, requestOlderMessages, updateScrollButtonState]);
+    // Load newer messages when scrolling near bottom (and we're not at the
+    // tail — happens after a TOC jump that placed the window mid-session).
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    if (!messagesLoading && messagesHasNewer && distanceFromBottom < 200) {
+      requestNewerMessages();
+    }
+  }, [
+    messagesHasMore,
+    messagesHasNewer,
+    messagesLoading,
+    requestOlderMessages,
+    requestNewerMessages,
+    updateScrollButtonState,
+  ]);
 
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -57,6 +57,14 @@ export interface PaginatedMessages {
   hasMore: boolean;
 }
 
+/** Result of a range-based message load `[start, end)`. */
+export interface RangeMessages {
+  messages: DisplayMessage[];
+  total: number;
+  start: number;
+  end: number;
+}
+
 export interface TokenUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;

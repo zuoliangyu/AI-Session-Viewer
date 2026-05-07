@@ -100,6 +100,47 @@ fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<Pag
         .ok_or_else(|| "Failed to paginate tail messages".to_string())
 }
 
+/// Load a half-open `[start, end)` slice of messages. Used for the
+/// progressive / windowed view in `MessagesPage` so the frontend can grow
+/// its loaded window in either direction without going through the
+/// page/from_end gymnastics. Falls back to a full parse when the range
+/// can't be served from the existing partial cache; result is then
+/// memoized via `store_full_messages`.
+pub fn parse_messages_range(
+    path: &Path,
+    start: usize,
+    end: usize,
+) -> Result<crate::models::message::RangeMessages, String> {
+    if let Ok(Some((slice, total))) = crate::state::get_cached_range(path, start, end) {
+        let actual_end = (start + slice.len()).min(total);
+        return Ok(crate::models::message::RangeMessages {
+            messages: slice,
+            total,
+            start,
+            end: actual_end,
+        });
+    }
+
+    let all_messages = parse_all_messages(path)?;
+    let total = all_messages.len();
+    let _ = store_full_messages(path, &all_messages);
+
+    let clamped_start = start.min(total);
+    let clamped_end = end.min(total);
+    let slice = if clamped_end > clamped_start {
+        all_messages[clamped_start..clamped_end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(crate::models::message::RangeMessages {
+        messages: slice,
+        total,
+        start: clamped_start,
+        end: clamped_end,
+    })
+}
+
 /// Parse all messages from a JSONL file (no pagination, for search)
 pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
     if let Ok(Some(cached)) = get_cached_full_messages(path) {

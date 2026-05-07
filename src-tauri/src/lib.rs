@@ -27,6 +27,7 @@ pub fn run() {
             commands::sessions::get_all_tags,
             commands::sessions::get_cross_project_tags,
             commands::messages::get_messages,
+            commands::messages::get_messages_range,
             commands::search::global_search,
             commands::stats::get_stats,
             commands::terminal::resume_session,

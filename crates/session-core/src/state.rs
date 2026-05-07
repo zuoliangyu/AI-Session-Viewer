@@ -214,6 +214,37 @@ pub fn get_cached_full_messages(path: &Path) -> Result<Option<Vec<DisplayMessage
     }))
 }
 
+/// Try to satisfy a range request `[start, end)` directly from the cache.
+/// Returns `(slice, total)` if the cached entry's range fully contains the
+/// requested window. The slice is in absolute index order (i.e. the first
+/// element corresponds to message at index `start`).
+pub fn get_cached_range(
+    path: &Path,
+    start: usize,
+    end: usize,
+) -> Result<Option<(Vec<DisplayMessage>, usize)>, String> {
+    if end <= start {
+        return Ok(None);
+    }
+    let entry = match get_cache_entry(path)? {
+        Some(e) => e,
+        None => return Ok(None),
+    };
+
+    let cached_end = entry.range_start.saturating_add(entry.messages.len());
+    if start < entry.range_start || end > cached_end {
+        return Ok(None);
+    }
+
+    let local_start = start - entry.range_start;
+    let local_end = end - entry.range_start;
+    if local_end > entry.messages.len() {
+        return Ok(None);
+    }
+    let slice = entry.messages[local_start..local_end].to_vec();
+    Ok(Some((slice, entry.total)))
+}
+
 pub fn get_cached_page(
     path: &Path,
     page: usize,

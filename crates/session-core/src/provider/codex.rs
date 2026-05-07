@@ -862,6 +862,43 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
     Ok(messages)
 }
 
+/// Load `[start, end)` slice for the windowed message view. Mirrors the
+/// claude implementation: serve from the partial-range cache when
+/// possible, otherwise full-parse + memoize.
+pub fn parse_messages_range(
+    path: &Path,
+    start: usize,
+    end: usize,
+) -> Result<crate::models::message::RangeMessages, String> {
+    if let Ok(Some((slice, total))) = crate::state::get_cached_range(path, start, end) {
+        let actual_end = (start + slice.len()).min(total);
+        return Ok(crate::models::message::RangeMessages {
+            messages: slice,
+            total,
+            start,
+            end: actual_end,
+        });
+    }
+
+    let all_messages = parse_all_messages(path)?;
+    let total = all_messages.len();
+
+    let clamped_start = start.min(total);
+    let clamped_end = end.min(total);
+    let slice = if clamped_end > clamped_start {
+        all_messages[clamped_start..clamped_end].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    Ok(crate::models::message::RangeMessages {
+        messages: slice,
+        total,
+        start: clamped_start,
+        end: clamped_end,
+    })
+}
+
 fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<PaginatedMessages, String> {
     let file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
