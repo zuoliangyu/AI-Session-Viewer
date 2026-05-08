@@ -26,7 +26,11 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.4
+## Latest in v2.12.5
+
+> 修复 Windows 启动 / 打开 Chat 页时闪 cmd 黑框：主进程虽然是 `windows_subsystem = "windows"`，但探测 CLI 路径 (`where`)、读 CLI 版本 (`<cli> --version`)、关聊天进程 (`taskkill`) 的子进程没加 `CREATE_NO_WINDOW`，从无 console 的父进程下来会临时新建一个 cmd 闪一下。三处全部补全。
+
+## Highlights in v2.12.4
 
 > 修复 v2.12.3 渐进式加载落地后"加载全部"按钮在异常路径上死循环卡 30 条的问题。
 

@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.5] - 2026-05-08
+
+### Fixed
+
+- **Windows 启动 / 打开 Chat 页时闪 cmd 黑框**：主进程一直有 `#![windows_subsystem = "windows"]` 拦 console，但 `session-core` / `src-tauri` 里几处 spawn 子进程拿默认创建标志，从无 console 的父进程下来会临时新建一个 cmd 窗口闪一下。本版本三处 spawn 全部补 `CREATE_NO_WINDOW (0x0800_0000)`：
+  - `session-core::cli::which_binary` 的 Windows 分支 `where <name>` —— 探测 CLI 路径每次闪。
+  - `session-core::cli::get_cli_version` 的 `<cli> --version` —— Claude 和 Codex 各探测一次，连闪两下。
+  - `src-tauri::commands::chat::kill_process` 的 `taskkill /PID … /T /F` —— 取消 / 关闭聊天流时弹。
+  在 `cli.rs` 加 `hide_console(&mut Command)` cfg-gated helper 收口（Unix 上是 no-op），避免把同样的 `creation_flags` 模板再抄第四遍。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.5`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.4] - 2026-05-08
 
 ### Fixed

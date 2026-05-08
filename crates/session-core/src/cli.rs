@@ -2,6 +2,21 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+/// On Windows, suppress the transient cmd console window that would otherwise
+/// flash up every time we shell out to `where` / `<cli> --version` from a
+/// `windows_subsystem = "windows"` parent. No-op on Unix.
+#[cfg(windows)]
+fn hide_console(cmd: &mut Command) -> &mut Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    cmd.creation_flags(CREATE_NO_WINDOW)
+}
+#[cfg(not(windows))]
+#[inline]
+fn hide_console(cmd: &mut Command) -> &mut Command {
+    cmd
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CliInstallation {
@@ -143,7 +158,10 @@ pub fn discover_installations() -> Vec<CliInstallation> {
 fn which_binary(name: &str) -> Option<String> {
     #[cfg(windows)]
     {
-        let result = Command::new("where").arg(name).output();
+        let mut cmd = Command::new("where");
+        cmd.arg(name);
+        hide_console(&mut cmd);
+        let result = cmd.output();
         if let Ok(output) = result {
             if output.status.success() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -394,7 +412,10 @@ fn codex_npm_nvm_paths() -> Vec<PathBuf> {
 
 /// Get CLI version by running `<cli> --version`.
 fn get_cli_version(path: &str) -> Option<String> {
-    let output = Command::new(path).arg("--version").output().ok()?;
+    let mut cmd = Command::new(path);
+    cmd.arg("--version");
+    hide_console(&mut cmd);
+    let output = cmd.output().ok()?;
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let version = stdout.trim().to_string();
