@@ -397,12 +397,31 @@ export const useAppStore = create<AppState>((set, get) => ({
         current.source !== state.source ||
         current.selectedFilePath !== state.selectedFilePath
       ) {
+        set({ messagesLoading: false });
         return;
       }
       // Defensive: if the file grew under us, the backend's `total` is the
       // source of truth.
       const total = result.total;
       const newStart = result.start;
+      // No-progress guard: if the backend didn't actually move our window
+      // backwards (empty slice, or start >= where we already were), force
+      // messagesHasMore off so an outer loop ("加载全部") doesn't spin.
+      const madeProgress =
+        result.messages.length > 0 && newStart < current.loadedStart;
+      if (!madeProgress) {
+        console.warn(
+          "loadMoreMessages: backend returned no progress",
+          { requestStart, requestEnd, resultStart: newStart, resultLen: result.messages.length },
+        );
+        set({
+          messagesTotal: total,
+          messagesHasMore: false,
+          messagesHasNewer: current.loadedEnd < total,
+          messagesLoading: false,
+        });
+        return;
+      }
       set({
         messages: [...result.messages, ...current.messages],
         messagesTotal: total,
@@ -413,7 +432,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("Failed to load more messages:", e);
-      set({ messagesLoading: false });
+      // Treat hard failure as "no more" so an outer loop doesn't retry forever.
+      set({ messagesHasMore: false, messagesLoading: false });
     }
   },
 
@@ -449,10 +469,26 @@ export const useAppStore = create<AppState>((set, get) => ({
         current.source !== state.source ||
         current.selectedFilePath !== state.selectedFilePath
       ) {
+        set({ messagesLoading: false });
         return;
       }
       const total = result.total;
       const newEnd = result.end;
+      const madeProgress =
+        result.messages.length > 0 && newEnd > current.loadedEnd;
+      if (!madeProgress) {
+        console.warn(
+          "loadNewerMessages: backend returned no progress",
+          { requestStart, requestEnd, resultEnd: newEnd, resultLen: result.messages.length },
+        );
+        set({
+          messagesTotal: total,
+          messagesHasMore: current.loadedStart > 0,
+          messagesHasNewer: false,
+          messagesLoading: false,
+        });
+        return;
+      }
       set({
         messages: [...current.messages, ...result.messages],
         messagesTotal: total,
@@ -463,7 +499,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (e) {
       console.error("Failed to load newer messages:", e);
-      set({ messagesLoading: false });
+      set({ messagesHasNewer: false, messagesLoading: false });
     }
   },
 

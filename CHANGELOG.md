@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.4] - 2026-05-08
+
+### Fixed
+
+- **"加载全部"在新渐进式管线下死循环卡 30 条**：v2.12.3 把 `loadMoreMessages` 改成 range API 之后，外层 `handleLoadAll` 的循环依赖 `messagesHasMore` 退出。一旦 `loadMoreMessages` 走到 catch 分支（接口异常 / 部署期前后端不一致 / 后端返回空切片），它只把 `messagesLoading` 置回 false，`messagesHasMore` 保留 true → 外层 `for (i < 500)` 循环每一轮都重新调一次，但 `loadedStart` 不动，UI 永远卡在初始的 30 条。本版本三处修：
+  - `appStore.loadMoreMessages` / `loadNewerMessages` 拿到响应后做"无进展"判断：若 `result.messages` 为空、或 `result.start` 没真的小于当前 `loadedStart`（反向同理），强制把对应方向的 `messagesHasMore` / `messagesHasNewer` 关掉，并 `console.warn` 出 `{ requestStart, requestEnd, resultStart, resultLen }`，方便用户从控制台直接看出后端实际返了什么。
+  - `loadMoreMessages` / `loadNewerMessages` 的 catch 分支也把 `messagesHasMore` / `messagesHasNewer` 关掉 — 失败要让 UI 诚实，不能靠错误状态自旋。
+  - `MessagesPage.handleLoadAll` 加 no-progress 守卫：每轮调 `loadMoreMessages` 前后对比 `loadedStart`，没推进就 `console.error` 后 break，不再傻跑到 i=500。
+- **`loadMoreMessages` / `loadNewerMessages` 的 stale-source 早 return 漏重置 `messagesLoading`**：原代码在中途切换数据源 / 文件时直接 return，`messagesLoading` 保留 true，下一次进入旧路径时仍然被守卫拦下。本版本所有早 return 都补上 `messagesLoading: false`。
+
+### Version
+
+- 将工作区版本统一提升到 `2.12.4`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.3] - 2026-05-08
 
 ### Added

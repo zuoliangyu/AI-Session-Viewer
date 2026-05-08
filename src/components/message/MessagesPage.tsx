@@ -592,7 +592,18 @@ export function MessagesPage() {
           }
           break;
         }
+        const before = state.loadedStart;
         await state.loadMoreMessages();
+        const after = useAppStore.getState().loadedStart;
+        if (after >= before) {
+          // No-progress guard: if loadMoreMessages didn't actually advance
+          // the window backwards (e.g. backend returned an empty slice or
+          // the request errored), stop instead of spinning to i=500.
+          console.error(
+            `handleLoadAll: no progress at iter ${i} (loadedStart stayed at ${before}), aborting`,
+          );
+          break;
+        }
       }
     } finally {
       setLoadingAll(false);

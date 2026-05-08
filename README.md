@@ -26,7 +26,13 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.3
+## Latest in v2.12.4
+
+> 修复 v2.12.3 渐进式加载落地后"加载全部"按钮在异常路径上死循环卡 30 条的问题。
+
+- **"加载全部"死循环修复**：`loadMoreMessages` / `loadNewerMessages` 的 catch 分支与"无进展"分支现在都会把 `messagesHasMore` / `messagesHasNewer` 关掉，外层 `handleLoadAll` 同步加 no-progress 守卫，不再因为后端返空切片或异常而无限自旋。控制台会 `console.warn` 出 `{ requestStart, requestEnd, resultStart, resultLen }`，方便定位真因。
+
+## Highlights in v2.12.3
 
 > 性能优化版本：消息页改成渐进式窗口加载，进会话只先拉尾部 30 条，上滑/下滑各自按需扩窗；全局搜索页首次进入的 5s 卡顿改成 rayon 并行读 metadata，掉到亚秒级。
 
