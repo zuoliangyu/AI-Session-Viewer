@@ -26,45 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-## Latest in v2.12.5
-
-> 修复 Windows 启动 / 打开 Chat 页时闪 cmd 黑框：主进程虽然是 `windows_subsystem = "windows"`，但探测 CLI 路径 (`where`)、读 CLI 版本 (`<cli> --version`)、关聊天进程 (`taskkill`) 的子进程没加 `CREATE_NO_WINDOW`，从无 console 的父进程下来会临时新建一个 cmd 闪一下。三处全部补全。
-
-## Highlights in v2.12.4
-
-> 修复 v2.12.3 渐进式加载落地后"加载全部"按钮在异常路径上死循环卡 30 条的问题。
-
-- **"加载全部"死循环修复**：`loadMoreMessages` / `loadNewerMessages` 的 catch 分支与"无进展"分支现在都会把 `messagesHasMore` / `messagesHasNewer` 关掉，外层 `handleLoadAll` 同步加 no-progress 守卫，不再因为后端返空切片或异常而无限自旋。控制台会 `console.warn` 出 `{ requestStart, requestEnd, resultStart, resultLen }`，方便定位真因。
-
-## Highlights in v2.12.3
-
-> 性能优化版本：消息页改成渐进式窗口加载，进会话只先拉尾部 30 条，上滑/下滑各自按需扩窗；全局搜索页首次进入的 5s 卡顿改成 rayon 并行读 metadata，掉到亚秒级。
-
-- **消息渐进式窗口加载**：进会话首屏从 ~1-2s 缩到亚秒级。上滑近顶 200px 自动加载更老的，下滑近底 200px 且未到尾时自动加载更新的。后端新增 `get_messages_range(start, end)` API（Tauri 命令 + `GET /api/messages/range`）配合，命中已缓存范围直接切片返回。
-- **全局搜索页 5s 卡顿修复**：`get_all_cross_project_tags` 的 Claude 分支从顺序读 N 个项目的 `.session-viewer-meta.json` 改成 rayon 并行读，8 核 + 50 项目下从 5s 量级降到亚秒级。
-
-## Highlights in v2.12.2
-
-> 回滚 v2.12.0 引入的一个回归：当时给 `get_install_type` 加的"NSIS 注册表 Uninstall 键必须存在"校验把通过 NSIS 安装的用户**全部误判成 portable**，应用内自动更新被踢去"打开 GitHub Release 页"，等于丢了自动更新能力。本版本恢复到只看 `uninstall.exe` 是否存在的判断。
-
-## Highlights in v2.12.1
-
-> 紧跟 v2.12.0 的安全 / 正确性大扫除发布的小补丁：把 codex 项目列表的磁盘缓存版本号从 2 升到 3，让 v2.12.0 的"项目漏会话"修复**对已经升级过的用户也自动生效**，不用再手删 `%APPDATA%\ai-session-viewer\codex-list-cache.json`。
-
-## Highlights in v2.12.0
-
-> 安全 / 正确性大扫除版本。修复了一批可能影响多 pane 并发、跨用户隔离、路径合法性、以及 Codex 子进程生命周期的问题；引入登录态弹窗 + WebSocket 一次性票据。
-
-- **Web 多 pane 流式不再串话**：服务端给每帧打 `sessionId`，客户端按 `streamId` 路由；并发请求各自的 promise 不再互相覆盖；cancel 改成 per-session 精准命中（按 sessionId 维护 `watch::Sender` / `CodexTurnState`），停一个 pane 不再误杀别的 pane。
-- **Tauri 新会话 pending → real session_id 切换不再丢流**：引入 `pane.streamId`（turn 内绝不变），监听器始终订阅它；`sessionId` 仅作展示 / 续聊用。Codex 端把 `chat-output:{thread_id}` 也改成稳定的 `chat-output:{event_id}`。
-- **Codex `CodexAppServer` 改为 per-fingerprint LRU runtime**：之前单 runtime + 凭据替换会让正在跑的别的 pane 全部失败；现在按 `(api_key, base_url)` 指纹隔离最多 4 个 runtime，超量按 LRU 淘汰；`subscribers` 从 `Map<thread, Sender>` 升级为 `Map<thread, Vec<Sender>>`，多个 pane resume 同一 thread_id 不再互相顶替。
-- **`tauri-plugin-updater` 安装类型检测加固**：从仅看 `uninstall.exe` 存在改为**同时**校验 NSIS 注册表 Uninstall 键，便携包里造个同名空文件不再能骗到自动更新管线。
-- **WebSocket 凭据改为一次性票据**：新增 `POST /api/auth/ws-ticket`（30 秒 TTL，单次消费），`buildAuthenticatedWebSocketUrl` 先取票再升级，长期 token 不再走 query string、不再落到反代日志。
-- **登录态弹窗 `<AuthGate />`**：401 时弹出 token 输入框；输入 / 取消都通过事件回到正在等的 fetch，自动重试一次，多个并发 401 共享同一 promise。
-- **路径穿越 / shell 注入加固**：`session_id` 入口校验、`session_core::paths::validate_session_file` 把 Tauri 与 Web 的路径白名单收敛到一处；`commands/terminal.rs` 用 `current_dir()` + `CREATE_NEW_CONSOLE` 直接 spawn 而非 `cmd /c start`，macOS / Linux 路径里的 `'` 也做了 `'\''` 转义。
-- **Codex 项目列表漏会话**：`extract_session_meta` 扫描行数从 5 提到 50 + 剥离 UTF-8 BOM；`is_interactive` 从白名单改为黑名单（只屏蔽明确的 `exec` / `mcp` / subagent 对象），未知 source 默认显示，跟全局搜索的"全索引"行为对齐。
-
-完整列表见 [CHANGELOG.md](./CHANGELOG.md#2123---2026-05-08)。
+> **What's New（v2.12.5）**：修复 Windows 启动 / 打开 Chat 页时闪 cmd 黑框。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 截图
 
@@ -134,27 +96,14 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 | 部署方式 | 下载 → `chmod +x` → 运行 | `docker compose up` |
 | 适用场景 | **个人服务器、需要对话功能** | **团队共享、只浏览历史记录** |
 
-> **建议**：如果你在服务器上安装了 Claude CLI 并且需要对话/Resume 功能，请使用直接运行。Docker 由于容器隔离，无法调用宿主机的 CLI 工具，仅适合纯浏览历史会话记录的场景。
-
 **Docker 运行：**
 
 ```bash
-docker compose up
+docker compose up        # 前台
+docker compose up -d     # 后台
 ```
 
-挂载路径、端口、Token 等参数在 [`docker-compose.yml`](docker-compose.yml) 中配置。
-
-**公网访问：**
-
-```bash
-# 直接运行（必须设置 Token）
-./session-web --host 0.0.0.0 --port 8080 --token my-secret
-
-# Docker
-docker compose up -d
-```
-
-Docker 默认已监听 `0.0.0.0`，在 `docker-compose.yml` 中取消 `ASV_TOKEN` 注释并设置密钥即可安全使用：
+挂载路径、端口、Token 等在 [`docker-compose.yml`](docker-compose.yml) 配置；公网部署时取消 `ASV_TOKEN` 注释并设置密钥：
 
 ```yaml
 environment:
@@ -163,15 +112,15 @@ environment:
 
 > ⚠️ **安全警告**
 >
-> 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含**完整会话记录（含 API Key、代码、隐私对话）**。
+> 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含**完整会话记录（含 API Key、代码、隐私对话）**。务必按部署场景采取措施：
 >
 > | 场景 | 建议措施 |
 > |------|---------|
-> | **仅本机使用** | 使用默认 `0.0.0.0` 或 `127.0.0.1`，防火墙封闭端口 |
+> | **仅本机使用** | `--host 127.0.0.1`，仅 localhost 可达 |
 > | **局域网共享** | 设置 `ASV_TOKEN`，防火墙限制端口仅内网可达 |
-> | **公网暴露** | 必须设置 `ASV_TOKEN` + 前置 Nginx/Caddy 反向代理 + 启用 HTTPS/TLS |
+> | **公网暴露** | 设置 `ASV_TOKEN` + 前置 Nginx/Caddy 反向代理 + 启用 HTTPS/TLS |
 >
-> 应用本身**不提供 HTTPS**，明文 HTTP 场景下 Token 亦以明文传输，生产环境务必在反向代理层终止 TLS。
+> 应用本身**不提供 HTTPS**，明文 HTTP 下 Token 亦明文传输，生产环境务必在反向代理层终止 TLS。
 
 ### Web 版与桌面版的差异
 
@@ -188,83 +137,56 @@ environment:
 
 ### 双数据源
 
-通过侧边栏顶部的 Tab 一键切换 Claude / Codex 数据源：
+侧边栏顶部 Tab 一键切换 Claude / Codex，切换时自动清理状态并重新加载，互不干扰。
 
-| 数据源 | CLI 工具 | 本地存储路径 | 特色 |
-|--------|---------|-------------|------|
-| **Claude** (橙色主题) | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking 块、Tool Use、sessions-index 索引 |
-| **Codex** (绿色主题) | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning 块、Function Call、按日期归档 |
-
-切换时自动清理状态并重新加载，互不干扰。
+| 数据源 | CLI 工具 | 本地数据 | 特色内容块 |
+|--------|---------|---------|-----------|
+| **Claude**（橙色主题） | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
+| **Codex**（绿色主题） | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
 
 ### 项目浏览
 
-- 启动时快速扫描对应数据源目录，秒开列出所有项目
-- Claude：按 `~/.claude/projects/{encoded-path}` 聚合
-- Codex：按会话元数据中的 `cwd` 工作目录聚合
-- 显示每个项目的会话数量、最后活跃时间
-- 项目列表优先显示“上次进入该工程后精确扫描得到的缓存会话数”；首次出现或无缓存时回退到快速计数
-- 按最近活跃时间排序
-- **工程操作菜单**（`⋯` 按钮）：鼠标悬停时在卡片右上角及侧边栏项目行显示，点击展开下拉菜单；支持**复制工程路径**（所有数据源），以及仅 Claude 数据源可用的**设置别名**、**删除会话数据**和**删除会话数据和源代码**
-- **工程别名**：为工程设置自定义显示名称，不修改磁盘目录；别名持久化存储在 `.project-meta.json`，删除工程时随目录自动清理
-- **删除源代码保护**：删除工程时可选同时删除本地源代码目录，操作前自动检查 Git 状态（未提交更改、未推送提交），并要求输入项目名称确认
+启动即扫描数据源目录，秒开列出所有项目，按最近活跃时间排序，显示每个项目的会话数和最后活跃时间。
+
+- **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径（所有数据源）；Claude 数据源额外支持设置别名、删除会话数据、删除会话数据和源代码
+- **工程别名**：设置自定义显示名，不改磁盘目录，删除工程时随目录自动清理
+- **删除源代码保护**：可选连同本地源代码目录一起删，删前自动检查 Git 状态（未提交 / 未推送）并要求输入项目名确认
 
 ### 会话列表
 
-- 仅在点进某个工程时，才对该工程执行精确会话扫描并更新本地缓存
-- Claude：读取 `sessions-index.json` 索引文件并与磁盘 `.jsonl` 文件合并，确保 Ctrl+C 退出的会话不会丢失
-- Codex：按工程 `cwd` 精确扫描 `~/.codex/sessions/` 下相关 `rollout-*.jsonl` 文件，自动过滤非交互式会话（SubAgent、Exec 等内部会话）
-- 展示每个会话的首条 Prompt、消息数量、Git 分支、创建/修改时间
+点进工程时精确扫描该工程的会话，展示每个会话的首条 Prompt、消息数、Git 分支、创建 / 修改时间。
+
+- Claude：Ctrl+C 退出的会话也不会丢失
+- Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）
 - 支持删除会话（带确认弹窗）
-- **清理空会话**：当项目内存在无消息记录的空会话时，标题栏显示「清理空会话 (N)」按钮，支持逐条勾选或全选批量删除
+- **清理空会话**：存在无消息的空会话时标题栏出现「清理空会话 (N)」，可逐条勾选或全选批量删除
 
 ### 标签与别名
 
-- 为任意会话设置**自定义别名**（替代首条 Prompt 作为标题）和**多个标签**
-- **与 Claude Code `/rename` 命令双向同步**：在 CC 中执行 `/rename xxx` 后，app 自动显示新名称；在 app 内修改别名，会直接写入 JSONL 文件，CC 也能识别
-- 标签数据存储在 `.session-viewer-meta.json`，别名写入 JSONL（Claude），不依赖额外存储
-- **项目列表页**：按标签筛选项目——只显示拥有匹配标签的项目
-- **会话列表页**：按标签筛选当前项目内的会话
-- **搜索结果页**：按标签筛选全局搜索结果
+为任意会话设置自定义别名（替代首条 Prompt 作为标题）和多个标签。
+
+- **与 Claude Code `/rename` 双向同步**：CC 里 `/rename xxx` 后 app 自动显示新名；app 内改别名 CC 也能识别
+- 项目列表 / 会话列表 / 搜索结果三处均可按标签筛选
 - 标签输入支持已有标签自动补全
 
 ### 消息详情
 
-完整渲染会话中的所有消息，支持两种 AI 的不同内容块格式：
+完整渲染会话所有消息，支持两种 AI 的内容块格式：
 
-| 内容块类型 | Claude | Codex | 说明 |
-|-----------|--------|-------|------|
-| 文本 | ✅ | ✅ | Markdown 渲染 + 语法高亮 |
-| 思考过程 | ✅ | — | Claude Thinking 块，可折叠 |
-| 推理过程 | — | ✅ | Codex Reasoning 块，可折叠 |
-| 工具调用 | ✅ | — | 工具名称、参数、返回结果 |
-| 工具结果 | ✅ | — | 工具返回结果 |
-| 函数调用 | — | ✅ | Codex 函数调用 |
-| 函数返回 | — | ✅ | 函数调用返回结果 |
+| 内容块 | Claude | Codex | 渲染 |
+|-------|--------|-------|------|
+| 文本 | ✅ | ✅ | Markdown + 语法高亮 |
+| 思考 / 推理过程 | ✅ Thinking | ✅ Reasoning | 可折叠 |
+| 工具 / 函数调用 | ✅ | ✅ | 名称、参数、返回结果 |
 
-- 分页加载，大会话（上千条消息）也不会卡顿
-- 默认从最新消息加载，进入会话直接看到最近对话
-- 向上滚动自动加载更早的消息，滚动位置自动保持
-- 历史消息顶部提供“加载更早的消息”按钮；当首屏消息不足以形成滚动区域时，会自动继续补页，避免卡在首批 100 条
-- **加载进度指示器**：顶部显示"已加载 N / M 条消息"及细进度条，全部加载后自动隐藏
-- 浮动"跳转到顶部/底部"双向按钮
-- 时间戳 / 模型标签可切换显示，偏好持久化
-- **ANSI 转义码过滤**：工具输出中的颜色码等控制字符自动清除，终端输出干净可读
+- 大会话（上千条消息）分页加载不卡顿，默认从最新消息开始
+- 向上滚动自动加载更早消息并保持滚动位置；首屏不足一屏时自动补页
+- 顶部「已加载 N / M 条」进度条，浮动「跳到顶部 / 底部」按钮
+- 时间戳 / 模型标签可切换显示（偏好持久化），工具输出自动清除 ANSI 控制字符
 
 ### 恢复会话
 
-选中任意会话，一键在系统终端中恢复：
-
-- **Claude** → 执行 `claude --resume {sessionId}`
-- **Codex** → 执行 `codex resume {sessionId}`
-
-终端完全独立于本应用——关闭 Viewer 后终端继续运行。跨平台支持：
-
-| 平台 | 实现方式 |
-|------|---------|
-| Windows | `cmd /c start /d` 启动独立终端进程 |
-| macOS | AppleScript 调用 Terminal.app |
-| Linux | 自动检测 gnome-terminal / konsole / xfce4-terminal / xterm，`setsid` 脱离父进程 |
+选中会话一键在系统终端恢复（Claude → `claude --resume {id}`，Codex → `codex resume {id}`）。终端独立于本应用，关闭 Viewer 后继续运行。Windows / macOS / Linux 均支持，自动适配各平台终端。
 
 ### 会话分叉（Fork）
 
@@ -276,29 +198,21 @@ environment:
 | Fork | 🔀 GitFork | 从此消息处分叉出新会话 |
 | Star | ⭐ Star | 收藏此消息 |
 
-**Fork 流程**：复制当前消息及之前的所有会话内容到新的 JSONL 文件（生成新 sessionId）→ 自动注册到 `sessions-index.json` → 在系统终端中用 `claude --resume {新ID}` 打开。适用于想从历史对话的某个节点开始新的分支探索。
+**Fork**：从选中消息及之前的内容创建一个新会话并在终端打开，适合从历史对话某个节点开新分支探索。
 
-> 仅在 Tauri 桌面模式 + Claude 数据源下可用。
+> 仅 Tauri 桌面模式 + Claude 数据源可用。
 
 ### 全局搜索
 
-- 在当前数据源下跨所有项目、所有会话全文搜索
-- **同时匹配会话名称**：搜索词可命中会话的自定义别名（alias）和首条 Prompt，结果中标注"会话名"区分
-- 支持两种视图模式：**消息模式**（逐条匹配平铺）和**会话模式**（按会话分组，显示"X 条匹配 / 共 N 条"）
-- **点击会话直接跳转到第一条匹配消息**并高亮，无需手动翻找
-- **复制会话名**：会话卡片标题悬停时显示复制按钮，一键复制别名或首条 Prompt
-- 基于 Rayon 并行扫描 JSONL 文件
-- UTF-8 安全的字符级切片，中文/emoji 不会崩溃
-- 关键词高亮，按标签筛选全局搜索结果
+跨所有项目、所有会话全文搜索，搜索词同时命中会话别名和首条 Prompt（结果标注「会话名」区分）。
+
+- **两种视图**：消息模式（逐条匹配平铺）/ 会话模式（按会话分组，显示「X 条匹配 / 共 N 条」）
+- 点击结果直接跳到第一条匹配处并高亮，无需手动翻找
+- 关键词高亮、按标签筛选、悬停一键复制会话名
 
 ### Token 统计
 
-- Claude：读取 `stats-cache.json` 统计缓存
-- Codex：从每个会话文件提取 `usage` 字段聚合
-- 展示：会话总数、消息总数、Input/Output Token 用量
-- 每日 Token 用量柱状图
-- Token 趋势面积图
-- 按模型分组的 Token 消耗
+汇总会话总数、消息总数、Input / Output Token 用量，并提供每日用量柱状图、趋势面积图、按模型分组的消耗。
 
 ### 应用内更新
 
@@ -307,44 +221,34 @@ environment:
 | **安装版** (MSI/NSIS/DMG/DEB) | 应用内一键下载 + 自动安装 + 重启 |
 | **便携版** (Windows Portable ZIP) | 检测到新版后引导跳转 GitHub Release 下载 |
 
-- 启动后约 1.5 秒自动检查，发现新版本时直接弹出确认框；设置弹窗「更新检查」选项卡中仍可查看完整更新面板
-- 有更新时可在设置中查看版本变化、Release Notes 并一键更新
-- 支持忽略特定版本，不再重复提示
-- 基于 `tauri-plugin-updater` + Ed25519 签名验证
+- 启动约 1.5 秒后自动检查，发现新版直接弹确认框；设置弹窗「更新检查」可看完整面板
+- 可查看版本变化 / Release Notes，支持忽略特定版本不再提示
 
 ### CLI 对话
 
-在应用内直接与 Claude Code CLI 进行对话，无需切换到终端：
+侧边栏「CLI 对话」进入，选工作目录后即可在应用内直接和 Claude Code CLI 对话，无需切到终端（自动检测本地已装的 Claude CLI）。
 
-- 侧边栏点击「CLI 对话」进入，选择工作目录后即可开始
-- 自动检测本地已安装的 Claude CLI
 - 流式输出，实时渲染 AI 回复（Markdown + 代码高亮）
-- **工具调用专用查看器**：Read（语法高亮 + 行号）、Edit（Diff 对比）、Write（代码预览）、Bash（终端风格）、Grep/Glob（搜索参数 + 结果）
-- **对话轮次分组**：自动按用户→助手对话分组，显示轮次编号和 token 用量
-- **Token 详细统计**：header 显示累计输入/输出/缓存读写 token，每条消息显示分项明细
-- **虚拟化滚动**：超过 30 轮自动启用虚拟滚动，长对话不卡顿
-- 支持 `--resume` 继续已有会话（消息详情页的「继续对话」按钮）
-- **模型智能记忆**：自动记住上次使用的模型，下次打开无需重新选择；历史会话续聊时自动匹配原始会话模型
-- 输入框支持 `/model` 命令或 `Ctrl+K` 切换模型
+- **工具调用专用查看器**：Read（高亮 + 行号）、Edit（Diff）、Write（预览）、Bash（终端风格）、Grep/Glob
+- 对话按轮次分组（显示轮次编号与 token 用量），header 累计 token、每条消息分项明细
+- 超过 30 轮自动虚拟滚动，长对话不卡
+- 支持 `--resume` 续聊已有会话（消息详情页「继续对话」入口）
+- 自动记住上次模型、续聊历史会话时自动匹配原会话模型；`/model` 或 `Ctrl+K` 切换模型
 
 ### 无效项管理
 
-- 侧边栏新增「无效项管理」页面，按项目分组扫描异常数据
-- 当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0
-- 支持批量勾选后统一清理；桌面端会话删除移入回收站，Web 端删除为永久删除
-- `codex` 数据源当前仅支持清理无效会话，不支持删除无效项目索引
+侧边栏「无效项管理」按项目分组扫描异常数据（无效项目 = 路径不存在；无效会话 = 消息数为 0），批量勾选后统一清理。桌面端删除入回收站，Web 端为永久删除。
+
+> Codex 数据源当前仅支持清理无效会话，不支持删除无效项目索引。
 
 ### 实时刷新
 
-- 使用 `notify` crate 同时监听两个目录的文件系统变化
-- 新会话创建、会话更新时自动刷新界面
-- 桌面端每 10 分钟执行一次静默后台刷新，主动更新项目列表缓存和当前工程的精确会话缓存
-- Docker 挂载卷优化：静默后台刷新 + 1 秒防抖，避免频繁 inotify 事件导致界面闪烁
+新会话创建、会话更新时自动刷新界面。桌面端每 10 分钟静默后台刷新一次项目与会话缓存；Docker 挂载卷下做了防抖，避免界面频繁闪烁。
 
 ### 数据安全
 
-- **原子写入**：所有 JSON 文件（`project meta`、`sessions-index.json`、回收站 manifest、书签、会话 metadata）均采用 tmp + rename 写入模式，进程异常中断时不会产生损坏或截断的文件
-- **软删除回收站**：删除会话 / 清理空项目时移入 `~/.claude-code-viewer/recyclebin/`，可随时恢复，不会立即永久删除
+- **原子写入**：所有元数据 / 索引 / 书签文件均原子落盘，进程异常中断不会留下损坏或截断的文件
+- **软删除回收站**：删除会话 / 清理空项目移入回收站，可随时恢复，不会立即永久删除
 
 ## 开发
 
