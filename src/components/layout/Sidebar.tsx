@@ -39,6 +39,7 @@ import {
   AlertCircle,
   Star,
   FolderX,
+  Repeat,
 } from "lucide-react";
 
 declare const __IS_TAURI__: boolean;
@@ -214,6 +215,19 @@ export function Sidebar() {
               </span>
             )}
           </button>
+          {source === "codex" && (
+            <button
+              onClick={() => navigate("/provider-sync")}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                isActive("/provider-sync")
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }`}
+            >
+              <Repeat className="w-4 h-4" />
+              Provider 同步
+            </button>
+          )}
         </div>
 
         {/* Projects list */}

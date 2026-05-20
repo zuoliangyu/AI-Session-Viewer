@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] - 2026-05-20
+
+### Added
+
+- **Codex Provider 同步工具**（仅 Codex 数据源）：切换到 Codex 后侧栏底部出现「Provider 同步」入口，专门处理"在 codex 里改了 `model_provider` 之后，老 rollout / SQLite 元数据还指向旧 provider，导致 Codex Desktop 和 `/resume` 看不见历史会话"这个问题。参考 [Dailin521/codex-provider-sync](https://github.com/Dailin521/codex-provider-sync) 的核心做法，在本应用里做成 GUI。
+  - **状态总览**：扫描 `~/.codex/sessions/` + `~/.codex/archived_sessions/` + `state_5.sqlite`，按 provider 分组展示分布、给出不一致计数；如果旧 provider 的会话里含 `encrypted_content`，单独警告（同步后能看见但「继续对话」可能报 `invalid_encrypted_content`）。
+  - **同步**：把所有不匹配当前 `config.toml` 中 `model_provider` 的 rollout 首行 `payload.model_provider` 改写过来，同步 `state_5.sqlite` 的 `threads` 表三列（`model_provider` / `has_user_event` / `cwd`，单事务），并规范化 `.codex-global-state.json` 中的 Windows verbatim 路径（`\\?\C:\…` → `C:\…`）。被锁的 rollout 不让整体失败，会单独列在「跳过」清单里。
+  - **切换**：选个 provider 一键改写 `config.toml` 顶层 `model_provider` 并执行同步。可从已配置的 `[model_providers.*]` 列表里挑，也支持自定义 id。
+  - **自动备份 + 恢复**：每次同步前完整拷贝 `state_5.sqlite`（含 `-shm`/`-wal`）、`config.toml`、`.codex-global-state.json` 到 `~/.codex/backups_state/provider-sync/<UTC时间戳>/`，并把被改 rollout 的首行原文 + 原 mtime 写入 `session-meta-backup.json`。备份列表 UI 里可勾选粒度恢复（config / db / sessions / global-state 各自独立开关）。默认保留最近 5 份，超出可一键清理。
+
+### Changed
+
+- **后端依赖**：`session-core` 新增 `rusqlite`（bundled feature，编译自带 SQLite 静态库）和 `filetime`。bundled 模式首次编译会多 30–60 秒，但运行时无系统 SQLite 依赖，跨发行版可直接跑。
+- **API 表面**：
+  - Tauri 命令：`provider_sync_status` / `provider_sync_run` / `provider_sync_switch` / `provider_sync_restore` / `provider_sync_prune`
+  - REST：`GET /api/provider-sync/status` + `POST /api/provider-sync/{sync,switch,restore,prune}`
+
+### Version
+
+- 将工作区版本统一提升到 `2.13.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.12.5] - 2026-05-08
 
 ### Fixed

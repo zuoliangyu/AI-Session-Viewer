@@ -310,6 +310,26 @@ async fn main() {
             "/api/recyclebin/cleanup-orphans",
             post(routes::recyclebin::cleanup_orphan_dirs),
         )
+        .route(
+            "/api/provider-sync/status",
+            get(routes::provider_sync::get_status),
+        )
+        .route(
+            "/api/provider-sync/sync",
+            post(routes::provider_sync::sync),
+        )
+        .route(
+            "/api/provider-sync/switch",
+            post(routes::provider_sync::switch),
+        )
+        .route(
+            "/api/provider-sync/restore",
+            post(routes::provider_sync::restore),
+        )
+        .route(
+            "/api/provider-sync/prune",
+            post(routes::provider_sync::prune_backups),
+        )
         // Single-use ticket endpoint — must be authenticated with the
         // standard Bearer header. Used by browsers to upgrade to WebSocket
         // without leaking the long-lived token through the URL.

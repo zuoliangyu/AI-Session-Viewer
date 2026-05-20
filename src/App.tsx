@@ -39,6 +39,10 @@ const InvalidItemsPage = lazy(async () => {
   const module = await import("./components/cleanup");
   return { default: module.InvalidItemsPage };
 });
+const ProviderSyncPage = lazy(async () => {
+  const module = await import("./components/provider-sync/ProviderSyncPage");
+  return { default: module.ProviderSyncPage };
+});
 
 function RouteFallback() {
   return (
@@ -120,6 +124,14 @@ function App() {
           element={
             <LazyRoute>
               <RecyclebinPage />
+            </LazyRoute>
+          }
+        />
+        <Route
+          path="/provider-sync"
+          element={
+            <LazyRoute>
+              <ProviderSyncPage />
             </LazyRoute>
           }
         />

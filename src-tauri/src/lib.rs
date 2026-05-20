@@ -47,6 +47,11 @@ pub fn run() {
             commands::recyclebin::permanently_delete_recycled_item,
             commands::recyclebin::empty_recyclebin,
             commands::recyclebin::cleanup_orphan_dirs,
+            commands::provider_sync::provider_sync_status,
+            commands::provider_sync::provider_sync_run,
+            commands::provider_sync::provider_sync_switch,
+            commands::provider_sync::provider_sync_restore,
+            commands::provider_sync::provider_sync_prune,
         ])
         .setup(|app| {
             #[cfg(desktop)]

@@ -9,6 +9,7 @@ pub mod models;
 pub mod parser;
 pub mod paths;
 pub mod provider;
+pub mod provider_sync;
 pub mod recyclebin;
 pub mod search;
 pub mod state;

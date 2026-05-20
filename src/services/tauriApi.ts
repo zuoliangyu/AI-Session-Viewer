@@ -12,6 +12,12 @@ import type {
   RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
+import type {
+  ProviderSyncStatus,
+  SyncResult,
+  RestoreOptions,
+  RestoreResult,
+} from "../types/providerSync";
 
 export async function getProjects(source: string): Promise<ProjectEntry[]> {
   return invoke<ProjectEntry[]>("get_projects", { source });
@@ -281,4 +287,34 @@ export async function emptyRecyclebin(): Promise<number> {
 
 export async function cleanupOrphanDirs(source: string): Promise<number> {
   return invoke<number>("cleanup_orphan_dirs", { source });
+}
+
+// Provider Sync API
+export async function providerSyncStatus(): Promise<ProviderSyncStatus> {
+  return invoke<ProviderSyncStatus>("provider_sync_status");
+}
+
+export async function providerSyncRun(
+  provider: string | null,
+  keep: number = 5,
+): Promise<SyncResult> {
+  return invoke<SyncResult>("provider_sync_run", { provider, keep });
+}
+
+export async function providerSyncSwitch(
+  provider: string,
+  keep: number = 5,
+): Promise<SyncResult> {
+  return invoke<SyncResult>("provider_sync_switch", { provider, keep });
+}
+
+export async function providerSyncRestore(
+  backupDir: string,
+  options?: RestoreOptions,
+): Promise<RestoreResult> {
+  return invoke<RestoreResult>("provider_sync_restore", { backupDir, options });
+}
+
+export async function providerSyncPrune(keep: number = 5): Promise<number> {
+  return invoke<number>("provider_sync_prune", { keep });
 }

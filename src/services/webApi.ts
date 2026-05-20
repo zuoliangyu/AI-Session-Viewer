@@ -11,6 +11,12 @@ import type {
   RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
+import type {
+  ProviderSyncStatus,
+  SyncResult,
+  RestoreOptions,
+  RestoreResult,
+} from "../types/providerSync";
 
 function getToken(): string | null {
   return localStorage.getItem("asv_token");
@@ -391,6 +397,36 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
 
   return resp.json();
+}
+
+// Provider Sync API
+export async function providerSyncStatus(): Promise<ProviderSyncStatus> {
+  return apiFetch("/api/provider-sync/status");
+}
+
+export async function providerSyncRun(
+  provider: string | null,
+  keep: number = 5,
+): Promise<SyncResult> {
+  return apiPost("/api/provider-sync/sync", { provider, keep });
+}
+
+export async function providerSyncSwitch(
+  provider: string,
+  keep: number = 5,
+): Promise<SyncResult> {
+  return apiPost("/api/provider-sync/switch", { provider, keep });
+}
+
+export async function providerSyncRestore(
+  backupDir: string,
+  options?: RestoreOptions,
+): Promise<RestoreResult> {
+  return apiPost("/api/provider-sync/restore", { backupDir, options });
+}
+
+export async function providerSyncPrune(keep: number = 5): Promise<number> {
+  return apiPost(`/api/provider-sync/prune?keep=${keep}`, {});
 }
 
 // Chat API

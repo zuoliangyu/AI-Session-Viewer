@@ -2,6 +2,7 @@ pub mod bookmarks;
 pub mod chat;
 pub mod messages;
 pub mod projects;
+pub mod provider_sync;
 pub mod recyclebin;
 pub mod search;
 pub mod sessions;

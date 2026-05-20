@@ -26,7 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.12.5）**：修复 Windows 启动 / 打开 Chat 页时闪 cmd 黑框。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.13.0）**：新增 Codex Provider 同步工具，把切换供应商后失踪的历史会话「追平」回当前 provider（改 rollout / SQLite / global-state，含备份与粒度恢复）。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 截图
 
@@ -241,6 +241,16 @@ environment:
 
 > Codex 数据源当前仅支持清理无效会话，不支持删除无效项目索引。
 
+### Codex Provider 同步
+
+仅 Codex 数据源可见。切换 Codex 供应商后，老 rollout 文件和 `state_5.sqlite` 还指向旧 provider，导致 Codex Desktop / `/resume` 看不到历史会话。本工具一键追平：
+
+- **状态总览**：按 provider 列出 `~/.codex/sessions/`、`~/.codex/archived_sessions/`、SQLite `threads` 表的分布与不一致计数，并扫出含 `encrypted_content` 的危险会话
+- **同步 / 切换**：改 rollout 首行 `payload.model_provider`、SQLite 三类 update（model_provider / has_user_event / cwd 单事务）、规范化 `.codex-global-state.json` 的 Windows verbatim 路径；切换还会改写 `config.toml` 顶层 `model_provider`
+- **备份与恢复**：每次写之前完整拷贝 SQLite/config/global-state 到 `~/.codex/backups_state/provider-sync/<时间戳>/`，rollout 改动只记首行原文 + mtime；恢复时可勾选粒度（config / db / sessions / global-state 各自独立开关）
+
+> 含加密内容的会话即使同步成功，"继续对话"或 compact 仍可能报 `invalid_encrypted_content` — 若需可靠续聊，请切回原 provider。
+
 ### 实时刷新
 
 新会话创建、会话更新时自动刷新界面。桌面端每 10 分钟静默后台刷新一次项目与会话缓存；Docker 挂载卷下做了防抖，避免界面频繁闪烁。
@@ -387,6 +397,11 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/cli/detect` | — | 检测本地已安装的 CLI 工具 |
 | GET | `/api/cli/config` | `source` | 读取 CLI 配置（API Key 遮罩） |
 | POST | `/api/models` | *(JSON body)* | 获取模型列表 |
+| GET | `/api/provider-sync/status` | — | Codex provider 同步状态总览 |
+| POST | `/api/provider-sync/sync` | *(JSON body)* | 同步老 rollout / SQLite 到当前 provider |
+| POST | `/api/provider-sync/switch` | *(JSON body)* | 改 config.toml + 同步到新 provider |
+| POST | `/api/provider-sync/restore` | *(JSON body)* | 从备份恢复（粒度可选） |
+| POST | `/api/provider-sync/prune` | `keep` | 清理旧备份只保留 N 份 |
 | WS | `/ws` | — | 文件变更实时推送 |
 | WS | `/ws/chat` | — | CLI 对话 WebSocket |
 
@@ -428,6 +443,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] Web 服务器默认监听 0.0.0.0，局域网/远程直接可达 + crypto.randomUUID HTTP 兼容修复
 - [x] CLI 对话自定义路径 + 流式增量输出 + ASCII 图表渲染优化
 - [x] 项目路径智能解码（文件系统验证）+ 路径不存在警告 + 切换竞态修复
+- [x] Codex Provider 同步工具（rollout / SQLite / global-state 三处元数据对齐 + 自动备份与粒度恢复）
 
 ## Star History
 
