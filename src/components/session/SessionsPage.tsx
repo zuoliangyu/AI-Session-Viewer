@@ -12,12 +12,12 @@ import {
   Tag,
   Copy,
   Star,
+  AlertTriangle,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { api } from "../../services/api";
 import { SessionMetaEditor } from "./SessionMetaEditor";
-import type { SessionIndexEntry } from "../../types";
 
 declare const __IS_TAURI__: boolean;
 
@@ -28,6 +28,7 @@ export function SessionsPage() {
   const {
     source,
     sessions,
+    invalidSessions,
     sessionsLoading,
     selectProject,
     deleteSession,
@@ -50,45 +51,18 @@ export function SessionsPage() {
   const [showCleanDialog, setShowCleanDialog] = useState(false);
   const [cleanSelected, setCleanSelected] = useState<Set<string>>(new Set());
   const [cleaning, setCleaning] = useState(false);
-  const [invalidSessions, setInvalidSessions] = useState<SessionIndexEntry[]>([]);
 
-  const emptySessions = invalidSessions;
-
-  const loadInvalidSessions = async (
-    nextProjectId: string,
-    nextSource: string
-  ) => {
-    if (!nextProjectId) {
-      setInvalidSessions([]);
-      return;
-    }
-
-    try {
-      const invalid = await api.getInvalidSessions(nextSource, nextProjectId);
-      if (
-        useAppStore.getState().source !== nextSource ||
-        useAppStore.getState().selectedProject !== nextProjectId
-      ) {
-        return;
-      }
-      setInvalidSessions(invalid);
-    } catch (err) {
-      console.error("Failed to load invalid sessions:", err);
-      if (
-        useAppStore.getState().source === nextSource &&
-        useAppStore.getState().selectedProject === nextProjectId
-      ) {
-        setInvalidSessions([]);
-      }
-    }
-  };
+  // invalidSessions 由 store 在 selectProject 时从同一次 getSessions 响应拆分而来 ——
+  // 不再单独 RPC 拉取，避免冷缓存下两个调用各自启动一次完整扫描。
+  // 兼容老 API：status 缺失视为 empty（getInvalidSessions 旧版只返回空会话）。
+  const emptySessions = invalidSessions.filter(
+    (s) => (s.status ?? "empty") === "empty",
+  );
+  const corruptSessions = invalidSessions.filter((s) => s.status === "corrupt");
 
   useEffect(() => {
     if (projectId) {
       selectProject(projectId);
-      void loadInvalidSessions(projectId, source);
-    } else {
-      setInvalidSessions([]);
     }
   }, [projectId, source]);
 
@@ -200,6 +174,25 @@ export function SessionsPage() {
           </button>
         )}
       </div>
+
+      {/* 损坏会话提示：has_messages 但 JSONL 中部解析失败，正常列表会过滤掉，
+          但仍可在 /cleanup 里查看残存内容或清理。 */}
+      {corruptSessions.length > 0 && (
+        <div className="mb-4 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-500 flex items-center justify-between gap-3 flex-wrap">
+          <span className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="truncate">
+              本项目有 {corruptSessions.length} 个会话因文件损坏被隐藏，未出现在下方列表中。
+            </span>
+          </span>
+          <button
+            onClick={() => navigate("/cleanup")}
+            className="text-xs underline hover:text-amber-400 transition-colors shrink-0"
+          >
+            查看并清理 →
+          </button>
+        </div>
+      )}
 
       {/* Tag filter bar */}
       {allTags.length > 0 && (
@@ -518,8 +511,8 @@ export function SessionsPage() {
                       await Promise.all(
                         targets.map((s) => deleteSession(s.filePath, s.sessionId))
                       );
+                      // selectProject 会重读全分类并自动重填 sessions + invalidSessions
                       await selectProject(projectId);
-                      await loadInvalidSessions(projectId, source);
                     } catch (err) {
                       console.error("Failed to clean sessions:", err);
                     } finally {

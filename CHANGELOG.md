@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.1] - 2026-05-23
+
+### Added
+
+- **损坏会话可见化 + 独立分组**：之前如果某个 `.jsonl` 中部出现 NUL 字节或解析失败的行（最常见是 CC 异常退出留下的稀疏空洞），整个文件会被 `scan_session_file_once` 标记 `is_corrupt` 后**静默丢弃**——既不出现在主列表，也不进"空会话清理"，用户完全看不到这文件的存在。本版本：
+  - 新增 `SessionStatus` 三态枚举（`Valid` / `Empty` / `Corrupt`），每条 `SessionIndexEntry` 带 `status` 字段
+  - **SessionsPage 顶部新增黄色横幅**：`本项目有 N 个会话因文件损坏被隐藏`，点击跳到 `/cleanup`
+  - **InvalidItemsPage 摘要卡拆分**："无效会话"→"空会话 + 损坏会话"两张卡，损坏条目带 amber `AlertTriangle` 图标 + 「文件损坏，部分可读」徽章 + 故障原因描述
+  - "查看详情"按钮对损坏会话同样可用——`parse_all_messages` 现有 `Err(_) => continue` 已经天然容错单行解析失败，损坏文件直接能开，坏行被静默跳过
+  - 删除路径完全复用现有 `recyclebin::move_to_recyclebin`，桌面端走回收站、Web 端永久删
+- **StatsPage 项目花费榜显示短名 + 数据覆盖范围提示**（`src/components/stats/StatsPage.tsx`）：
+  - Top 10 Y 轴从全路径改为仅项目名（路径最后一段），完整路径移至 Tooltip 的 `labelFormatter`
+  - 时间筛选行右上新增数据范围胶囊「数据覆盖 YYYY-MM-DD ~ YYYY-MM-DD（共 N 天）」，解释为何"全部"和"最近 30 天"看起来重叠——不是筛选 bug，是源数据本来就只覆盖那么多天
+
+### Changed
+
+- **Claude 会话列表性能大幅优化**（`crates/session-core/src/provider/claude.rs`）：用户反馈"点侧边栏黄色项目直接卡死"，profiling 发现单次点击会触发两路完整扫描（每个 `.jsonl` 读两遍）+ 项目内文件全程串行。本版本：
+  - **rayon 并行扫描**：`scan_project_dir_all` 用 `into_par_iter` 按 CPU 核数并行调 `scan_session_file_once`，对 76 文件 / 230MB 的项目，8 核机器上约 6-8 倍加速
+  - **统一缓存**：`get_sessions` 和 `get_invalid_sessions` 共享同一份"全分类"缓存（v3），`get_invalid_sessions` 命中缓存直接 filter 不再读盘
+  - **API 契约调整**：`get_sessions` 现在返回 **全分类** `Vec<SessionIndexEntry>`（Valid + Empty + Corrupt），前端按 `status` 自己 filter；bump `CACHE_VERSION` 2 → 3 让老缓存被丢弃重建
+  - **`scan_session_file_once` 拆分**：抽出 `scan_single_session_file(PathBuf) -> Option<SessionIndexEntry>`，便于 par_iter 调度
+- **前端去重 SessionsPage 双 RPC**（`src/components/session/SessionsPage.tsx` + `src/stores/appStore.ts`）：之前 `SessionsPage` 的 useEffect 同时打 `selectProject` + `loadInvalidSessions` 两个 RPC，冷缓存下两个调用会**各自启动一次完整扫描**——这是"点侧边栏卡死"的直接根因。本版本：
+  - `appStore` 新增 `invalidSessions` 字段，`selectProject` 一次 RPC 同时填 `sessions`（Valid）+ `invalidSessions`（Empty + Corrupt）
+  - `SessionsPage` 删掉本地 `invalidSessions` state 和 `loadInvalidSessions` 函数，直接读 store
+  - `deleteSession` / `deleteProject` / `setSource` / `refreshInBackground` 都同步维护 `invalidSessions`
+- **InvalidItemsPage 改流式渲染**（`src/components/cleanup/InvalidItemsPage.tsx`）：之前需要等全部 95 个项目串行扫完才显示，体感分钟级白屏。本版本：
+  - 项目列表一到立刻渲染"路径不存在"的项目骨架
+  - 顶部进度条「正在扫描会话异常项（42 / 95）· 已发现 12 个问题项目」+ 百分比进度条
+  - 每个项目扫完独立 push 进 groups，按优先级排序插入正确位置，**用户能立即和"已扫完"的项目交互**
+  - 新发现的问题项目默认展开
+  - `reloadEpochRef` 防止并发刷新串结果
+
+### Version
+
+- 将工作区版本统一提升到 `2.14.1`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.14.0] - 2026-05-23
 
 ### Added

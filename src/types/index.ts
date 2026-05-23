@@ -10,6 +10,13 @@ export interface ProjectEntry {
   pathExists: boolean;
 }
 
+/** Scan-time health classification of a session file.
+ *  - `valid`   — has messages and JSONL parsed cleanly.
+ *  - `empty`   — file exists but has no user/assistant messages.
+ *  - `corrupt` — has messages but a non-last line failed to parse
+ *               (typically mid-file NUL bytes from a crashed CC writer). */
+export type SessionStatus = "valid" | "empty" | "corrupt";
+
 export interface SessionIndexEntry {
   source: string;
   sessionId: string;
@@ -29,6 +36,10 @@ export interface SessionIndexEntry {
   // User metadata
   alias: string | null;
   tags: string[] | null;
+  /** Optional for backward compat with older API responses. Treat
+   *  missing value as `"valid"` for main-list rows and `"empty"` for
+   *  rows returned by `getInvalidSessions`. */
+  status?: SessionStatus;
 }
 
 export type DisplayContentBlock =

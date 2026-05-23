@@ -38,6 +38,25 @@ pub struct SessionsIndexFileEntry {
     pub is_sidechain: Option<bool>,
 }
 
+/// Scan-time classification of a session file.
+///
+/// - `Valid`   — has messages and the JSONL parsed cleanly.
+/// - `Empty`   — file exists but has no user/assistant messages
+///               (typical: CC opened a chat then closed without sending).
+/// - `Corrupt` — has messages BUT a non-last line failed to parse.
+///               Usually means the file has mid-file NUL bytes / sparse
+///               holes left over from a SIGKILL'd / crashed CC writer.
+///               Still readable in tolerant mode (broken lines silently
+///               skipped by `parse_all_messages`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionStatus {
+    #[default]
+    Valid,
+    Empty,
+    Corrupt,
+}
+
 /// Unified session entry returned to the frontend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,4 +81,8 @@ pub struct SessionIndexEntry {
     // User metadata
     pub alias: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// Scan-time health classification. Defaulted to `Valid` so that
+    /// older cache files without this field still deserialize cleanly.
+    #[serde(default)]
+    pub status: SessionStatus,
 }

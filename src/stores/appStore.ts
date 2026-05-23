@@ -46,8 +46,12 @@ interface AppState {
   projectsLoading: boolean;
   selectedProject: string | null;
 
-  // Sessions
+  // Sessions（仅 Valid，给主列表用 —— 老代码语义不变）
   sessions: SessionIndexEntry[];
+  // 异常会话（Empty + Corrupt）—— 由同一次 getSessions 响应拆分而来，
+  // 提供给 SessionsPage 顶部"损坏会话"banner 和"清理空会话"按钮使用。
+  // **不要单独再 RPC 拿这个数据** —— 同一份缓存的拆片即可。
+  invalidSessions: SessionIndexEntry[];
   sessionsLoading: boolean;
   selectedFilePath: string | null;
 
@@ -166,6 +170,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       projects: [],
       projectsLoading: false,
       sessions: [],
+      invalidSessions: [],
       sessionsLoading: false,
       messages: [],
       messagesLoading: false,
@@ -216,6 +221,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedProject: null,
 
   sessions: [],
+  invalidSessions: [],
   sessionsLoading: false,
   selectedFilePath: null,
 
@@ -279,6 +285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       selectedProject: projectId,
       sessions: [],
+      invalidSessions: [],
       sessionsLoading: true,
       selectedFilePath: null,
       messages: [],
@@ -290,7 +297,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       tagFilter: [],
     });
     try {
-      const sessions = await api.getSessions(requestSource, projectId);
+      // 后端 v3 起 getSessions 返回全分类（含 Empty + Corrupt），由前端按
+      // status 拆分。一次 RPC 同时填两个数组，避免 SessionsPage 再单独拉一次
+      // getInvalidSessions —— 冷缓存时两个调用会各自启动一次完整扫描，是
+      // 用户报 "侧边栏黄色项目点进去卡死" 的根因。
+      const all = await api.getSessions(requestSource, projectId);
       // Stale check: ignore result if user already navigated to another project
       if (
         get().source !== requestSource ||
@@ -298,11 +309,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       ) {
         return;
       }
+      const validSessions = all.filter(
+        (s) => (s.status ?? "valid") === "valid",
+      );
+      const invalidSessions = all.filter(
+        (s) => (s.status ?? "valid") !== "valid",
+      );
       set((state) => ({
-        sessions,
+        sessions: validSessions,
+        invalidSessions,
         sessionsLoading: false,
         projects: state.projects.map((p) =>
-          p.id === projectId ? { ...p, sessionCount: sessions.length } : p
+          p.id === projectId ? { ...p, sessionCount: validSessions.length } : p
         ),
       }));
       // Load all tags for this project
@@ -315,7 +333,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().source === requestSource &&
         get().selectedProject === projectId
       ) {
-        set({ sessions: [], sessionsLoading: false });
+        set({ sessions: [], invalidSessions: [], sessionsLoading: false });
       }
     }
   },
@@ -370,6 +388,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     await api.deleteSession(filePath, source, selectedProject || undefined, sessionId);
     set((state) => ({
       sessions: state.sessions.filter((s) => s.filePath !== filePath),
+      // 损坏 / 空会话也可能在这里被删（清理对话框走这条路径），同步清掉。
+      invalidSessions: state.invalidSessions.filter(
+        (s) => s.filePath !== filePath,
+      ),
     }));
   },
 
@@ -385,6 +407,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           selectedProject: null,
           selectedFilePath: null,
           sessions: [],
+          invalidSessions: [],
           messages: [],
           messagesTotal: 0,
           loadedStart: 0,
@@ -742,18 +765,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (selectedProject) {
         // Fetch sessions first, then update projects + sessions atomically
         // to avoid sessionCount flashing between raw file count and filtered count
-        const sessions = await loadSessions(source, selectedProject);
+        const all = await loadSessions(source, selectedProject);
         if (
           get().source !== source ||
           get().selectedProject !== selectedProject
         ) {
           return;
         }
+        // 后端 v3 起返回全分类（含 Empty + Corrupt），拆成 sessions / invalidSessions。
+        const validSessions = all.filter(
+          (s) => (s.status ?? "valid") === "valid",
+        );
+        const invalidSessions = all.filter(
+          (s) => (s.status ?? "valid") !== "valid",
+        );
         set({
-          sessions,
+          sessions: validSessions,
+          invalidSessions,
           projects: projects.map((p) =>
             p.id === selectedProject
-              ? { ...p, sessionCount: sessions.length }
+              ? { ...p, sessionCount: validSessions.length }
               : p
           ),
         });

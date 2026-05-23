@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::models::message::{DisplayContentBlock, DisplayMessage, PaginatedMessages};
 use crate::models::project::ProjectEntry;
-use crate::models::session::SessionIndexEntry;
+use crate::models::session::{SessionIndexEntry, SessionStatus};
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
 use crate::state::{
     clear_message_cache, get_cached_full_messages, get_cached_page, paginate_from_range,
@@ -720,6 +720,7 @@ pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, Strin
                 cli_version: meta.cli_version,
                 alias: None,
                 tags: None,
+                status: SessionStatus::Valid,
             })
         })
         .collect();
@@ -785,6 +786,7 @@ pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String>
                 cli_version: meta.cli_version,
                 alias: None,
                 tags: None,
+                status: SessionStatus::Empty,
             })
         })
         .collect();

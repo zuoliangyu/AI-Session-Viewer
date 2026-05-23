@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -26,9 +27,12 @@ type SessionTarget = {
   session: SessionIndexEntry;
 };
 
-type ScanSummary = {
-  totalProjects: number;
-  failedProjects: number;
+/** 流式扫描进度。total 在 getProjects 返回后立刻设；completed 每个项目扫完 +1；
+ *  failed 单独累计。done = completed >= total */
+type ScanProgress = {
+  total: number;
+  completed: number;
+  failed: number;
 };
 
 function getProjectKey(projectId: string) {
@@ -104,152 +108,186 @@ async function mapWithConcurrencyLimit<T, R>(
   return results;
 }
 
+/** 比较两个 group 的排序优先级。无效项目优先，然后会话数多的优先，然后名字。 */
+function compareGroups(a: CleanupGroup, b: CleanupGroup): number {
+  const aScore = Number(a.invalidProject) * 1000 + a.invalidSessions.length;
+  const bScore = Number(b.invalidProject) * 1000 + b.invalidSessions.length;
+  if (aScore !== bScore) return bScore - aScore;
+  return (a.project.alias ?? a.project.shortName).localeCompare(
+    b.project.alias ?? b.project.shortName,
+    "zh-CN",
+  );
+}
+
 export function InvalidItemsPage() {
   const navigate = useNavigate();
   const { source, loadProjects } = useAppStore();
   const [groups, setGroups] = useState<CleanupGroup[]>([]);
-  const [loading, setLoading] = useState(false);
+  /** 仅在拉取项目列表那一刻为 true；扫描阶段不再阻塞 UI，进度由 scanProgress 反映。 */
+  const [bootstrapping, setBootstrapping] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [scanSummary, setScanSummary] = useState<ScanSummary>({
-    totalProjects: 0,
-    failedProjects: 0,
+  const [scanProgress, setScanProgress] = useState<ScanProgress>({
+    total: 0,
+    completed: 0,
+    failed: 0,
   });
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set());
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  /** 每次 reload 自增；in-flight 的请求结果只在 epoch 没变时才落盘。 */
+  const reloadEpochRef = useRef(0);
   const canDeleteInvalidProjects = source !== "codex";
   const sessionDeleteHint = __IS_TAURI__
     ? "当前为桌面端，会话删除会移入回收站。"
     : "当前为 Web 端，会话删除为永久删除。";
+  const scanInProgress =
+    scanProgress.total > 0 && scanProgress.completed < scanProgress.total;
   const scanWarning =
-    scanSummary.failedProjects > 0
-      ? `有 ${scanSummary.failedProjects} / ${scanSummary.totalProjects} 个项目读取会话失败，当前结果不完整，仅展示已成功扫描的项目。`
+    !scanInProgress && scanProgress.failed > 0
+      ? `有 ${scanProgress.failed} / ${scanProgress.total} 个项目读取会话失败，当前结果不完整，仅展示已成功扫描的项目。`
       : null;
 
+  /**
+   * 流式重扫：项目列表拿到就立刻渲染"已知坏项目"骨架，避免白屏；
+   * 之后并发扫每个项目的 invalid sessions，每完成一个就更新对应行。
+   * 用户能立即和"已扫完"的项目交互，不用等到全部 95 个项目都扫完。
+   */
   const reload = async (showRefreshing = false) => {
+    const epoch = ++reloadEpochRef.current;
     if (showRefreshing) {
       setRefreshing(true);
     } else {
-      setLoading(true);
+      setBootstrapping(true);
     }
     setLoadError(null);
     setActionError(null);
+    setScanProgress({ total: 0, completed: 0, failed: 0 });
+    // 重扫时直接清掉旧选择；in-flight 选项的 file path 可能已经失效。
+    setSelectedKeys(new Set());
 
+    let projects: ProjectEntry[];
     try {
-      const projects = await api.getProjects(source);
-      const sessionResults = await mapWithConcurrencyLimit(
-        projects,
-        4,
-        async (project) => {
-          const invalidSessions = await api.getInvalidSessions(source, project.id);
-          return { project, invalidSessions };
-        }
-      );
-
-      const successfulGroups = sessionResults
-        .map<CleanupGroup | null>((result, index) => {
-          const project = projects[index];
-          if (!project) return null;
-
-          if (result.status === "fulfilled") {
-            return {
-              project,
-              invalidProject: project.pathExists === false,
-              invalidSessions: result.value.invalidSessions,
-            };
-          }
-
-          if (project.pathExists === false) {
-            return {
-              project,
-              invalidProject: true,
-              invalidSessions: [],
-            };
-          }
-
-          return null;
-        })
-        .filter((group): group is CleanupGroup => group !== null)
-        .filter((group) => group.invalidProject || group.invalidSessions.length > 0)
-        .sort((a, b) => {
-          const aScore = Number(a.invalidProject) * 1000 + a.invalidSessions.length;
-          const bScore = Number(b.invalidProject) * 1000 + b.invalidSessions.length;
-          if (aScore !== bScore) return bScore - aScore;
-          return (a.project.alias ?? a.project.shortName).localeCompare(
-            b.project.alias ?? b.project.shortName,
-            "zh-CN"
-          );
-        });
-
-      const nextSelectableKeys = new Set(
-        successfulGroups.flatMap((group) =>
-          getGroupItemKeys(group, canDeleteInvalidProjects)
-        )
-      );
-
-      setGroups(successfulGroups);
-      setExpandedProjectIds((prev) => {
-        if (prev.size === 0) {
-          return new Set(successfulGroups.map((group) => group.project.id));
-        }
-
-        const next = new Set<string>();
-        for (const group of successfulGroups) {
-          if (prev.has(group.project.id)) {
-            next.add(group.project.id);
-          }
-        }
-        return next;
-      });
-      setSelectedKeys((prev) => {
-        const next = new Set<string>();
-        for (const key of prev) {
-          if (nextSelectableKeys.has(key)) {
-            next.add(key);
-          }
-        }
-        return next;
-      });
-
-      const failedProjectCount = sessionResults.filter(
-        (result) => result.status === "rejected"
-      ).length;
-      setScanSummary({
-        totalProjects: projects.length,
-        failedProjects: failedProjectCount,
-      });
+      projects = await api.getProjects(source);
     } catch (error) {
+      if (reloadEpochRef.current !== epoch) return;
       setLoadError(error instanceof Error ? error.message : String(error));
-      setScanSummary({
-        totalProjects: 0,
-        failedProjects: 0,
-      });
       setGroups([]);
-      setSelectedKeys(new Set());
-    } finally {
-      setLoading(false);
+      setBootstrapping(false);
       setRefreshing(false);
+      return;
     }
+
+    if (reloadEpochRef.current !== epoch) return;
+
+    // 先把"路径不存在"的项目立刻渲染出来（无需扫描就知道无效）；
+    // 其他项目此时还不知道结果，先不渲染，等扫描完成再 push。
+    const initialGroups: CleanupGroup[] = projects
+      .filter((p) => p.pathExists === false)
+      .map((p) => ({
+        project: p,
+        invalidProject: true,
+        invalidSessions: [],
+      }))
+      .sort(compareGroups);
+    setGroups(initialGroups);
+    setExpandedProjectIds(
+      new Set(initialGroups.map((g) => g.project.id)),
+    );
+    setBootstrapping(false);
+    setRefreshing(false);
+    setScanProgress({ total: projects.length, completed: 0, failed: 0 });
+
+    // 并发扫描，每完成一个就更新对应 group 的 slot；
+    // 仅当结果有 invalid session（或本来就是无效项目）才在列表里保留这条。
+    await mapWithConcurrencyLimit(projects, 4, async (project) => {
+      let invalidSessions: SessionIndexEntry[] = [];
+      let scanFailed = false;
+      try {
+        invalidSessions = await api.getInvalidSessions(source, project.id);
+      } catch (e) {
+        scanFailed = true;
+        console.error(
+          `Failed to load invalid sessions for ${project.id}:`,
+          e,
+        );
+      }
+      if (reloadEpochRef.current !== epoch) return;
+
+      const hasIssue =
+        project.pathExists === false || invalidSessions.length > 0;
+      const isNewGroup =
+        hasIssue && project.pathExists !== false; // pathExists=false 已经渲染过了
+
+      setGroups((prev) => {
+        const existingIdx = prev.findIndex((g) => g.project.id === project.id);
+        if (!hasIssue) {
+          if (existingIdx === -1) return prev;
+          return prev.filter((g) => g.project.id !== project.id);
+        }
+        const next: CleanupGroup = {
+          project,
+          invalidProject: project.pathExists === false,
+          invalidSessions,
+        };
+        if (existingIdx >= 0) {
+          const replaced = [...prev];
+          replaced[existingIdx] = next;
+          return replaced.sort(compareGroups);
+        }
+        return [...prev, next].sort(compareGroups);
+      });
+
+      // 新发现的有问题项目默认展开，方便用户看到内容
+      if (isNewGroup) {
+        setExpandedProjectIds((prev) => {
+          if (prev.has(project.id)) return prev;
+          const next = new Set(prev);
+          next.add(project.id);
+          return next;
+        });
+      }
+
+      setScanProgress((prev) => ({
+        total: prev.total,
+        completed: prev.completed + 1,
+        failed: prev.failed + (scanFailed ? 1 : 0),
+      }));
+    });
   };
 
   useEffect(() => {
     void loadProjects();
     void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
   const summary = useMemo(() => {
     const invalidProjectCount = groups.filter((group) => group.invalidProject).length;
-    const invalidSessionCount = groups.reduce(
-      (count, group) => count + group.invalidSessions.length,
-      0
+    // Split by status. Missing `status` (older backend response) is treated
+    // as `empty` since that was the only flavour `getInvalidSessions` returned
+    // before this feature shipped.
+    const emptySessionCount = groups.reduce(
+      (count, group) =>
+        count +
+        group.invalidSessions.filter(
+          (s) => (s.status ?? "empty") === "empty",
+        ).length,
+      0,
+    );
+    const corruptSessionCount = groups.reduce(
+      (count, group) =>
+        count +
+        group.invalidSessions.filter((s) => s.status === "corrupt").length,
+      0,
     );
 
     return {
       invalidProjectCount,
-      invalidSessionCount,
+      emptySessionCount,
+      corruptSessionCount,
       groupCount: groups.length,
     };
   }, [groups]);
@@ -419,18 +457,19 @@ export function InvalidItemsPage() {
             <h1 className="text-2xl font-bold text-foreground">无效项目 / 无效会话</h1>
           </div>
           <p className="mt-2 text-sm text-muted-foreground max-w-3xl">
-            按项目分组查看异常数据。当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0。
+            按项目分组查看异常数据。当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0
+            或文件中部 JSONL 解析失败（损坏）。损坏会话仍可"查看详情"，坏行会被静默跳过。
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => void reload(true)}
-            disabled={loading || refreshing || deleting}
+            disabled={bootstrapping || refreshing || scanInProgress || deleting}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
           >
             <RefreshCw
-              className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+              className={`w-4 h-4 ${refreshing || scanInProgress ? "animate-spin" : ""}`}
             />
             刷新
           </button>
@@ -477,14 +516,14 @@ export function InvalidItemsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-xs text-muted-foreground">涉及项目</div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
             {summary.groupCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            含无效项目或空会话的项目分组
+            含无效项目、空或损坏会话的分组
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
@@ -497,12 +536,21 @@ export function InvalidItemsPage() {
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">无效会话</div>
+          <div className="text-xs text-muted-foreground">空会话</div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
-            {summary.invalidSessionCount}
+            {summary.emptySessionCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
             `messageCount === 0`
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="text-xs text-muted-foreground">损坏会话</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-500">
+            {summary.corruptSessionCount}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            JSONL 中部解析失败
           </div>
         </div>
       </div>
@@ -548,37 +596,68 @@ export function InvalidItemsPage() {
         )}
       </div>
 
-      {loading ? (
+      {/* 流式扫描进度条：项目列表先到，扫描每完成一个 +1，
+          完成的项目立即出现在下面的 groups 列表里可交互。 */}
+      {scanInProgress && (
+        <div className="rounded-lg border border-border bg-card/60 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex items-center gap-2 text-muted-foreground min-w-0">
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+              <span className="truncate">
+                正在扫描会话异常项（{scanProgress.completed} /{" "}
+                {scanProgress.total}）{scanProgress.failed > 0 && (
+                  <span className="text-amber-500 ml-1">
+                    · {scanProgress.failed} 个失败
+                  </span>
+                )}
+              </span>
+            </span>
+            <span className="text-xs text-muted-foreground shrink-0">
+              已发现 {groups.length} 个问题项目
+            </span>
+          </div>
+          <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary transition-all"
+              style={{
+                width: `${(scanProgress.completed / scanProgress.total) * 100}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
+
+      {bootstrapping ? (
         <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
-          <p className="mt-3 text-sm text-muted-foreground">正在扫描无效项目和空会话...</p>
+          <p className="mt-3 text-sm text-muted-foreground">正在加载项目列表...</p>
         </div>
       ) : loadError ? (
         <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 px-6 py-16 text-center">
           <AlertCircle className="w-12 h-12 text-red-400/70 mx-auto" />
           <h2 className="mt-4 text-lg font-medium text-foreground">扫描失败</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            当前无法完成无效项扫描，因此还不能判断是否存在无效项目或空会话。
+            当前无法完成无效项扫描，因此还不能判断是否存在无效项目、空会话或损坏会话。
           </p>
         </div>
-      ) : groups.length === 0 ? (
+      ) : groups.length === 0 && !scanInProgress ? (
         <div className="rounded-xl border border-dashed border-border bg-card/60 px-6 py-16 text-center">
           <FolderOpen className="w-12 h-12 text-muted-foreground/30 mx-auto" />
           <h2 className="mt-4 text-lg font-medium text-foreground">
-            {scanSummary.failedProjects > 0 ? "扫描尚未完成" : "暂未发现无效项"}
+            {scanProgress.failed > 0 ? "扫描部分失败" : "暂未发现无效项"}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {scanSummary.failedProjects > 0
+            {scanProgress.failed > 0
               ? "本次扫描中有项目读取失败，当前没有发现可确认的无效项，但这不代表数据源中一定不存在无效项。"
-              : "当前数据源下没有路径失效的项目，也没有消息数为 0 的会话。"}
+              : "当前数据源下没有路径失效的项目，没有空会话，也没有损坏会话。"}
           </p>
-          {scanSummary.failedProjects > 0 && (
+          {scanProgress.failed > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
               请稍后刷新重试，或先处理导致会话扫描失败的项目。
             </p>
           )}
         </div>
-      ) : (
+      ) : groups.length === 0 ? null : (
         <div className="space-y-4">
           {groups.map((group) => {
             const groupItemKeys = getGroupItemKeys(group, canDeleteInvalidProjects);
@@ -626,11 +705,28 @@ export function InvalidItemsPage() {
                             项目路径无效
                           </span>
                         )}
-                        {group.invalidSessions.length > 0 && (
-                          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                            空会话 {group.invalidSessions.length}
-                          </span>
-                        )}
+                        {(() => {
+                          const empty = group.invalidSessions.filter(
+                            (s) => (s.status ?? "empty") === "empty",
+                          ).length;
+                          const corrupt = group.invalidSessions.filter(
+                            (s) => s.status === "corrupt",
+                          ).length;
+                          return (
+                            <>
+                              {empty > 0 && (
+                                <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                  空会话 {empty}
+                                </span>
+                              )}
+                              {corrupt > 0 && (
+                                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-500">
+                                  损坏会话 {corrupt}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                         {groupSelectedCount > 0 && (
                           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
                             已选 {groupSelectedCount}
@@ -728,6 +824,7 @@ export function InvalidItemsPage() {
                       {group.invalidSessions.map((session) => {
                         const sessionKey = getSessionKey(group.project.id, session.filePath);
                         const sessionTitle = getSessionTitle(session);
+                        const isCorrupt = session.status === "corrupt";
 
                         return (
                           <label
@@ -741,15 +838,25 @@ export function InvalidItemsPage() {
                                 onChange={() => toggleItemSelection(sessionKey)}
                                 className="mt-1 rounded border-border"
                               />
-                              <FileX className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+                              {isCorrupt ? (
+                                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                              ) : (
+                                <FileX className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+                              )}
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
                                   <span className="text-sm font-medium text-foreground break-all">
                                     {sessionTitle}
                                   </span>
-                                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                                    `messageCount === 0`
-                                  </span>
+                                  {isCorrupt ? (
+                                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-500">
+                                      文件损坏，部分可读
+                                    </span>
+                                  ) : (
+                                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                                      `messageCount === 0`
+                                    </span>
+                                  )}
                                   {session.alias && session.firstPrompt && (
                                     <span className="text-xs text-muted-foreground/70">
                                       原标题：{session.firstPrompt}
@@ -763,6 +870,12 @@ export function InvalidItemsPage() {
                                     <span>更新时间: {formatDateTime(session.modified)}</span>
                                   )}
                                 </div>
+                                {isCorrupt && (
+                                  <p className="mt-1 text-xs text-amber-500/80">
+                                    JSONL 中部出现解析失败的行（常见于 CC 异常退出留下的稀疏空洞）。
+                                    "查看详情"会跳过坏行展示残存内容。
+                                  </p>
+                                )}
                                 <p className="mt-1 break-all text-xs text-muted-foreground/80">
                                   {session.filePath}
                                 </p>
@@ -810,7 +923,7 @@ export function InvalidItemsPage() {
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
               将删除 {selectedProjects.length} 个项目和 {selectedSessions.length} 个独立会话。
-              已选项目下的空会话会随项目一起移除，不会重复调用会话删除接口。
+              已选项目下的空/损坏会话会随项目一起移除，不会重复调用会话删除接口。
             </p>
             <div className="mt-4 rounded-lg bg-muted/50 px-4 py-3 text-sm text-muted-foreground space-y-1">
               <div>

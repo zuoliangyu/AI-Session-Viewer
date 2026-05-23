@@ -26,7 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.14.0）**：Token 统计大改造——**逐请求账单**（虚拟滚动表格，单条 cost / cache 命中精确到 token）、**会话级账单徽标**（顶栏 chip + 一键复制 Markdown）、**项目花费排行 Top10**（点击柱跳到该项目账单）、**缓存命中率走势**（按模型分线 + 60% 经验线 + 可点选 Legend），「今天」筛选自动切换为按小时聚合。后端进程内常驻 cache + Singleflight + 异步落盘 + Compact schema，重度用户进 Stats 页从 4-8 秒降到 50ms。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.14.1）**：会话列表性能与稳定性专项——**rayon 并行扫描 + 统一缓存**（点击大项目从 10s 卡死降到 1-2s，二次进入 < 5ms）、**SessionsPage 去掉冗余 RPC**（冷缓存下不再触发双重全扫）、**InvalidItemsPage 流式渲染**（不等 95 项目扫完，问题项目即时出现 + 进度条）、**损坏会话独立分组**（JSONL 中部 NUL 字节 / 解析失败的文件不再静默丢弃，新增黄色横幅 + 可查看残存内容 + 一键删除）。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 截图
 
