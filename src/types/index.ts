@@ -68,8 +68,12 @@ export interface RangeMessages {
 export interface TokenUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
   totalTokens: number;
+  totalCostUsd: number;
   tokensByModel: Record<string, number>;
+  costByModel: Record<string, number>;
   dailyTokens: DailyTokenEntry[];
   sessionCount: number;
   messageCount: number;
@@ -80,8 +84,80 @@ export interface DailyTokenEntry {
   date: string;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   totalTokens: number;
+  costUsd: number;
   messageCount: number;
+  /** Per-model cache hit ratio for this day. */
+  cacheHitRatioByModel: Record<string, number>;
+}
+
+/** Single assistant request as recorded in a JSONL file. */
+export interface RequestRecord {
+  timestamp: string;
+  source: string;
+  projectId: string;
+  sessionId: string;
+  filePath: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  /** Milliseconds between the preceding user message and this assistant message. */
+  durationMs: number | null;
+  messageUuid: string | null;
+}
+
+export interface RequestLogPage {
+  records: RequestRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  totalCostUsd: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheCreationTokens: number;
+}
+
+export interface ProjectCostEntry {
+  source: string;
+  projectId: string;
+  displayName: string;
+  requestCount: number;
+  totalTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+}
+
+export interface SessionCostSummary {
+  source: string;
+  sessionId: string;
+  filePath: string;
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  totalTokens: number;
+  costUsd: number;
+  avgCostUsd: number | null;
+  requests: RequestRecord[];
+}
+
+export interface RequestLogFilter {
+  projectId?: string | null;
+  sessionId?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  model?: string | null;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface SearchResult {

@@ -5,6 +5,10 @@ import type {
   RangeMessages,
   SearchResult,
   TokenUsageSummary,
+  RequestLogPage,
+  RequestLogFilter,
+  ProjectCostEntry,
+  SessionCostSummary,
   Bookmark,
   DeleteLevel,
   DeleteResult,
@@ -265,6 +269,32 @@ export async function globalSearch(
 
 export async function getStats(source: string): Promise<TokenUsageSummary> {
   return apiFetch("/api/stats", { source });
+}
+
+export async function getRequestLog(
+  source: string,
+  filter: RequestLogFilter = {},
+): Promise<RequestLogPage> {
+  const params: Record<string, string> = { source };
+  if (filter.projectId) params.projectId = filter.projectId;
+  if (filter.sessionId) params.sessionId = filter.sessionId;
+  if (filter.startDate) params.startDate = filter.startDate;
+  if (filter.endDate) params.endDate = filter.endDate;
+  if (filter.model) params.model = filter.model;
+  if (filter.page !== undefined) params.page = String(filter.page);
+  if (filter.pageSize !== undefined) params.pageSize = String(filter.pageSize);
+  return apiFetch("/api/stats/requests", params);
+}
+
+export async function getProjectCosts(source: string): Promise<ProjectCostEntry[]> {
+  return apiFetch("/api/stats/projects", { source });
+}
+
+export async function getSessionCost(
+  source: string,
+  filePath: string,
+): Promise<SessionCostSummary> {
+  return apiFetch("/api/stats/session", { source, filePath });
 }
 
 export async function deleteSession(

@@ -26,7 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.13.0）**：新增 Codex Provider 同步工具，把切换供应商后失踪的历史会话「追平」回当前 provider（改 rollout / SQLite / global-state，含备份与粒度恢复）。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.14.0）**：Token 统计大改造——**逐请求账单**（虚拟滚动表格，单条 cost / cache 命中精确到 token）、**会话级账单徽标**（顶栏 chip + 一键复制 Markdown）、**项目花费排行 Top10**（点击柱跳到该项目账单）、**缓存命中率走势**（按模型分线 + 60% 经验线 + 可点选 Legend），「今天」筛选自动切换为按小时聚合。后端进程内常驻 cache + Singleflight + 异步落盘 + Compact schema，重度用户进 Stats 页从 4-8 秒降到 50ms。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 截图
 
@@ -210,9 +210,17 @@ environment:
 - 点击结果直接跳到第一条匹配处并高亮，无需手动翻找
 - 关键词高亮、按标签筛选、悬停一键复制会话名
 
-### Token 统计
+### Token 统计与花费分析
 
-汇总会话总数、消息总数、Input / Output Token 用量，并提供每日用量柱状图、趋势面积图、按模型分组的消耗。
+汇总会话总数、消息总数、Input / Output / Cache 读写 Token 用量、**累计 USD 花费**与**缓存命中率**，提供每日（或按小时）用量柱状图、花费趋势、缓存命中率走势、项目花费排行、按模型分组消耗。
+
+- **逐请求账单（`/stats/requests`）**：虚拟滚动表格列出每条 assistant 请求的 token / 耗时 / cost，支持项目 / 模型 / 起止日期筛选，URL 参数可分享；点击行直接跳到对应消息
+- **会话级账单徽标**：消息详情页顶栏 chip 显示本会话累计 cost + 请求次数，点击弹 Modal 看每条迷你账单，「复制 Markdown」一键导出表格
+- **项目花费排行 Top10**：水平柱状图按 cost 降序，点击柱形跳到该项目的逐请求账单
+- **缓存命中率走势**：按模型分线 + 60% 经验参考线，Legend 改为可点选 chip 切换显示 / 隐藏曲线
+- **「今天」自动按小时聚合**：单日筛选时图表自动切换为 24 小时桶视图，避免单点死图
+- **内置模型价格表**：Claude 3.x/4.x、GPT-5/4.x/4o、o1/o3/o4 主流模型；Anthropic cache_creation 1.25× / cache_read 0.10× 倍率自动应用
+- **性能**：进程内常驻 cache + Singleflight 节流 + 异步落盘 + Compact schema，57MB 大 cache 用户进入 Stats 页从 4-8 秒降到 ~50ms
 
 ### 应用内更新
 
@@ -387,7 +395,10 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | DELETE | `/api/sessions` | `filePath` | 删除会话 |
 | GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
 | GET | `/api/search` | `source, query, maxResults` | 全局搜索 |
-| GET | `/api/stats` | `source` | Token 统计 |
+| GET | `/api/stats` | `source` | Token 统计汇总（含 cache / cost） |
+| GET | `/api/stats/requests` | `source, projectId?, sessionId?, startDate?, endDate?, model?, page?, pageSize?` | 逐请求账单分页查询 |
+| GET | `/api/stats/projects` | `source` | 项目花费排行（按 cost 降序） |
+| GET | `/api/stats/session` | `source, filePath` | 单会话累计账单 + 每条请求明细 |
 | PUT | `/api/sessions/meta` | *(JSON body)* | 更新会话别名和标签 |
 | GET | `/api/tags` | `source, projectId` | 获取项目内所有标签 |
 | GET | `/api/cross-tags` | `source` | 获取跨项目全局标签 |
@@ -444,6 +455,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] CLI 对话自定义路径 + 流式增量输出 + ASCII 图表渲染优化
 - [x] 项目路径智能解码（文件系统验证）+ 路径不存在警告 + 切换竞态修复
 - [x] Codex Provider 同步工具（rollout / SQLite / global-state 三处元数据对齐 + 自动备份与粒度恢复）
+- [x] 逐请求账单 / 会话级账单徽标 / 项目花费排行 / 缓存命中率走势（内置模型价格表 + 单日按小时聚合 + 可点选 Legend + 进程内 cache 50ms 响应）
 
 ## Star History
 

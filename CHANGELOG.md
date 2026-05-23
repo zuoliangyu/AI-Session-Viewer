@@ -4,6 +4,55 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] - 2026-05-23
+
+### Added
+
+- **逐请求账单 / Per-Request Billing**：原来 Token 统计只能看到「每日合计」，看不到单条请求的开销。本版本把 JSONL 里每条 assistant 消息的 `usage` 完整保留，新增独立账单视图 `/stats/requests`：
+  - 表格列：时间 / 项目 / 模型 / 会话 / `input` / `cache 读` / `cache 写` / `output` / 耗时 / 花费
+  - 使用 `@tanstack/react-virtual` 虚拟滚动，10 万条记录也不卡
+  - 项目 / 模型 / 起止日期可筛，URL 参数保留筛选状态便于分享
+  - 点击行直接跳到对应消息（通过 `message_uuid` 锚点）
+  - 「耗时」= 该 assistant 消息时间戳与上一条 user 消息时间戳之差，无需后端计时
+- **会话级账单徽标（MessagesPage）**：消息详情页顶栏出现绿色 chip「本会话累计 $X · N req」，点击弹 Modal 展示每条请求的迷你账单，「复制 Markdown」一键导出为表格——可以直接贴到团队周报 / 报销单。
+- **项目花费排行 Top10（StatsPage）**：水平柱状图按 cost 降序展示项目花费，**点击柱形跳到该项目的逐请求账单**。
+- **缓存命中率走势图**：按模型分线显示 `cache_read / (input + cache_read + cache_creation)` 时间曲线，60% 红色参考线。Legend 改为**可点选 chip**——多条线时点击模型 chip 切换显示 / 隐藏，避免重叠的曲线难以区分。
+- **单日筛选自动切换按小时聚合**：之前选「今天」只有一个数据点（无法看趋势）。现在 `start === end` 时前端会拉当日的逐请求数据，按本地时区 24 小时桶重算 Token 用量 / 花费 / 缓存命中率三张图，标题显示「按小时」徽标。
+- **模型价格表 + cost 计算**（`session-core/models/pricing.rs`）：内置 Claude 3.x/4.x、GPT-5/4.x/4o、o1/o3/o4 主流模型价格表，前缀匹配兼容带日期后缀的型号（如 `claude-sonnet-4-5-20250929`）。Anthropic 模型应用 cache 1.25× / 0.10× 倍率。未知模型 cost = 0，避免误导。
+- **缓存读 / 写 Token 分项**：原来 `cache_read_input_tokens` 和 `cache_creation_input_tokens` 被合进 `input_tokens` 聚合后丢失，本版本把这两个流单独保留，新增「缓存读取 Token」「缓存写入 Token」「缓存命中率」三个 StatCard。
+
+### Changed
+
+- **Stats 缓存进程内常驻 + Singleflight**（`session-core/src/stats.rs`）：原实现每次 `get_stats` 调用都要 `fs::read_to_string(stats-cache.json)` + `serde_json::from_str`、计算、`to_string` + `fs::write` 整个 57MB JSON，并且 StatsPage 同时发起 `getStats` + `getProjectCosts` → 两次完整 IO。重写为：
+  - `OnceLock<Mutex<CacheState>>` 持有进程内 cache，首次访问 load 一次，之后全程内存
+  - 750ms throttle fast-path：并发调用合并为一次扫描，第二个调用阻塞 < 1ms 直接读 in-memory
+  - 异步落盘 `std::thread::spawn(snapshot.clone())`：RPC 响应不等磁盘
+  - `BufReader` / `BufWriter` 流式 IO 替代 read_to_string / to_string，省内存峰值 + ~30% 时间
+- **Stats cache schema 重构**（CACHE_VERSION 3 → 4）：`FileStat.requests` 改用内部 `CompactRecord` 类型——字段名缩为单字符 (`t` / `m` / `i` / `o` / `cr` / `cw` / `c` / `d` / `s` / `u`)，并去掉 `source` / `file_path` / `project_id` 三个可从 `FileStat` key 推断的冗余字段。在用户 57MB cache 上预期降至约 20-25MB，反序列化时间相应减半。**首次升级会一次性重扫所有 JSONL**（屏幕显示「正在建立统计索引」），之后所有操作秒回。
+- **`scan_file` 双重 substring 预筛**：`assistant` 行额外要求包含 `"usage"` 才进 serde 解析，跳过明显不含 token 数据的助手回复，减少 ~40% serde 调用。
+- **`TokenUsageSummary` / `DailyTokenEntry` 扩展字段**：分别新增 `total_cache_read_tokens` / `total_cache_creation_tokens` / `total_cost_usd` / `cost_by_model`，以及 `cache_read_tokens` / `cache_creation_tokens` / `cost_usd` / `cache_hit_ratio_by_model`。
+- **StatsPage 主表行 X 轴 dataKey 改用统一 `label`**：按日 / 按小时模式下都用同一 key，避免 chart prop 在两种模式间切换。
+
+### API
+
+- **新增 Tauri 命令**：`get_request_log(source, projectId?, sessionId?, startDate?, endDate?, model?, page?, pageSize?)` / `get_project_costs(source)` / `get_session_cost(source, filePath)`
+- **新增 REST 路由**：`GET /api/stats/requests` / `GET /api/stats/projects` / `GET /api/stats/session`
+- **新增前端类型**：`RequestRecord` / `RequestLogPage` / `ProjectCostEntry` / `SessionCostSummary` / `RequestLogFilter`（`src/types/index.ts`）
+
+### Codex 数据源说明
+
+Codex JSONL 的 `token_count` 事件只暴露累计 `total_token_usage`，不区分 cache_read / cache_creation。本版本对 Codex 做了相应的兼容处理：
+- `extract_token_events` 从相邻 `token_count` 事件计算 delta 得到每轮 usage（也兼容 `last_token_usage` 字段）
+- `cache_read_tokens` / `cache_creation_tokens` 字段在 Codex records 上恒为 0
+- 缓存命中率走势图在 Codex 数据源下不显示曲线（数据不存在）
+- 项目 ID 用 session_meta 的 `cwd` 字段，display name 取路径末段
+
+### Version
+
+- 将工作区版本统一提升到 `2.14.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.13.0] - 2026-05-20
 
 ### Added

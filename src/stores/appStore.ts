@@ -4,6 +4,10 @@ import type {
   SessionIndexEntry,
   DisplayMessage,
   TokenUsageSummary,
+  RequestRecord,
+  ProjectCostEntry,
+  SessionCostSummary,
+  RequestLogFilter,
   SearchResult,
   Bookmark,
   DeleteLevel,
@@ -72,6 +76,20 @@ interface AppState {
   /** null = unknown (loading), true = first-time full scan, false = cache hit */
   statsIsFirstBuild: boolean | null;
 
+  // Per-request log (档位 2)
+  requestLog: RequestRecord[];
+  requestLogTotal: number;
+  requestLogTotalCost: number;
+  requestLogLoading: boolean;
+  requestLogFilter: RequestLogFilter;
+
+  // Per-project cost ranking (档位 3)
+  projectCosts: ProjectCostEntry[];
+  projectCostsLoading: boolean;
+
+  // Per-session cost (档位 4, keyed by file path)
+  sessionCosts: Record<string, SessionCostSummary>;
+
   // Tags
   allTags: string[];
   tagFilter: string[];
@@ -108,6 +126,12 @@ interface AppState {
   search: (query: string) => Promise<void>;
   setSearchScope: (scope: "all" | "content" | "session" | "tags") => void;
   loadStats: () => Promise<void>;
+  /** Load (or reload) the per-request log with the current filter. */
+  loadRequestLog: (filter?: RequestLogFilter) => Promise<void>;
+  setRequestLogFilter: (filter: RequestLogFilter) => void;
+  loadProjectCosts: () => Promise<void>;
+  /** Fetch the cost summary for a session, cached per file path. */
+  loadSessionCost: (filePath: string, force?: boolean) => Promise<SessionCostSummary | null>;
   clearSelection: () => void;
   /** Silently refresh projects and current session list without loading states */
   refreshInBackground: (forceReload?: boolean) => Promise<void>;
@@ -154,6 +178,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       tokenSummary: null,
       statsLoading: false,
       statsIsFirstBuild: null,
+      requestLog: [],
+      requestLogTotal: 0,
+      requestLogTotalCost: 0,
+      requestLogLoading: false,
+      projectCosts: [],
+      projectCostsLoading: false,
+      sessionCosts: {},
       allTags: [],
       tagFilter: [],
       crossProjectTags: {},
@@ -204,6 +235,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   tokenSummary: null,
   statsLoading: false,
   statsIsFirstBuild: null,
+
+  requestLog: [],
+  requestLogTotal: 0,
+  requestLogTotalCost: 0,
+  requestLogLoading: false,
+  requestLogFilter: { page: 0, pageSize: 500 },
+
+  projectCosts: [],
+  projectCostsLoading: false,
+
+  sessionCosts: {},
 
   allTags: [],
   tagFilter: [],
@@ -585,6 +627,69 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("Failed to load stats:", e);
       set({ statsLoading: false });
+    }
+  },
+
+  setRequestLogFilter: (filter: RequestLogFilter) => {
+    set((state) => ({ requestLogFilter: { ...state.requestLogFilter, ...filter } }));
+  },
+
+  loadRequestLog: async (filterOverride?: RequestLogFilter) => {
+    const requestSource = get().source;
+    const filter: RequestLogFilter = {
+      ...get().requestLogFilter,
+      ...(filterOverride ?? {}),
+    };
+    if (filterOverride) {
+      set({ requestLogFilter: filter });
+    }
+    set({ requestLogLoading: true });
+    try {
+      const page = await api.getRequestLog(requestSource, filter);
+      if (get().source !== requestSource) return;
+      set({
+        requestLog: page.records,
+        requestLogTotal: page.total,
+        requestLogTotalCost: page.totalCostUsd,
+        requestLogLoading: false,
+      });
+    } catch (e) {
+      console.error("Failed to load request log:", e);
+      if (get().source === requestSource) {
+        set({ requestLogLoading: false });
+      }
+    }
+  },
+
+  loadProjectCosts: async () => {
+    const requestSource = get().source;
+    set({ projectCostsLoading: true });
+    try {
+      const projectCosts = await api.getProjectCosts(requestSource);
+      if (get().source !== requestSource) return;
+      set({ projectCosts, projectCostsLoading: false });
+    } catch (e) {
+      console.error("Failed to load project costs:", e);
+      if (get().source === requestSource) {
+        set({ projectCostsLoading: false });
+      }
+    }
+  },
+
+  loadSessionCost: async (filePath: string, force = false) => {
+    const cached = get().sessionCosts[filePath];
+    if (cached && !force) return cached;
+    const requestSource = get().source;
+    try {
+      const summary = await api.getSessionCost(requestSource, filePath);
+      if (get().source !== requestSource) return null;
+      set((state) => ({
+        sessionCosts: { ...state.sessionCosts, [filePath]: summary },
+      }));
+      return summary;
+    } catch (e) {
+      console.error("Failed to load session cost:", e);
+      return null;
     }
   },
 

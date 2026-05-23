@@ -1263,16 +1263,163 @@ pub fn extract_token_info(path: &Path) -> Option<TokenInfo> {
     last_token_info
 }
 
+/// Extract per-turn token deltas from a Codex rollout. The rollout emits
+/// cumulative `total_token_usage` after each turn, so the per-turn cost is
+/// the delta between consecutive events. The first event's delta equals its
+/// own totals (everything up to that turn).
+fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
+    let Ok(file) = fs::File::open(path) else {
+        return Vec::new();
+    };
+    let reader = BufReader::new(file);
+    let mut events: Vec<TokenEvent> = Vec::new();
+    let mut prev_input: u64 = 0;
+    let mut prev_output: u64 = 0;
+
+    for line in reader.lines() {
+        let line = match line {
+            Ok(l) => l,
+            Err(_) => continue,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.contains("\"token_count\"") {
+            continue;
+        }
+
+        let row: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if row.get("type").and_then(|v| v.as_str()) != Some("event_msg") {
+            continue;
+        }
+
+        let Some(payload) = row.get("payload") else {
+            continue;
+        };
+        if payload.get("type").and_then(|v| v.as_str()) != Some("token_count") {
+            continue;
+        }
+
+        // Prefer the per-turn `last_token_usage` field when present; otherwise
+        // derive deltas from cumulative totals.
+        let timestamp = row
+            .get("timestamp")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
+        let info = payload.get("info");
+        let last = info.and_then(|i| i.get("last_token_usage"));
+        let total = info.and_then(|i| i.get("total_token_usage"));
+
+        let (delta_input, delta_output) = if let Some(last) = last {
+            (
+                last.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                last.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            )
+        } else if let Some(total) = total {
+            let cur_input = total
+                .get("input_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let cur_output = total
+                .get("output_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let di = cur_input.saturating_sub(prev_input);
+            let do_ = cur_output.saturating_sub(prev_output);
+            prev_input = cur_input;
+            prev_output = cur_output;
+            (di, do_)
+        } else {
+            continue;
+        };
+
+        if delta_input == 0 && delta_output == 0 {
+            continue;
+        }
+
+        events.push(TokenEvent {
+            timestamp,
+            input_tokens: delta_input,
+            output_tokens: delta_output,
+        });
+    }
+
+    events
+}
+
+struct TokenEvent {
+    timestamp: String,
+    input_tokens: u64,
+    output_tokens: u64,
+}
+
+/// Collect per-turn request records across all rollouts. Codex doesn't
+/// expose cache_read/cache_creation streams (those are baked into
+/// `input_tokens` server-side), so those fields are 0 here and the cache
+/// hit-rate chart simply has no Codex line.
+pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, String> {
+    use crate::models::pricing;
+    use crate::models::stats::RequestRecord;
+
+    let files = scan_all_session_files();
+    let mut all: Vec<RequestRecord> = Vec::new();
+
+    for file_path in files {
+        let meta = extract_session_meta(&file_path);
+        let session_id = meta
+            .as_ref()
+            .map(|m| m.id.clone())
+            .unwrap_or_default();
+        let project_id = meta
+            .as_ref()
+            .map(|m| m.cwd.clone())
+            .unwrap_or_default();
+        let model = meta
+            .as_ref()
+            .and_then(|m| m.model_provider.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+
+        let file_path_str = file_path.to_string_lossy().into_owned();
+        let events = extract_token_events(&file_path);
+        for ev in events {
+            let cost = pricing::compute_cost(&model, ev.input_tokens, 0, 0, ev.output_tokens);
+            let total = ev.input_tokens + ev.output_tokens;
+            all.push(RequestRecord {
+                timestamp: ev.timestamp.clone(),
+                source: "codex".to_string(),
+                project_id: project_id.clone(),
+                session_id: session_id.clone(),
+                file_path: file_path_str.clone(),
+                model: model.clone(),
+                input_tokens: ev.input_tokens,
+                output_tokens: ev.output_tokens,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                total_tokens: total,
+                cost_usd: cost,
+                duration_ms: None,
+                message_uuid: None,
+            });
+        }
+    }
+
+    Ok(all)
+}
+
 // ── Stats ──
 
 pub fn get_stats() -> Result<TokenUsageSummary, String> {
-    let files = scan_all_session_files();
+    use crate::models::pricing;
 
-    let mut total_input_tokens: u64 = 0;
-    let mut total_output_tokens: u64 = 0;
-    let mut total_tokens: u64 = 0;
+    let files = scan_all_session_files();
+    let mut summary = crate::stats::empty_summary();
     let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
-    let mut daily_map: HashMap<String, (u64, u64, u64, u64)> = HashMap::new();
+    let mut cost_by_model: HashMap<String, f64> = HashMap::new();
+    let mut daily_map: HashMap<String, DailyAccum> = HashMap::new();
     let mut session_count: u64 = 0;
     let mut message_count: u64 = 0;
 
@@ -1281,54 +1428,74 @@ pub fn get_stats() -> Result<TokenUsageSummary, String> {
         let session_messages = count_messages(file_path) as u64;
         message_count += session_messages;
 
-        let model_provider = extract_session_meta(file_path)
-            .and_then(|m| m.model_provider)
+        let meta = extract_session_meta(file_path);
+        let model_provider = meta
+            .as_ref()
+            .and_then(|m| m.model_provider.clone())
             .unwrap_or_else(|| "unknown".to_string());
 
         let session_date = extract_date_from_path(file_path);
         if let Some(date) = &session_date {
-            let entry = daily_map.entry(date.clone()).or_insert((0, 0, 0, 0));
-            entry.3 += session_messages;
+            let entry = daily_map.entry(date.clone()).or_default();
+            entry.messages += session_messages;
         }
 
-        if let Some(token_info) = extract_token_info(file_path) {
-            total_input_tokens += token_info.input_tokens;
-            total_output_tokens += token_info.output_tokens;
-            total_tokens += token_info.total_tokens;
+        let events = extract_token_events(file_path);
+        for ev in events {
+            let cost =
+                pricing::compute_cost(&model_provider, ev.input_tokens, 0, 0, ev.output_tokens);
+            summary.total_input_tokens += ev.input_tokens;
+            summary.total_output_tokens += ev.output_tokens;
+            summary.total_tokens += ev.input_tokens + ev.output_tokens;
+            summary.total_cost_usd += cost;
+            *tokens_by_model.entry(model_provider.clone()).or_insert(0) +=
+                ev.input_tokens + ev.output_tokens;
+            *cost_by_model.entry(model_provider.clone()).or_insert(0.0) += cost;
 
-            *tokens_by_model.entry(model_provider).or_insert(0) += token_info.total_tokens;
-
-            if let Some(date) = session_date {
-                let entry = daily_map.entry(date).or_insert((0, 0, 0, 0));
-                entry.0 += token_info.input_tokens;
-                entry.1 += token_info.output_tokens;
-                entry.2 += token_info.total_tokens;
+            let date = ev
+                .timestamp
+                .get(..10)
+                .map(|s| s.to_string())
+                .or_else(|| session_date.clone());
+            if let Some(date) = date {
+                let entry = daily_map.entry(date).or_default();
+                entry.input += ev.input_tokens;
+                entry.output += ev.output_tokens;
+                entry.cost += cost;
             }
         }
     }
 
     let mut daily_tokens: Vec<DailyTokenEntry> = daily_map
         .into_iter()
-        .map(|(date, (input, output, total, messages))| DailyTokenEntry {
+        .map(|(date, b)| DailyTokenEntry {
             date,
-            input_tokens: input,
-            output_tokens: output,
-            total_tokens: total,
-            message_count: messages,
+            input_tokens: b.input,
+            output_tokens: b.output,
+            cache_read_tokens: 0,
+            cache_creation_tokens: 0,
+            total_tokens: b.input + b.output,
+            cost_usd: b.cost,
+            message_count: b.messages,
+            cache_hit_ratio_by_model: HashMap::new(),
         })
         .collect();
     daily_tokens.sort_by(|a, b| a.date.cmp(&b.date));
 
-    Ok(TokenUsageSummary {
-        total_input_tokens,
-        total_output_tokens,
-        total_tokens,
-        tokens_by_model,
-        daily_tokens,
-        session_count,
-        message_count,
-        is_first_build: false,
-    })
+    summary.tokens_by_model = tokens_by_model;
+    summary.cost_by_model = cost_by_model;
+    summary.daily_tokens = daily_tokens;
+    summary.session_count = session_count;
+    summary.message_count = message_count;
+    Ok(summary)
+}
+
+#[derive(Default, Clone)]
+struct DailyAccum {
+    input: u64,
+    output: u64,
+    cost: f64,
+    messages: u64,
 }
 
 

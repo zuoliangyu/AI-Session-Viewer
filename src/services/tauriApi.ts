@@ -6,6 +6,10 @@ import type {
   RangeMessages,
   SearchResult,
   TokenUsageSummary,
+  RequestLogPage,
+  RequestLogFilter,
+  ProjectCostEntry,
+  SessionCostSummary,
   Bookmark,
   DeleteLevel,
   DeleteResult,
@@ -90,6 +94,33 @@ export async function globalSearch(
 
 export async function getStats(source: string): Promise<TokenUsageSummary> {
   return invoke<TokenUsageSummary>("get_stats", { source });
+}
+
+export async function getRequestLog(
+  source: string,
+  filter: RequestLogFilter = {},
+): Promise<RequestLogPage> {
+  return invoke<RequestLogPage>("get_request_log", {
+    source,
+    projectId: filter.projectId ?? null,
+    sessionId: filter.sessionId ?? null,
+    startDate: filter.startDate ?? null,
+    endDate: filter.endDate ?? null,
+    model: filter.model ?? null,
+    page: filter.page ?? 0,
+    pageSize: filter.pageSize ?? 200,
+  });
+}
+
+export async function getProjectCosts(source: string): Promise<ProjectCostEntry[]> {
+  return invoke<ProjectCostEntry[]>("get_project_costs", { source });
+}
+
+export async function getSessionCost(
+  source: string,
+  filePath: string,
+): Promise<SessionCostSummary> {
+  return invoke<SessionCostSummary>("get_session_cost", { source, filePath });
 }
 
 export async function deleteSession(

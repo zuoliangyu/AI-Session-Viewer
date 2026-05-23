@@ -20,6 +20,7 @@ import type { DisplayMessage, SessionIndexEntry } from "../../types";
 import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
+import { SessionCostBadge } from "./SessionCostBadge";
 
 declare const __IS_TAURI__: boolean;
 type MessageSource = "claude" | "codex";
@@ -952,6 +953,7 @@ export function MessagesPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
+          {filePath && <SessionCostBadge filePath={filePath} />}
           <button
             onClick={toggleTimestamp}
             className={`p-1.5 rounded transition-colors ${

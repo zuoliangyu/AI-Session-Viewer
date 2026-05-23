@@ -23,6 +23,10 @@ const StatsPage = lazy(async () => {
   const module = await import("./components/stats/StatsPage");
   return { default: module.StatsPage };
 });
+const RequestLogPage = lazy(async () => {
+  const module = await import("./components/stats/RequestLogPage");
+  return { default: module.RequestLogPage };
+});
 const ChatPage = lazy(async () => {
   const module = await import("./components/chat/ChatPage");
   return { default: module.ChatPage };
@@ -100,6 +104,14 @@ function App() {
           element={
             <LazyRoute>
               <StatsPage />
+            </LazyRoute>
+          }
+        />
+        <Route
+          path="/stats/requests"
+          element={
+            <LazyRoute>
+              <RequestLogPage />
             </LazyRoute>
           }
         />
