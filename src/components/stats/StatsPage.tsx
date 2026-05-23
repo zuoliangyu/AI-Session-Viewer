@@ -412,7 +412,19 @@ export function StatsPage() {
     }));
 
   // Top-10 project ranking (sorted by cost desc on the backend already).
-  const topProjects = projectCosts.slice(0, 10);
+  // 仅保留项目名（路径最后一段），全路径在 Tooltip 里展示。
+  const topProjects = projectCosts.slice(0, 10).map((p) => {
+    const trimmed = p.displayName.replace(/[\\/]+$/, "");
+    const segs = trimmed.split(/[\\/]/).filter(Boolean);
+    const shortName = segs.length > 0 ? segs[segs.length - 1] : p.displayName;
+    return { ...p, shortName };
+  });
+
+  // 数据实际覆盖的日期范围（多日模式下，用于解释为什么"全部"看起来等同于"最近 N 天"）。
+  const allDates = tokenSummary.dailyTokens.map((d) => d.date).sort();
+  const dataMinDate = allDates[0];
+  const dataMaxDate = allDates[allDates.length - 1];
+  const dataDayCount = allDates.length;
 
   const granularityLabel = isSingleDay ? "按小时" : "按日";
   const messageCount = bucketRows.reduce((s, b) => s + b.messages, 0);
@@ -487,6 +499,15 @@ export function StatsPage() {
             <Calendar className="w-3 h-3" />
             按小时显示
             {hourlyLoading && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+          </span>
+        )}
+        {!isSingleDay && dataMinDate && dataMaxDate && (
+          <span
+            className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/50 px-2 py-1 rounded"
+            title={`仅扫描 ~/.claude/projects 下现存的 .jsonl，更早的会话若被清理或不在本机则不会被纳入统计。`}
+          >
+            <Calendar className="w-3 h-3" />
+            数据覆盖 {dataMinDate} ~ {dataMaxDate}（共 {dataDayCount} 天）
           </span>
         )}
       </div>
@@ -763,11 +784,11 @@ export function StatsPage() {
               />
               <YAxis
                 type="category"
-                dataKey="displayName"
+                dataKey="shortName"
                 tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                width={180}
+                width={140}
                 tickFormatter={(v) =>
-                  typeof v === "string" && v.length > 24 ? `…${v.slice(-22)}` : v
+                  typeof v === "string" && v.length > 18 ? `${v.slice(0, 16)}…` : v
                 }
               />
               <Tooltip
@@ -776,6 +797,12 @@ export function StatsPage() {
                   border: "1px solid hsl(var(--border))",
                   borderRadius: "6px",
                   fontSize: 12,
+                }}
+                labelFormatter={(_label, items) => {
+                  const payload = items?.[0]?.payload as
+                    | { displayName?: string }
+                    | undefined;
+                  return payload?.displayName ?? "";
                 }}
                 formatter={(value: number, _name: string, item) => [
                   `${formatCost(value)} · ${item?.payload?.requestCount ?? 0} 次请求`,
