@@ -184,8 +184,10 @@ export function InvalidItemsPage() {
 
     // 先把"路径不存在"的项目立刻渲染出来（无需扫描就知道无效）；
     // 其他项目此时还不知道结果，先不渲染，等扫描完成再 push。
+    // 虚拟项目（codex 无 cwd 会话桶）不算无效，跳过这条 fast path——它们
+    // 只在内部确有 invalid session 时才会被下面的扫描结果带进来。
     const initialGroups: CleanupGroup[] = projects
-      .filter((p) => p.pathExists === false)
+      .filter((p) => p.pathExists === false && !p.isVirtual)
       .map((p) => ({
         project: p,
         invalidProject: true,
@@ -216,10 +218,11 @@ export function InvalidItemsPage() {
       }
       if (reloadEpochRef.current !== epoch) return;
 
-      const hasIssue =
-        project.pathExists === false || invalidSessions.length > 0;
+      // 虚拟项目本身不算"无效项目"，pathExists 对它无意义
+      const projectIsInvalid = project.pathExists === false && !project.isVirtual;
+      const hasIssue = projectIsInvalid || invalidSessions.length > 0;
       const isNewGroup =
-        hasIssue && project.pathExists !== false; // pathExists=false 已经渲染过了
+        hasIssue && !projectIsInvalid; // 已经在 initialGroups 里的，不再算新
 
       setGroups((prev) => {
         const existingIdx = prev.findIndex((g) => g.project.id === project.id);
@@ -229,7 +232,7 @@ export function InvalidItemsPage() {
         }
         const next: CleanupGroup = {
           project,
-          invalidProject: project.pathExists === false,
+          invalidProject: projectIsInvalid,
           invalidSessions,
         };
         if (existingIdx >= 0) {

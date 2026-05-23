@@ -26,7 +26,22 @@ use crate::state::{
 // list. Bumping the version number forces a full rescan on first launch of
 // 2.12.1 so the fix actually takes effect without users having to delete
 // the cache file by hand.
-const DISK_CACHE_VERSION: u32 = 3;
+const DISK_CACHE_VERSION: u32 = 4;
+
+/// Sentinel prefix for project IDs synthesized from sessions with no cwd.
+/// Format: `<codex-unrooted>/YYYY-MM-DD`. The angle brackets are invalid in
+/// Windows paths, so this can't collide with a real cwd. The Tauri/Axum
+/// layers pass project IDs through as opaque strings, so no plumbing changes
+/// are required beyond the codex provider itself.
+const UNROOTED_PREFIX: &str = "<codex-unrooted>/";
+
+pub fn virtual_project_id(date: &str) -> String {
+    format!("{UNROOTED_PREFIX}{date}")
+}
+
+pub fn parse_virtual_project_id(id: &str) -> Option<&str> {
+    id.strip_prefix(UNROOTED_PREFIX)
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -237,7 +252,7 @@ fn short_name_from_path(path: &str) -> String {
     }
 }
 
-fn extract_date_from_path(path: &Path) -> Option<String> {
+pub(crate) fn extract_date_from_path(path: &Path) -> Option<String> {
     let components: Vec<&str> = path
         .components()
         .filter_map(|c| c.as_os_str().to_str())
@@ -603,11 +618,29 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
         let Some(meta) = extract_session_meta(&file_path) else {
             continue;
         };
-        if !meta.is_interactive || meta.cwd.is_empty() {
+        if !meta.is_interactive {
             continue;
         }
 
-        let cwd = meta.cwd;
+        // Sessions without a recorded cwd become "unrooted" virtual projects,
+        // bucketed by the rollout file's date so they don't all collapse into
+        // a single mega-bucket. Real cwd sessions take the normal path.
+        let (project_key, is_virtual, display_path, short_name, path_exists) =
+            if meta.cwd.is_empty() {
+                let date = extract_date_from_path(&file_path)
+                    .unwrap_or_else(|| "unknown".to_string());
+                let id = virtual_project_id(&date);
+                let display = format!("未归属会话 · {date}");
+                let short = format!("未归属 · {date}");
+                (id, true, display, short, true)
+            } else {
+                let cwd = meta.cwd.clone();
+                let display = cwd.clone();
+                let short = short_name_from_path(&cwd);
+                let exists = std::path::Path::new(&cwd).exists();
+                (cwd, false, display, short, exists)
+            };
+
         let modified = fs::metadata(&file_path)
             .and_then(|m| m.modified())
             .ok()
@@ -619,17 +652,18 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
             });
 
         let entry = project_map
-            .entry(cwd.clone())
+            .entry(project_key.clone())
             .or_insert_with(|| ProjectEntry {
                 source: "codex".to_string(),
-                id: cwd.clone(),
-                display_path: cwd.clone(),
-                short_name: short_name_from_path(&cwd),
+                id: project_key.clone(),
+                display_path,
+                short_name,
                 session_count: 0,
                 last_modified: None,
                 model_provider: meta.model_provider.clone(),
                 alias: None,
-                path_exists: std::path::Path::new(&cwd).exists(),
+                path_exists,
+                is_virtual,
             });
 
         entry.session_count += 1;
@@ -676,12 +710,28 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
 
 pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
     let files = scan_all_session_files();
+    // When called with a virtual project id, match on "cwd empty + date matches
+    // the rollout file path" instead of an exact cwd string.
+    let virtual_date: Option<String> = parse_virtual_project_id(cwd).map(|s| s.to_string());
 
     let mut entries: Vec<SessionIndexEntry> = files
         .into_par_iter()
         .filter_map(|file_path| {
             let meta = extract_session_meta(&file_path)?;
-            if !meta.is_interactive || meta.cwd != cwd {
+            if !meta.is_interactive {
+                return None;
+            }
+            let matches = match virtual_date.as_deref() {
+                Some(date) => {
+                    meta.cwd.is_empty()
+                        && extract_date_from_path(&file_path)
+                            .as_deref()
+                            .map(|d| d == date)
+                            .unwrap_or(date == "unknown")
+                }
+                None => meta.cwd == cwd,
+            };
+            if !matches {
                 return None;
             }
 
@@ -739,11 +789,25 @@ pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
 }
 
 pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
+    let virtual_date: Option<String> = parse_virtual_project_id(cwd).map(|s| s.to_string());
     let mut entries: Vec<SessionIndexEntry> = scan_all_session_files()
         .into_par_iter()
         .filter_map(|file_path| {
             let meta = extract_session_meta(&file_path)?;
-            if !meta.is_interactive || meta.cwd != cwd {
+            if !meta.is_interactive {
+                return None;
+            }
+            let matches = match virtual_date.as_deref() {
+                Some(date) => {
+                    meta.cwd.is_empty()
+                        && extract_date_from_path(&file_path)
+                            .as_deref()
+                            .map(|d| d == date)
+                            .unwrap_or(date == "unknown")
+                }
+                None => meta.cwd == cwd,
+            };
+            if !matches {
                 return None;
             }
 
@@ -1378,7 +1442,15 @@ pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, St
             .unwrap_or_default();
         let project_id = meta
             .as_ref()
-            .map(|m| m.cwd.clone())
+            .map(|m| {
+                if m.cwd.is_empty() {
+                    let date = extract_date_from_path(&file_path)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    virtual_project_id(&date)
+                } else {
+                    m.cwd.clone()
+                }
+            })
             .unwrap_or_default();
         let model = meta
             .as_ref()

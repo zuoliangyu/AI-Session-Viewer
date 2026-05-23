@@ -21,4 +21,8 @@ pub struct ProjectEntry {
     pub alias: Option<String>,
     /// Whether the decoded display_path exists on the filesystem
     pub path_exists: bool,
+    /// Codex only: synthesized "unrooted" project for sessions with no cwd,
+    /// bucketed by the rollout file's date. Real cwd projects keep this false.
+    #[serde(default)]
+    pub is_virtual: bool,
 }

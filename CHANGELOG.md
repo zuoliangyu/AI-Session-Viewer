@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.2] - 2026-05-24
+
+### Added
+
+- **Codex 未归属会话按日期建虚拟项目**（`crates/session-core/src/provider/codex.rs`）：之前 `cwd` 为空的 codex session 在 `scan_projects_from_meta` 里被一行 `continue` 直接丢弃——既不进项目列表也不进任何会话视图，等于在 UI 里彻底隐身。本版本把这类会话按 rollout 文件路径上的日期（`~/.codex/sessions/YYYY/MM/DD/`）合成虚拟项目：
+  - 虚拟 ID 采用 sentinel 格式 `<codex-unrooted>/YYYY-MM-DD`，`<>` 在 Windows 路径里非法，与真实 cwd 不可能碰撞；提取不出日期的退化为 `<codex-unrooted>/unknown`
+  - `ProjectEntry` 新增 `is_virtual: bool`（serde default，兼容旧缓存）；侧栏和项目页用 `FolderClock` 图标 + 灰色"未归属 · YYYY-MM-DD"文案区分
+  - `refresh_sessions_cache` / `get_invalid_sessions` / `collect_requests` 都新增「识别虚拟 ID → 按 cwd 为空 + 文件日期匹配」的过滤分支，会话列表与项目消费榜均能正确归桶
+  - 「清理无效项」页面**不**把虚拟项目当作"路径不存在"项目展示，避免误删——仅当虚拟项目内部确有 empty/corrupt 会话时才会出现在该页
+  - `DISK_CACHE_VERSION` 由 `3` bump 到 `4`，让用户升级后首次启动即可看到这些新合成的虚拟项目，无需手动 refresh
+
+### Version
+
+- 将工作区版本统一提升到 `2.14.2`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.14.1] - 2026-05-23
 
 ### Added

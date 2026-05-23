@@ -8,6 +8,9 @@ export interface ProjectEntry {
   modelProvider: string | null;
   alias: string | null;
   pathExists: boolean;
+  /** Codex only: synthetic "unrooted" project that buckets sessions with no
+   *  cwd by date. Real cwd projects keep this falsy. */
+  isVirtual?: boolean;
 }
 
 /** Scan-time health classification of a session file.

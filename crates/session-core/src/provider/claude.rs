@@ -349,6 +349,7 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
                 model_provider: None,
                 alias,
                 path_exists,
+                is_virtual: false,
             })
         })
         .collect();

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry } from "../../types";
-import { FolderOpen, Clock, Hash, Tag, MoreHorizontal, AlertCircle } from "lucide-react";
+import { FolderOpen, FolderClock, Clock, Hash, Tag, MoreHorizontal, AlertCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
@@ -148,7 +148,11 @@ export function ProjectsPage() {
                 <MoreHorizontal className="w-3.5 h-3.5" />
               </button>
               <div className="flex items-start gap-3">
-                <FolderOpen className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                {project.isVirtual ? (
+                  <FolderClock className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
+                ) : (
+                  <FolderOpen className="w-5 h-5 text-primary mt-0.5 shrink-0" />
+                )}
                 <div className="min-w-0 flex-1">
                   <h3 className="font-medium text-foreground truncate">
                     {project.alias ?? project.shortName}
@@ -159,11 +163,21 @@ export function ProjectsPage() {
                     </p>
                   )}
                   <p
-                    className={`text-xs truncate mt-1 ${project.pathExists === false ? "text-yellow-500" : "text-muted-foreground"}`}
-                    title={project.displayPath + (project.pathExists === false ? " (路径不存在，解码可能不准确)" : "")}
+                    className={`text-xs truncate mt-1 ${
+                      project.isVirtual
+                        ? "text-muted-foreground italic"
+                        : project.pathExists === false
+                          ? "text-yellow-500"
+                          : "text-muted-foreground"
+                    }`}
+                    title={
+                      project.isVirtual
+                        ? `${project.displayPath} (codex 会话无 cwd，按日期合成的虚拟项目)`
+                        : project.displayPath + (project.pathExists === false ? " (路径不存在，解码可能不准确)" : "")
+                    }
                   >
                     {project.displayPath}
-                    {project.pathExists === false && (
+                    {!project.isVirtual && project.pathExists === false && (
                       <AlertCircle className="w-3 h-3 inline ml-1 -mt-0.5" />
                     )}
                   </p>
