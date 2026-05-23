@@ -798,12 +798,14 @@ export function StatsPage() {
                   borderRadius: "6px",
                   fontSize: 12,
                 }}
-                labelFormatter={(_label, items) => {
-                  const payload = items?.[0]?.payload as
-                    | { displayName?: string }
-                    | undefined;
-                  return payload?.displayName ?? "";
-                }}
+                labelFormatter={
+                  // recharts Tooltip 的 labelFormatter 签名被泛型推断成
+                  // `Payload<number, "花费">[]`，和我们想直接读 payload.displayName
+                  // 的写法不兼容。这里整体 cast any 绕过 —— payload 上确实有
+                  // 我们 BarChart data 里塞进去的 displayName 字段。
+                  (((_label: unknown, items: any[]) =>
+                    items?.[0]?.payload?.displayName ?? "") as any)
+                }
                 formatter={(value: number, _name: string, item) => [
                   `${formatCost(value)} · ${item?.payload?.requestCount ?? 0} 次请求`,
                   "花费",

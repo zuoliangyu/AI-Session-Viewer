@@ -412,7 +412,7 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
 
 /// 返回异常项清理页用的会话（仅 Empty + Corrupt）。
 ///
-/// 与 `get_sessions` 共享同一份全分类缓存。若缓存已存在则**不再读盘**，
+/// 与 `get_sessions` 共享同一份全分类缓存。若缓存已存在则不再读盘，
 /// 否则触发一次 `refresh_sessions_cache` 然后从结果里 filter。这是
 /// `InvalidItemsPage` 每个项目独立调用的入口。
 pub fn get_invalid_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String> {

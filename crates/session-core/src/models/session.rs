@@ -40,14 +40,14 @@ pub struct SessionsIndexFileEntry {
 
 /// Scan-time classification of a session file.
 ///
-/// - `Valid`   — has messages and the JSONL parsed cleanly.
-/// - `Empty`   — file exists but has no user/assistant messages
-///               (typical: CC opened a chat then closed without sending).
+/// - `Valid` — has messages and the JSONL parsed cleanly.
+/// - `Empty` — file exists but has no user/assistant messages
+///   (typical: CC opened a chat then closed without sending).
 /// - `Corrupt` — has messages BUT a non-last line failed to parse.
-///               Usually means the file has mid-file NUL bytes / sparse
-///               holes left over from a SIGKILL'd / crashed CC writer.
-///               Still readable in tolerant mode (broken lines silently
-///               skipped by `parse_all_messages`).
+///   Usually means the file has mid-file NUL bytes / sparse holes
+///   left over from a SIGKILL'd / crashed CC writer. Still readable
+///   in tolerant mode (broken lines silently skipped by
+///   `parse_all_messages`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum SessionStatus {
