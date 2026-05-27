@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.3] - 2026-05-27
+
+### Fixed
+
+- **"加载全部"进度循环波动**（`src/stores/appStore.ts`）：用户反馈在 Rocky Web 模式打开长会话（6214 条消息）点"加载全部"，进度条 `已加载 xx / 6214` 在小数和大数之间反复循环、永远不停。根因是 `refreshInBackground` 的尾部静默刷新分支与 v2.12 引入的渐进式窗口加载冲突——`handleLoadAll` 把 `loadedStart` 一路前移时 `loadedEnd` 始终 = `messagesTotal`，所以 `atTail` 守卫一直为真；Rocky 上 inotify 频繁触发 `fs-change`，每次 debounce 后都把整个 `messages` 数组覆盖回末尾 30 条，把 `loadedStart` 重置回 `total - 30`，外层循环看到 `messagesHasMore=true` 又从头爬，进度数字就在两个值之间循环。本版本：
+  - 静默刷新前置 `messagesLoading` 守卫：用户正在跑"加载全部"循环时直接 skip
+  - 文件总数没变（`result.total === after.messagesTotal`）：完全不动 `messages`，避免擦掉用户上翻的历史
+  - 用户已上翻超出默认尾部页（`loadedStart < total - PAGE_SIZE`）：只更新 `messagesTotal` 和 `messagesHasNewer` 标记，不替换 `messages` 数组
+  - 仅当窗口本来就只覆盖最后一页 + 文件确实新增了消息时，才整段替换（这是续聊追加的常规场景，行为不变）
+  - 该 bug 在 Windows / macOS 桌面端也存在但不易复现——Linux inotify 比 Windows ReadDirectoryChangesW / macOS FSEvents 更敏感，加上 v2.14.1 之后 `sessions-index.json` 写入更勤，触发频率被放大才让 Rocky 用户碰上
+
+### Version
+
+- 将工作区版本统一提升到 `2.14.3`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.14.2] - 2026-05-24
 
 ### Added

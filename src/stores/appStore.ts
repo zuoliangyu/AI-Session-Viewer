@@ -796,31 +796,47 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     // 静默刷新当前会话消息（仅当窗口贴在尾部，不打断用户上翻历史/跳转后正在浏览中段）
-    const { selectedFilePath, loadedEnd, messagesTotal, source: currentSource } = get();
+    const { selectedFilePath, loadedEnd, messagesTotal, messagesLoading, source: currentSource } = get();
     const atTail = loadedEnd >= messagesTotal && messagesTotal > 0;
-    if (selectedFilePath && atTail) {
-      try {
-        const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
-        const after = get();
-        if (
-          after.source !== currentSource ||
-          after.selectedFilePath !== selectedFilePath ||
-          after.loadedEnd < after.messagesTotal
-        ) {
-          return;
-        }
-        const newStart = Math.max(0, result.total - result.messages.length);
-        set({
-          messages: result.messages,
-          messagesTotal: result.total,
-          loadedStart: newStart,
-          loadedEnd: result.total,
-          messagesHasMore: newStart > 0,
-          messagesHasNewer: false,
-        });
-      } catch {
-        // 静默失败
+    // `messagesLoading` 守卫：用户正在点"加载全部"时 handleLoadAll 在循环
+    // 调 loadMoreMessages，这里不能再发请求把 messages 覆盖回尾部窗口
+    // ——否则刚加载的历史被擦掉、外层循环又重新加载，进度数字就会循环波动。
+    if (!selectedFilePath || !atTail || messagesLoading) return;
+    try {
+      const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+      const after = get();
+      if (
+        after.source !== currentSource ||
+        after.selectedFilePath !== selectedFilePath ||
+        after.loadedEnd < after.messagesTotal ||
+        after.messagesLoading
+      ) {
+        return;
       }
+      // 文件未增长——保持现状，特别是别动 loadedStart，避免把用户已展开的窗口擦回尾部。
+      if (result.total === after.messagesTotal) return;
+      // 用户已上翻历史超出默认尾部页：只更新总数 + 标记有新消息，不替换 messages
+      // ——替换会把已加载历史擦掉，又把 handleLoadAll 的循环踢回起点（进度循环波动）。
+      const userExpanded = after.loadedStart < Math.max(0, after.messagesTotal - MAIN_MESSAGES_PAGE_SIZE);
+      if (userExpanded) {
+        set({
+          messagesTotal: result.total,
+          messagesHasNewer: after.loadedEnd < result.total,
+        });
+        return;
+      }
+      // 普通的尾部追加场景（窗口本来就只有最后一页）：照旧整段替换。
+      const newStart = Math.max(0, result.total - result.messages.length);
+      set({
+        messages: result.messages,
+        messagesTotal: result.total,
+        loadedStart: newStart,
+        loadedEnd: result.total,
+        messagesHasMore: newStart > 0,
+        messagesHasNewer: false,
+      });
+    } catch {
+      // 静默失败
     }
   },
 
