@@ -8,6 +8,8 @@ import { ThreadSummaryView } from "./ThreadSummaryView";
 import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
 import { MessageTOCSidebar } from "./MessageTOCSidebar";
+import { JumpToPercentControl } from "./JumpToPercentControl";
+import { SessionPositionRail } from "./SessionPositionRail";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
@@ -27,6 +29,9 @@ type MessageSource = "claude" | "codex";
 type SplitDirection = "horizontal" | "vertical";
 
 const SPLIT_PANE_MESSAGES_PAGE_SIZE = 50;
+// Below this many total messages a single window already covers everything,
+// so the percentage-jump controls add nothing — hide them.
+const JUMP_CONTROLS_MIN_TOTAL = 60;
 
 function useHorizontalDragScroll(enabled: boolean) {
   const dragStateRef = useRef<{
@@ -366,6 +371,10 @@ export function MessagesPage() {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
   const scrollButtonStateRef = useRef({ showScrollDown: false, showScrollUp: false });
+  // Current reading position as a 0–100% of the whole session (not just the
+  // loaded window). Drives the right-side position rail thumb.
+  const [positionPercent, setPositionPercent] = useState(0);
+  const positionPercentRef = useRef(0);
   const [initialScrollDone, setInitialScrollDone] = useState(false);
   const prevScrollHeightRef = useRef<number>(0);
   const isLoadingOlderRef = useRef(false);
@@ -672,6 +681,19 @@ export function MessagesPage() {
 
     updateScrollButtonState(nextShowScrollUp, nextShowScrollDown);
 
+    // Map scroll position within the loaded window to an absolute position in
+    // the whole session, so the rail thumb reflects where we really are.
+    if (messagesTotal > 0) {
+      const scrollFrac =
+        scrollHeight > clientHeight ? scrollTop / (scrollHeight - clientHeight) : 0;
+      const absIdx = loadedStart + scrollFrac * Math.max(0, loadedEnd - loadedStart - 1);
+      const nextPct = Math.max(0, Math.min(100, (absIdx / Math.max(1, messagesTotal - 1)) * 100));
+      if (Math.abs(nextPct - positionPercentRef.current) >= 0.5) {
+        positionPercentRef.current = nextPct;
+        setPositionPercent(nextPct);
+      }
+    }
+
     // Load older messages when scrolling near top
     if (!messagesLoading && messagesHasMore && scrollTop < 200) {
       requestOlderMessages();
@@ -689,6 +711,9 @@ export function MessagesPage() {
     requestOlderMessages,
     requestNewerMessages,
     updateScrollButtonState,
+    messagesTotal,
+    loadedStart,
+    loadedEnd,
   ]);
 
   const scrollToBottom = () => {
@@ -698,6 +723,45 @@ export function MessagesPage() {
   const scrollToTop = () => {
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Jump to a percentage of the whole session. Reuses the windowed
+  // `jumpToMessageIndex`, so only a small slice around the target is loaded —
+  // fast even for very long sessions, and keeps the DOM small.
+  const handleJumpToPercent = useCallback(
+    async (percent: number) => {
+      const total = useAppStore.getState().messagesTotal;
+      if (total <= 0) return;
+      const p = Math.max(0, Math.min(100, percent));
+      const target = Math.round((p / 100) * (total - 1));
+      // Optimistically move the thumb so the rail feels responsive.
+      positionPercentRef.current = p;
+      setPositionPercent(p);
+      await jumpToMessageIndex(target);
+      // Wait for the new window to render, then position the viewport. 0%/100%
+      // snap to the exact top/bottom; mid-session lands on the target (the
+      // window is centered on it).
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const viewport = containerRef.current;
+          if (!viewport) return;
+          if (p <= 0) {
+            viewport.scrollTo({ top: 0, behavior: "smooth" });
+            return;
+          }
+          if (p >= 100) {
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "smooth" });
+            return;
+          }
+          const { loadedStart: ls, loadedEnd: le } = useAppStore.getState();
+          const span = Math.max(1, le - ls);
+          const rel = Math.max(0, Math.min(1, (target - ls) / span));
+          const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+          viewport.scrollTo({ top: rel * maxScroll, behavior: "smooth" });
+        });
+      });
+    },
+    [jumpToMessageIndex]
+  );
 
   const displayedMessages = useMemo(() => {
     if (!matchedOnly || !scrollToMessageId) return messages;
@@ -917,6 +981,14 @@ export function MessagesPage() {
   const isSplitHorizontal = splitFilePaths.length > 0 && splitDirection === "horizontal";
   const splitScrollDrag = useHorizontalDragScroll(isSplitHorizontal);
 
+  // Percentage-jump controls only make sense for long sessions and the main
+  // (non-thread, non-matched-fragment) message view.
+  const showJumpControls =
+    viewMode !== "thread" &&
+    !matchedOnly &&
+    splitFilePaths.length === 0 &&
+    messagesTotal > JUMP_CONTROLS_MIN_TOTAL;
+
   return (
     <div className="flex flex-col h-dvh max-h-dvh relative overflow-hidden">
       {/* Header */}
@@ -949,6 +1021,15 @@ export function MessagesPage() {
               )}
               {session?.gitBranch && <span>· {session.gitBranch}</span>}
               <span>· {assistantName}</span>
+              {showJumpControls && (
+                <>
+                  <span className="text-border">·</span>
+                  <JumpToPercentControl
+                    onJump={handleJumpToPercent}
+                    disabled={messagesLoading}
+                  />
+                </>
+              )}
             </p>
           </div>
         </div>
@@ -1368,12 +1449,22 @@ export function MessagesPage() {
         />
       )}
 
+      {/* Session position rail — jump to any percentage of a long session */}
+      {showJumpControls && (
+        <SessionPositionRail
+          currentPercent={positionPercent}
+          onJump={handleJumpToPercent}
+          disabled={messagesLoading}
+        />
+      )}
+
       {/* Timeline navigation dots */}
       {userDots.length > 1 && viewMode !== "thread" && (
         <TimelineDots
           dots={userDots}
           activeId={activeUserMsgId}
           onDotClick={handleDotClick}
+          offsetFromEdge={showJumpControls}
         />
       )}
 

@@ -1,4 +1,5 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
@@ -78,11 +79,34 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                             event.paths.iter().any(|path| path.starts_with(dir))
                         }).unwrap_or(false);
 
+                        // Hand each provider only the paths under its own
+                        // directory, so it can surgically update just the
+                        // affected projects/files instead of wiping everything.
                         if is_claude_change {
-                            claude::invalidate_cache();
+                            if let Some(ref dir) = claude_dir {
+                                let paths: Vec<PathBuf> = event
+                                    .paths
+                                    .iter()
+                                    .filter(|p| p.starts_with(dir))
+                                    .cloned()
+                                    .collect();
+                                if !paths.is_empty() {
+                                    claude::invalidate_paths(&paths);
+                                }
+                            }
                         }
                         if is_codex_change {
-                            codex::invalidate_sessions_cache();
+                            if let Some(ref dir) = codex_dir {
+                                let paths: Vec<PathBuf> = event
+                                    .paths
+                                    .iter()
+                                    .filter(|p| p.starts_with(dir))
+                                    .cloned()
+                                    .collect();
+                                if !paths.is_empty() {
+                                    codex::invalidate_paths(&paths);
+                                }
+                            }
                         }
 
                         let paths: Vec<String> = event

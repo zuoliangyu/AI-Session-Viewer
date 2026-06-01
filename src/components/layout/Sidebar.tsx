@@ -74,9 +74,15 @@ export function Sidebar() {
   }, [source]);
 
   useEffect(() => {
-    if (availableClis.length === 0) {
-      detectCli();
-    }
+    // CLI detection only matters once the user opens a chat/session; defer it
+    // off the startup burst so it doesn't compete with the first project load.
+    if (availableClis.length > 0) return;
+    const t = setTimeout(() => {
+      if (useChatStore.getState().availableClis.length === 0) {
+        detectCli();
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   const openExternal = async (url: string) => {

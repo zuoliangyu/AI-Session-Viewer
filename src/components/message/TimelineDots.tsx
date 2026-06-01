@@ -12,15 +12,17 @@ interface Props {
   dots: TimelineDot[];
   activeId: string | null;
   onDotClick: (id: string) => void;
+  /** Shift left to make room for the session position rail at the right edge. */
+  offsetFromEdge?: boolean;
 }
 
-export function TimelineDots({ dots, activeId, onDotClick }: Props) {
+export function TimelineDots({ dots, activeId, onDotClick, offsetFromEdge = false }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   if (dots.length === 0) return null;
 
   return (
-    <div className="absolute right-1.5 top-20 bottom-28 z-10 pointer-events-none">
+    <div className={`absolute ${offsetFromEdge ? "right-8" : "right-1.5"} top-20 bottom-28 z-10 pointer-events-none`}>
       <div className="relative h-full py-4 pointer-events-auto w-3">
         {dots.map((dot, i) => {
           const isActive = dot.id === activeId;

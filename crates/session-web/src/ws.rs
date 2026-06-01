@@ -86,8 +86,31 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
                 });
 
                 if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
-                    claude::invalidate_cache();
-                    codex::invalidate_sessions_cache();
+                    // Surgically update only the affected projects/files (same
+                    // path-partitioned approach as the Tauri watcher) instead of
+                    // wiping the whole cache on every change.
+                    if let Some(dir) = get_projects_dir() {
+                        let claude_paths: Vec<std::path::PathBuf> = event
+                            .paths
+                            .iter()
+                            .filter(|p| p.starts_with(&dir))
+                            .cloned()
+                            .collect();
+                        if !claude_paths.is_empty() {
+                            claude::invalidate_paths(&claude_paths);
+                        }
+                    }
+                    if let Some(dir) = codex::get_sessions_dir() {
+                        let codex_paths: Vec<std::path::PathBuf> = event
+                            .paths
+                            .iter()
+                            .filter(|p| p.starts_with(&dir))
+                            .cloned()
+                            .collect();
+                        if !codex_paths.is_empty() {
+                            codex::invalidate_paths(&codex_paths);
+                        }
+                    }
 
                     let paths: Vec<String> = event
                         .paths

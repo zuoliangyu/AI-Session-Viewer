@@ -26,6 +26,14 @@ const MAIN_MESSAGES_PAGE_SIZE = 30;
 /** Half-window when jumping to a specific message (e.g. via TOC). */
 const JUMP_HALF_WINDOW = 15;
 
+/**
+ * In-flight `loadProjects` request, keyed by source. The Sidebar and
+ * ProjectsPage both call `loadProjects` on mount; without this guard a cold
+ * cache would trigger two concurrent full project scans on the backend.
+ * Concurrent callers share the same promise.
+ */
+const projectsInFlight = new Map<string, Promise<void>>();
+
 interface AppState {
   // Source
   source: "claude" | "codex";
@@ -267,17 +275,29 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   loadProjects: async () => {
     const requestSource = get().source;
-    set({ projectsLoading: true });
-    try {
-      const projects = await api.getProjects(requestSource);
-      if (get().source !== requestSource) return;
-      set({ projects, projectsLoading: false });
-    } catch (e) {
-      console.error("Failed to load projects:", e);
-      if (get().source === requestSource) {
-        set({ projectsLoading: false });
+    // Share a single in-flight request per source so duplicate mount-time
+    // callers (Sidebar + ProjectsPage) don't each kick off a full scan.
+    const existing = projectsInFlight.get(requestSource);
+    if (existing) return existing;
+
+    const run = (async () => {
+      set({ projectsLoading: true });
+      try {
+        const projects = await api.getProjects(requestSource);
+        if (get().source !== requestSource) return;
+        set({ projects, projectsLoading: false });
+      } catch (e) {
+        console.error("Failed to load projects:", e);
+        if (get().source === requestSource) {
+          set({ projectsLoading: false });
+        }
+      } finally {
+        projectsInFlight.delete(requestSource);
       }
-    }
+    })();
+
+    projectsInFlight.set(requestSource, run);
+    return run;
   },
 
   selectProject: async (projectId: string) => {

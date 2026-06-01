@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
 
 use parking_lot::Mutex;
@@ -15,7 +15,7 @@ use crate::parser::jsonl as claude_parser;
 use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
-use crate::state::clear_message_cache;
+use crate::state::{clear_message_cache, clear_message_cache_for_path};
 
 #[derive(serde::Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -164,6 +164,118 @@ pub fn invalidate_cache() {
     clear_message_cache();
     if let Some(path) = cache_path() {
         let _ = fs::remove_file(path);
+    }
+}
+
+/// Surgically invalidate the cache for a single project (`project_id` is the
+/// encoded directory name under `~/.claude/projects/`).
+///
+/// Unlike [`invalidate_cache`], this keeps every *other* project's cached
+/// `session_count` intact, so the next `get_projects` re-aggregation reuses
+/// them (see `scan_projects_from_disk`) and only deep-scans the one changed
+/// project. This is what keeps app startup fast for active users — touching
+/// one session file no longer forces a full re-scan of every project.
+///
+/// The `projects` list is dropped (forcing a cheap re-aggregation pass: one
+/// `read_dir` + index/metadata read per project, no per-session-file scan for
+/// unchanged projects), and only the changed project's session list is dropped.
+pub fn invalidate_project(project_id: &str) {
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.sessions_by_project.remove(project_id);
+        cache.projects = None;
+        cache.clone()
+    };
+    save_cache(&cache);
+}
+
+/// Map a changed path to its encoded project id (the first directory component
+/// under `~/.claude/projects/`). `None` if the path isn't under `projects_dir`.
+fn project_id_from_path(path: &Path, projects_dir: &Path) -> Option<String> {
+    let rel = path.strip_prefix(projects_dir).ok()?;
+    match rel.components().next()? {
+        Component::Normal(name) => name.to_str().map(|s| s.to_string()),
+        _ => None,
+    }
+}
+
+/// Incrementally update the cache for a set of changed paths (called by the fs
+/// watcher). When all of a project's changed paths are `.jsonl` files and that
+/// project's session list is already cached, only those files are re-scanned
+/// and spliced into the cached list — so appending a message to one session no
+/// longer forces a re-scan of every session file in the project. Anything that
+/// can't be handled surgically (a `sessions-index.json` change, an unmapped
+/// path, or a cold project) falls back to the existing project- / full-level
+/// invalidation.
+pub fn invalidate_paths(changed: &[PathBuf]) {
+    let projects_dir = match get_projects_dir() {
+        Some(dir) => dir,
+        None => {
+            invalidate_cache();
+            return;
+        }
+    };
+
+    let mut by_project: HashMap<String, Vec<PathBuf>> = HashMap::new();
+    for path in changed {
+        if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+            clear_message_cache_for_path(path);
+        }
+        match project_id_from_path(path, &projects_dir) {
+            Some(pid) => by_project.entry(pid).or_default().push(path.clone()),
+            // Unmappable path (e.g. the projects dir itself) → be safe.
+            None => {
+                invalidate_cache();
+                return;
+            }
+        }
+    }
+
+    let mut touched = false;
+    for (pid, paths) in by_project {
+        let all_jsonl = paths
+            .iter()
+            .all(|p| p.extension().map(|e| e == "jsonl").unwrap_or(false));
+
+        match (all_jsonl, cached_sessions(&pid)) {
+            (true, Some(mut entries)) => {
+                let project_dir = projects_dir.join(&pid);
+                for p in &paths {
+                    let Some(sid) = p.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+                        continue;
+                    };
+                    // Replace (or drop) the entry for this file; re-scan if it
+                    // still exists.
+                    entries.retain(|e| e.session_id != sid);
+                    if let Some(updated) = scan_single_session_file(p.clone()) {
+                        entries.push(updated);
+                    }
+                }
+                // Re-apply sessions-index.json metadata + re-sort, matching a
+                // full refresh — but without touching unchanged files.
+                enrich_with_index(&project_dir, &mut entries);
+                entries.sort_by(|a, b| b.modified.cmp(&a.modified));
+                store_sessions_cache(&pid, &entries);
+                touched = true;
+            }
+            _ => {
+                // Non-jsonl change (e.g. sessions-index.json) or no warm cache:
+                // drop just this project.
+                invalidate_project(&pid);
+                touched = true;
+            }
+        }
+    }
+
+    if touched {
+        // Project session counts / last_modified may have shifted; force a
+        // cheap re-aggregation (reuses the still-warm per-project caches).
+        let snapshot = {
+            let mut cache = cache_state().lock();
+            cache.projects = None;
+            cache.clone()
+        };
+        save_cache(&snapshot);
     }
 }
 

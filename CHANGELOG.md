@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.4] - 2026-06-01
+
+### Added
+
+- **消息「跳到百分比」导航**（`src/components/message/MessagesPage.tsx` + 新增 `JumpToPercentControl.tsx` / `SessionPositionRail.tsx`）：长会话里要看中间/前面内容，过去只能点"加载全部"（串行翻几千条、慢）或一路滚动（全量加载后 DOM 几千节点、卡）。本版本新增两个跳转入口——顶部 `0/25/50/75/100%` 预设按钮 + 数字输入框，右侧一条可点击/拖动的竖直位置滑条（实时反映当前阅读位置）。两者都复用既有的 `jumpToMessageIndex` 窗口化加载，只取目标位置 ±15 条的一小段（走 `getMessagesRange`），所以加载快、DOM 小、滚动不卡。仅在 `messagesTotal > 60` 且非 Thread/搜索/分屏视图时显示。
+
+### Changed
+
+- **会话首开提速：末尾窗口延迟转换**（`crates/session-core/src/parser/jsonl.rs`）：打开会话只需末尾 30 条，但 `parse_tail_messages` 过去会把整个 JSONL 逐条 `convert_content`（对每个 tool_use 做 `to_string_pretty`、对每个 tool_result 拼大字符串）后只留末尾 ~120 条。改为只缓存末尾窗口的 `RawRecord`、仅对该窗口做转换；新增零分配的 `record_is_displayable` 镜像 `convert_content` 的非空规则来计数，`total` 与全量解析完全一致；并加子串闸门跳过非 user/assistant 行的 `from_str`。
+
+- **ASV 冷启动提速：缓存按路径增量失效**（`src-tauri/src/watcher/fs_watcher.rs`、`crates/session-web/src/ws.rs`、`crates/session-core/src/provider/{claude,codex}.rs`）：fs-watcher 过去在任何文件变动时整份清空列表缓存，导致活跃用户每次打开 ASV 都要对所有项目的每个会话文件做全量扫描。现在按改动路径增量更新——
+  - Claude `invalidate_paths`：改动全是 `.jsonl` 且项目会话列表已缓存时，只 `scan_single_session_file` 重扫那几个文件并 splice 进缓存（`enrich_with_index` + 重排序），其余情况回退到项目级 / 全量失效；
+  - Codex `invalidate_paths`：只对变动文件重读 meta、更新内存索引、删受影响项目缓存，`projects=None` 做纯内存重聚合，不再全树遍历。
+
+- **Codex 列表大改造：并行构建可复用 file index**（`crates/session-core/src/provider/codex.rs`）：之前 `scan_projects_from_meta`（列项目）是串行逐文件读 meta，`get_sessions`/`get_invalid_sessions`（点项目）会再走一遍整棵 `年/月/日` 目录树并重开每个文件 meta。新增缓存的 `file_index`（`rayon` 并行一次性扫描 path + session_meta + 时间戳），项目列表纯内存聚合、会话列表只扫该项目的少数文件。`DISK_CACHE_VERSION` `4 → 5`。
+
+- **前端首屏瘦身**（`src/stores/appStore.ts`、`src/components/project/ProjectsPage.tsx`、`src/components/layout/Sidebar.tsx`）：`loadProjects` 加按 source 的 in-flight 去重，避免 Sidebar + ProjectsPage 冷缓存下并发触发两次全盘扫描；`detectCli()` / `loadCrossProjectTags()` 推迟到首帧之后，移出首屏关键路径。
+
+### Version
+
+- 将工作区版本统一提升到 `2.14.4`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.14.3] - 2026-05-27
 
 ### Fixed

@@ -40,7 +40,11 @@ export function ProjectsPage() {
 
   useEffect(() => {
     loadProjects();
-    loadCrossProjectTags();
+    // Cross-project tags only feed the optional tag-filter chips and aren't
+    // needed for the first paint of the project list — defer off the critical
+    // path so the list shows as soon as projects resolve.
+    const t = setTimeout(() => loadCrossProjectTags(), 0);
+    return () => clearTimeout(t);
   }, [source]);
 
   // Deduplicated sorted list of all tags across projects

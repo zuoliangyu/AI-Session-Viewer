@@ -56,7 +56,12 @@ fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<Pag
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let window_len = tail_window_len(page, page_size);
-    let mut tail_messages: VecDeque<DisplayMessage> = VecDeque::with_capacity(window_len);
+    // Keep only the tail window as *raw* records. We defer the expensive
+    // `convert_content` (to_string_pretty of tool inputs, big tool-result
+    // string joins) to the very end, so all but the last `window_len`
+    // records skip that work entirely — the common case when opening a long
+    // session and only needing the most recent messages.
+    let mut tail_records: VecDeque<RawRecord> = VecDeque::with_capacity(window_len);
     let mut total = 0usize;
 
     for line in reader.lines() {
@@ -78,26 +83,71 @@ fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<Pag
             continue;
         }
 
+        // Cheap gate: only user/assistant records can ever become a displayed
+        // message, so skip the (relatively costly) `from_str` for everything
+        // else. Mirrors the substring fast-path used in `scan_session_file_once`.
+        if !trimmed.contains("\"type\":\"user\"") && !trimmed.contains("\"type\":\"assistant\"") {
+            continue;
+        }
+
         let record: RawRecord = match serde_json::from_str(trimmed) {
             Ok(r) => r,
             Err(_) => continue,
         };
 
-        if let Some(message) = display_message_from_record(record) {
-            total += 1;
-            if tail_messages.len() == window_len {
-                tail_messages.pop_front();
-            }
-            tail_messages.push_back(message);
+        // `record_is_displayable` exactly mirrors the Some/None decision of
+        // `display_message_from_record` (without building any strings), so
+        // `total` stays identical to a full parse.
+        if !record_is_displayable(&record) {
+            continue;
         }
+
+        total += 1;
+        if tail_records.len() == window_len {
+            tail_records.pop_front();
+        }
+        tail_records.push_back(record);
     }
 
-    let messages: Vec<DisplayMessage> = tail_messages.into_iter().collect();
+    // Convert only the retained tail window.
+    let messages: Vec<DisplayMessage> = tail_records
+        .into_iter()
+        .filter_map(display_message_from_record)
+        .collect();
     let range_start = total.saturating_sub(messages.len());
     let _ = store_partial_messages(path, total, range_start, &messages);
 
     paginate_from_range(&messages, total, page, page_size, true, range_start)
         .ok_or_else(|| "Failed to paginate tail messages".to_string())
+}
+
+/// Whether a raw record would yield a displayed message — i.e. exactly when
+/// `display_message_from_record` returns `Some`. Kept in sync with that
+/// function and `convert_content`, but does **no** string allocation, so it's
+/// cheap enough to run over every line while counting `total`.
+fn record_is_displayable(record: &RawRecord) -> bool {
+    if record.record_type != "user" && record.record_type != "assistant" {
+        return false;
+    }
+    match &record.message {
+        Some(msg) => content_produces_block(&msg.content),
+        None => false,
+    }
+}
+
+/// Mirror of `convert_content`'s emptiness rule: returns true iff conversion
+/// would produce at least one display block.
+fn content_produces_block(content: &ContentValue) -> bool {
+    match content {
+        ContentValue::Text(s) => !s.trim().is_empty(),
+        ContentValue::Blocks(blocks) => blocks.iter().any(|block| match block {
+            ContentBlock::Text { text } => !text.trim().is_empty(),
+            ContentBlock::Thinking { thinking } => !thinking.trim().is_empty(),
+            ContentBlock::ToolUse { .. } => true,
+            ContentBlock::ToolResult { .. } => true,
+            ContentBlock::Unknown => false,
+        }),
+    }
 }
 
 /// Load a half-open `[start, end)` slice of messages. Used for the

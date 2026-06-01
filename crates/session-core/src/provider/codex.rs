@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fs;
 use std::io::{BufRead, BufReader};
@@ -14,8 +15,8 @@ use crate::models::project::ProjectEntry;
 use crate::models::session::{SessionIndexEntry, SessionStatus};
 use crate::models::stats::{DailyTokenEntry, TokenUsageSummary};
 use crate::state::{
-    clear_message_cache, get_cached_full_messages, get_cached_page, paginate_from_range,
-    store_full_messages, store_partial_messages, tail_window_len,
+    clear_message_cache, clear_message_cache_for_path, get_cached_full_messages, get_cached_page,
+    paginate_from_range, store_full_messages, store_partial_messages, tail_window_len,
 };
 
 // Bumped to 3 in v2.12.1 to invalidate stale caches built by v2.12.0 and
@@ -26,7 +27,11 @@ use crate::state::{
 // list. Bumping the version number forces a full rescan on first launch of
 // 2.12.1 so the fix actually takes effect without users having to delete
 // the cache file by hand.
-const DISK_CACHE_VERSION: u32 = 4;
+// Bumped to 5: added the parallel `file_index` (path → session_meta + mtime)
+// shared by the project list, session list and invalid-session scans, and
+// dropped the old per-project session_count reconciliation. Old caches lack
+// the index and use stale semantics, so force a clean rebuild.
+const DISK_CACHE_VERSION: u32 = 5;
 
 /// Sentinel prefix for project IDs synthesized from sessions with no cwd.
 /// Format: `<codex-unrooted>/YYYY-MM-DD`. The angle brackets are invalid in
@@ -51,6 +56,31 @@ struct CodexDiskCache {
     projects: Option<CachedProjects>,
     #[serde(default)]
     sessions_by_project: HashMap<String, CachedSessions>,
+    /// One entry per rollout file (cheap `session_meta` + file timestamps),
+    /// built once via a parallel scan and reused by the project list, session
+    /// list and invalid-session scans — so they no longer each re-walk the
+    /// whole `~/.codex/sessions` tree and re-open every file's meta.
+    #[serde(default)]
+    file_index: Option<Vec<CodexFileMeta>>,
+}
+
+/// Lightweight per-file record: everything `extract_session_meta` returns plus
+/// the rollout path, its date bucket, and file timestamps. Lets the session
+/// list be built by full-scanning only the files of the requested project,
+/// without re-reading meta for unrelated files.
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CodexFileMeta {
+    path: String,
+    id: String,
+    cwd: String,
+    cli_version: Option<String>,
+    model_provider: Option<String>,
+    git_branch: Option<String>,
+    is_interactive: bool,
+    date: Option<String>,
+    modified: Option<String>,
+    created: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
@@ -138,12 +168,18 @@ fn cached_project_sessions(cwd: &str) -> Option<Vec<SessionIndexEntry>> {
         .map(|cached| cached.entries.clone())
 }
 
-fn cached_project_count(cwd: &str) -> Option<usize> {
-    cache_state()
-        .lock()
-        .sessions_by_project
-        .get(cwd)
-        .map(|cached| cached.entries.len())
+fn cached_file_index() -> Option<Vec<CodexFileMeta>> {
+    cache_state().lock().file_index.clone()
+}
+
+fn store_file_index(index: &[CodexFileMeta]) {
+    let cache = {
+        let mut cache = cache_state().lock();
+        cache.version = DISK_CACHE_VERSION;
+        cache.file_index = Some(index.to_vec());
+        cache.clone()
+    };
+    save_disk_cache(&cache);
 }
 
 fn store_project_sessions(cwd: &str, entries: &[SessionIndexEntry]) {
@@ -610,15 +646,169 @@ fn value_has_visible_content(value: &Value) -> bool {
     }
 }
 
+fn systemtime_to_rfc3339(t: std::time::SystemTime) -> String {
+    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_default()
+}
+
+/// Read one rollout file's `session_meta` + timestamps into an index entry.
+/// `None` when the file has no `session_meta` row (or can't be read).
+fn file_meta_for(path: &Path) -> Option<CodexFileMeta> {
+    let meta = extract_session_meta(path)?;
+    let file_meta = fs::metadata(path).ok();
+    let modified = file_meta
+        .as_ref()
+        .and_then(|m| m.modified().ok())
+        .map(systemtime_to_rfc3339);
+    let created = file_meta
+        .as_ref()
+        .and_then(|m| m.created().ok())
+        .map(systemtime_to_rfc3339);
+    Some(CodexFileMeta {
+        path: path.to_string_lossy().to_string(),
+        id: meta.id,
+        cwd: meta.cwd,
+        cli_version: meta.cli_version,
+        model_provider: meta.model_provider,
+        git_branch: meta.git_branch,
+        is_interactive: meta.is_interactive,
+        date: extract_date_from_path(path),
+        modified,
+        created,
+    })
+}
+
+/// The project id (cache key) an indexed file belongs to: its real cwd, or a
+/// `<codex-unrooted>/DATE` virtual bucket when it has no recorded cwd.
+fn project_key_for(fm: &CodexFileMeta) -> String {
+    if fm.cwd.is_empty() {
+        virtual_project_id(fm.date.as_deref().unwrap_or("unknown"))
+    } else {
+        fm.cwd.clone()
+    }
+}
+
+/// Build the per-file index with a single parallel pass over every rollout
+/// file: one `extract_session_meta` (≤50 lines) + one `fs::metadata` per file.
+/// This is the only place that opens every file; the project/session lists are
+/// then derived from this in-memory index.
+fn build_file_index() -> Vec<CodexFileMeta> {
+    scan_all_session_files()
+        .into_par_iter()
+        .filter_map(|file_path| file_meta_for(&file_path))
+        .collect()
+}
+
+/// Incrementally update the index for changed rollout files (called by the fs
+/// watcher) instead of wiping the whole Codex cache. Only the changed files are
+/// re-read; the affected projects' session lists and the project aggregate are
+/// dropped so they rebuild from the still-warm index — no full tree walk.
+pub fn invalidate_paths(changed: &[PathBuf]) {
+    let jsonl: Vec<&PathBuf> = changed
+        .iter()
+        .filter(|p| p.extension().map(|e| e == "jsonl").unwrap_or(false))
+        .collect();
+    for &p in &jsonl {
+        clear_message_cache_for_path(p);
+    }
+    if jsonl.is_empty() {
+        return;
+    }
+
+    // No warm index → nothing to preserve; drop derived caches so they rebuild
+    // lazily (a single parallel scan), and we're done.
+    if cache_state().lock().file_index.is_none() {
+        let snapshot = {
+            let mut cache = cache_state().lock();
+            cache.projects = None;
+            cache.sessions_by_project.clear();
+            cache.clone()
+        };
+        save_disk_cache(&snapshot);
+        return;
+    }
+
+    // Re-read changed files off-lock (file I/O), then splice under lock.
+    let updates: Vec<(String, Option<CodexFileMeta>)> = jsonl
+        .iter()
+        .map(|&p| {
+            let path_str = p.to_string_lossy().to_string();
+            let new_meta = if p.exists() { file_meta_for(p) } else { None };
+            (path_str, new_meta)
+        })
+        .collect();
+
+    let snapshot = {
+        let mut cache = cache_state().lock();
+        let mut index = cache.file_index.take().unwrap_or_default();
+        let mut affected: HashSet<String> = HashSet::new();
+        for (path_str, new_meta) in &updates {
+            if let Some(pos) = index.iter().position(|fm| &fm.path == path_str) {
+                let old = index.remove(pos);
+                affected.insert(project_key_for(&old));
+            }
+            if let Some(fm) = new_meta {
+                affected.insert(project_key_for(fm));
+                index.push(fm.clone());
+            }
+        }
+        cache.file_index = Some(index);
+        for key in &affected {
+            cache.sessions_by_project.remove(key);
+        }
+        cache.projects = None;
+        cache.clone()
+    };
+    save_disk_cache(&snapshot);
+}
+
+fn load_or_build_file_index() -> Vec<CodexFileMeta> {
+    if let Some(index) = cached_file_index() {
+        return index;
+    }
+    let index = build_file_index();
+    store_file_index(&index);
+    index
+}
+
+/// Whether an indexed file belongs to the given project id (real cwd, or a
+/// `<codex-unrooted>/DATE` virtual bucket). Mirrors the original matching used
+/// by `refresh_sessions_cache` / `get_invalid_sessions`.
+fn file_matches_project(fm: &CodexFileMeta, cwd: &str, virtual_date: Option<&str>) -> bool {
+    if !fm.is_interactive {
+        return false;
+    }
+    match virtual_date {
+        Some(date) => {
+            fm.cwd.is_empty()
+                && fm
+                    .date
+                    .as_deref()
+                    .map(|d| d == date)
+                    .unwrap_or(date == "unknown")
+        }
+        None => fm.cwd == cwd,
+    }
+}
+
+/// Indexed files belonging to one project — the only files a session/invalid
+/// scan needs to open, instead of re-walking the whole tree.
+fn project_files(cwd: &str) -> Vec<CodexFileMeta> {
+    let virtual_date = parse_virtual_project_id(cwd);
+    load_or_build_file_index()
+        .into_iter()
+        .filter(|fm| file_matches_project(fm, cwd, virtual_date))
+        .collect()
+}
+
 fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
-    let files = scan_all_session_files();
+    let index = load_or_build_file_index();
     let mut project_map: HashMap<String, ProjectEntry> = HashMap::new();
 
-    for file_path in files {
-        let Some(meta) = extract_session_meta(&file_path) else {
-            continue;
-        };
-        if !meta.is_interactive {
+    for fm in &index {
+        if !fm.is_interactive {
             continue;
         }
 
@@ -626,30 +816,19 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
         // bucketed by the rollout file's date so they don't all collapse into
         // a single mega-bucket. Real cwd sessions take the normal path.
         let (project_key, is_virtual, display_path, short_name, path_exists) =
-            if meta.cwd.is_empty() {
-                let date = extract_date_from_path(&file_path)
-                    .unwrap_or_else(|| "unknown".to_string());
+            if fm.cwd.is_empty() {
+                let date = fm.date.clone().unwrap_or_else(|| "unknown".to_string());
                 let id = virtual_project_id(&date);
                 let display = format!("未归属会话 · {date}");
                 let short = format!("未归属 · {date}");
                 (id, true, display, short, true)
             } else {
-                let cwd = meta.cwd.clone();
+                let cwd = fm.cwd.clone();
                 let display = cwd.clone();
                 let short = short_name_from_path(&cwd);
                 let exists = std::path::Path::new(&cwd).exists();
                 (cwd, false, display, short, exists)
             };
-
-        let modified = fs::metadata(&file_path)
-            .and_then(|m| m.modified())
-            .ok()
-            .map(|t| {
-                let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                    .map(|dt| dt.to_rfc3339())
-                    .unwrap_or_default()
-            });
 
         let entry = project_map
             .entry(project_key.clone())
@@ -660,7 +839,7 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
                 short_name,
                 session_count: 0,
                 last_modified: None,
-                model_provider: meta.model_provider.clone(),
+                model_provider: fm.model_provider.clone(),
                 alias: None,
                 path_exists,
                 is_virtual,
@@ -668,7 +847,7 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
 
         entry.session_count += 1;
 
-        if let Some(ref modified) = modified {
+        if let Some(ref modified) = fm.modified {
             if entry
                 .last_modified
                 .as_ref()
@@ -676,14 +855,6 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
                 .unwrap_or(true)
             {
                 entry.last_modified = Some(modified.clone());
-            }
-        }
-    }
-
-    for (cwd, project) in &mut project_map {
-        if let Some(cached_count) = cached_project_count(cwd) {
-            if cached_count == project.session_count {
-                project.session_count = cached_count;
             }
         }
     }
@@ -709,69 +880,31 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
 }
 
 pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    let files = scan_all_session_files();
-    // When called with a virtual project id, match on "cwd empty + date matches
-    // the rollout file path" instead of an exact cwd string.
-    let virtual_date: Option<String> = parse_virtual_project_id(cwd).map(|s| s.to_string());
-
-    let mut entries: Vec<SessionIndexEntry> = files
+    // Only the files belonging to this project (from the shared index) get
+    // opened — no full tree walk, and no meta re-read (it's cached in the
+    // index). Just the unavoidable full scan for first_prompt + message count.
+    let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
         .into_par_iter()
-        .filter_map(|file_path| {
-            let meta = extract_session_meta(&file_path)?;
-            if !meta.is_interactive {
-                return None;
-            }
-            let matches = match virtual_date.as_deref() {
-                Some(date) => {
-                    meta.cwd.is_empty()
-                        && extract_date_from_path(&file_path)
-                            .as_deref()
-                            .map(|d| d == date)
-                            .unwrap_or(date == "unknown")
-                }
-                None => meta.cwd == cwd,
-            };
-            if !matches {
-                return None;
-            }
-
-            let scan = scan_session_file(&file_path);
-            let file_meta = fs::metadata(&file_path).ok();
-            let modified = file_meta.as_ref().and_then(|m| {
-                m.modified().ok().map(|t| {
-                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-            let created = file_meta.as_ref().and_then(|m| {
-                m.created().ok().map(|t| {
-                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-
-            Some(SessionIndexEntry {
+        .map(|fm| {
+            let scan = scan_session_file(Path::new(&fm.path));
+            SessionIndexEntry {
                 source: "codex".to_string(),
-                session_id: meta.id,
-                file_path: file_path.to_string_lossy().to_string(),
+                session_id: fm.id,
+                file_path: fm.path,
                 first_prompt: scan.first_prompt,
                 message_count: scan.message_count,
-                created,
-                modified,
-                git_branch: meta.git_branch,
+                created: fm.created,
+                modified: fm.modified,
+                git_branch: fm.git_branch,
                 project_path: None,
                 is_sidechain: None,
-                cwd: Some(meta.cwd),
-                model_provider: meta.model_provider,
-                cli_version: meta.cli_version,
+                cwd: Some(fm.cwd),
+                model_provider: fm.model_provider,
+                cli_version: fm.cli_version,
                 alias: None,
                 tags: None,
                 status: SessionStatus::Valid,
-            })
+            }
         })
         .collect();
 
@@ -789,65 +922,31 @@ pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
 }
 
 pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    let virtual_date: Option<String> = parse_virtual_project_id(cwd).map(|s| s.to_string());
-    let mut entries: Vec<SessionIndexEntry> = scan_all_session_files()
+    // Same project-file selection as the session list, but keep only files with
+    // no visible activity (empty rollouts). Uses the shared index, so no full
+    // tree walk and no meta re-read.
+    let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
         .into_par_iter()
-        .filter_map(|file_path| {
-            let meta = extract_session_meta(&file_path)?;
-            if !meta.is_interactive {
-                return None;
-            }
-            let matches = match virtual_date.as_deref() {
-                Some(date) => {
-                    meta.cwd.is_empty()
-                        && extract_date_from_path(&file_path)
-                            .as_deref()
-                            .map(|d| d == date)
-                            .unwrap_or(date == "unknown")
-                }
-                None => meta.cwd == cwd,
-            };
-            if !matches {
-                return None;
-            }
-
-            let scan = scan_session_visibility(&file_path);
+        .filter_map(|fm| {
+            let scan = scan_session_visibility(Path::new(&fm.path));
             if scan.has_visible_activity {
                 return None;
             }
 
-            let file_meta = fs::metadata(&file_path).ok();
-            let modified = file_meta.as_ref().and_then(|m| {
-                m.modified().ok().map(|t| {
-                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-            let created = file_meta.as_ref().and_then(|m| {
-                m.created().ok().map(|t| {
-                    let d = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    chrono::DateTime::from_timestamp(d.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                })
-            });
-
             Some(SessionIndexEntry {
                 source: "codex".to_string(),
-                session_id: meta.id,
-                file_path: file_path.to_string_lossy().to_string(),
+                session_id: fm.id,
+                file_path: fm.path,
                 first_prompt: scan.first_prompt,
                 message_count: scan.message_count,
-                created,
-                modified,
-                git_branch: meta.git_branch,
+                created: fm.created,
+                modified: fm.modified,
+                git_branch: fm.git_branch,
                 project_path: None,
                 is_sidechain: None,
-                cwd: Some(meta.cwd),
-                model_provider: meta.model_provider,
-                cli_version: meta.cli_version,
+                cwd: Some(fm.cwd),
+                model_provider: fm.model_provider,
+                cli_version: fm.cli_version,
                 alias: None,
                 tags: None,
                 status: SessionStatus::Empty,
