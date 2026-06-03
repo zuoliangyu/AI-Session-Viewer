@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry } from "../../types";
-import { FolderOpen, FolderClock, Clock, Hash, Tag, MoreHorizontal, AlertCircle } from "lucide-react";
+import { FolderOpen, FolderClock, Clock, Hash, Tag, MoreHorizontal, AlertCircle, CheckSquare, X, Trash2, Loader2 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
+import { ScanProgressView } from "../common/ScanProgressView";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -37,6 +39,27 @@ export function ProjectsPage() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renameLoading, setRenameLoading] = useState(false);
+
+  // 多选批量删除
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // by project id
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchWithCcConfig, setBatchWithCcConfig] = useState(false);
+
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
 
   useEffect(() => {
     loadProjects();
@@ -80,10 +103,95 @@ export function ProjectsPage() {
       ? "未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。"
       : "未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。";
 
+  const selectedProjects = filteredProjects.filter((p) => selected.has(p.id));
+
+  // 网格虚拟化：按容器宽度算列数（1~3），把项目分块成「行」，只渲染可见行。
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [cols, setCols] = useState(3);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const w = el.clientWidth;
+      setCols(Math.min(3, Math.max(1, Math.floor(w / 300))));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const rows = useMemo(() => {
+    const out: ProjectEntry[][] = [];
+    for (let i = 0; i < filteredProjects.length; i += cols) {
+      out.push(filteredProjects.slice(i, i + cols));
+    }
+    return out;
+  }, [filteredProjects, cols]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 168,
+    overscan: 4,
+  });
+
+  // 预计算 lastModified 相对时间，避免切换选择模式（整列表重渲染）时重跑 date-fns。
+  const lastModifiedMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of projects) {
+      if (p.lastModified) {
+        m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: zhCN }));
+      }
+    }
+    return m;
+  }, [projects]);
+
+  const handleBatchDelete = async () => {
+    if (selectedProjects.length === 0) return;
+    setBatchBusy(true);
+    const level =
+      source === "claude" && batchWithCcConfig ? "withCcConfig" : "sessionOnly";
+    try {
+      await Promise.all(selectedProjects.map((p) => deleteProject(p.id, level)));
+      exitSelectMode();
+    } catch (err) {
+      console.error("Failed to batch delete projects:", err);
+    } finally {
+      setBatchBusy(false);
+      setBatchDeleteOpen(false);
+      setBatchWithCcConfig(false);
+    }
+  };
+
   return (
     <>
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">所有项目</h1>
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 shrink-0">
+      <div className="flex items-center mb-6">
+        <h1 className="text-2xl font-bold">所有项目</h1>
+        {projects.length > 0 && (
+          <div className="ml-auto">
+            {selectMode ? (
+              <button
+                onClick={exitSelectMode}
+                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+              >
+                <X className="w-3.5 h-3.5" />
+                退出选择
+              </button>
+            ) : (
+              <button
+                onClick={() => setSelectMode(true)}
+                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                选择
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Global tag filter bar */}
       {allGlobalTags.length > 0 && (
@@ -113,8 +221,12 @@ export function ProjectsPage() {
         </div>
       )}
 
+      </div>
+
+      {/* 项目网格（行分块虚拟化滚动容器） */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-6 pt-2 pb-24">
       {projectsLoading ? (
-        <div className="text-muted-foreground">加载项目列表...</div>
+        <ScanProgressView label="加载项目列表" />
       ) : filteredProjects.length === 0 ? (
         <div className="text-muted-foreground">
           {globalTagFilter.length > 0
@@ -122,31 +234,64 @@ export function ProjectsPage() {
             : emptyText}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredProjects.map((project) => (
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => (
+            <div
+              key={virtualRow.index}
+              data-index={virtualRow.index}
+              ref={rowVirtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+                paddingBottom: "1rem",
+              }}
+            >
+              <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
+                {rows[virtualRow.index].map((project) => (
             <div
               key={project.id}
               role="button"
               tabIndex={0}
-              onClick={() =>
-                navigate(
-                  `/projects/${encodeURIComponent(project.id)}`
-                )
-              }
+              onClick={() => {
+                if (selectMode) {
+                  toggleSelected(project.id);
+                  return;
+                }
+                navigate(`/projects/${encodeURIComponent(project.id)}`);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
-                  navigate(`/projects/${encodeURIComponent(project.id)}`);
+                  if (selectMode) {
+                    toggleSelected(project.id);
+                  } else {
+                    navigate(`/projects/${encodeURIComponent(project.id)}`);
+                  }
                 }
               }}
-              className="relative bg-card border border-border rounded-lg p-4 text-left hover:border-primary/50 hover:bg-accent/30 transition-all group cursor-pointer"
+              className={`relative bg-card border rounded-lg p-4 text-left hover:border-primary/50 hover:bg-accent/30 transition-all group cursor-pointer ${
+                selected.has(project.id) ? "border-primary bg-primary/5" : "border-border"
+              }`}
             >
+              {/* 多选 checkbox（CSS 显隐，避免切换模式时整列表挂卸） */}
+              <input
+                type="checkbox"
+                checked={selected.has(project.id)}
+                onChange={() => toggleSelected(project.id)}
+                onClick={(e) => e.stopPropagation()}
+                className={`absolute top-2 right-2 accent-primary w-4 h-4 ${selectMode ? "" : "hidden"}`}
+              />
               {/* ⋯ 操作按钮（所有数据源均显示） */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
                   setActionsMenu({ project, anchorRect: e.currentTarget.getBoundingClientRect() });
                 }}
-                className="absolute top-2 right-2 p-1.5 rounded opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:bg-accent/50"
+                className={`absolute top-2 right-2 p-1.5 rounded transition-opacity text-muted-foreground hover:bg-accent/50 ${
+                  selectMode ? "hidden" : "opacity-0 group-hover:opacity-100"
+                }`}
                 title="操作"
               >
                 <MoreHorizontal className="w-3.5 h-3.5" />
@@ -206,10 +351,7 @@ export function ProjectsPage() {
                     {project.lastModified && (
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatDistanceToNow(
-                          new Date(project.lastModified),
-                          { addSuffix: true, locale: zhCN }
-                        )}
+                        {lastModifiedMap.get(project.id)}
                       </span>
                     )}
                   </div>
@@ -221,9 +363,13 @@ export function ProjectsPage() {
                 </div>
               </div>
             </div>
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
+      </div>
     </div>
 
     {/* ⋯ 操作菜单（portal） */}
@@ -246,6 +392,7 @@ export function ProjectsPage() {
     {deleteTarget && (
       <DeleteProjectDialog
         project={deleteTarget}
+        source={source}
         onConfirm={async (level) => {
           await deleteProject(deleteTarget.id, level);
           setDeleteTarget(null);
@@ -330,6 +477,89 @@ export function ProjectsPage() {
                 {renameLoading ? "保存中..." : "确认"}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* 多选底部浮动操作条 */}
+    {selectMode && (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-card border border-border rounded-xl shadow-lg px-4 py-2.5">
+        <button
+          onClick={() => {
+            if (selectedProjects.length === filteredProjects.length) {
+              setSelected(new Set());
+            } else {
+              setSelected(new Set(filteredProjects.map((p) => p.id)));
+            }
+          }}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {selectedProjects.length === filteredProjects.length ? "取消全选" : "全选"}
+        </button>
+        <span className="text-sm text-foreground">已选 {selectedProjects.length}</span>
+        <button
+          onClick={() => setBatchDeleteOpen(true)}
+          disabled={batchBusy || selectedProjects.length === 0}
+          className="text-xs px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+        >
+          {batchBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+          删除选中
+        </button>
+        <button
+          onClick={exitSelectMode}
+          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          退出
+        </button>
+      </div>
+    )}
+
+    {/* 批量删除项目确认 */}
+    {batchDeleteOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
+          <h3 className="text-lg font-semibold mb-2">批量删除工程</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            将删除选中的 {selectedProjects.length} 个工程的会话记录（移入回收站，可在回收站还原）。
+          </p>
+
+          {source === "claude" && (
+            <label className="flex items-start gap-2 cursor-pointer mb-4 group">
+              <input
+                type="checkbox"
+                checked={batchWithCcConfig}
+                onChange={(e) => setBatchWithCcConfig(e.target.checked)}
+                disabled={batchBusy}
+                className="mt-0.5 accent-destructive"
+              />
+              <span className="text-xs text-muted-foreground leading-relaxed">
+                同时清理 Claude Code 项目配置
+                {batchWithCcConfig && (
+                  <span className="block mt-1 text-yellow-600 dark:text-yellow-400">
+                    将从 ~/.claude.json 移除这些项目配置
+                  </span>
+                )}
+              </span>
+            </label>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => { setBatchDeleteOpen(false); setBatchWithCcConfig(false); }}
+              disabled={batchBusy}
+              className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleBatchDelete}
+              disabled={batchBusy}
+              className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {batchBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              {batchBusy ? "删除中..." : "删除"}
+            </button>
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../../stores/appStore";
 import {
   ArrowLeft,
@@ -13,13 +14,24 @@ import {
   Copy,
   Star,
   AlertTriangle,
+  Download,
+  CheckSquare,
+  X,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { api } from "../../services/api";
 import { SessionMetaEditor } from "./SessionMetaEditor";
+import { ExportFormatMenu } from "./ExportFormatMenu";
+import { ScanProgressView } from "../common/ScanProgressView";
+import { saveExport, saveExportMany } from "../../services/exportHelpers";
+import type { ExportFormat, SessionIndexEntry } from "../../types";
 
 declare const __IS_TAURI__: boolean;
+
+function sessionFilenameBase(s: SessionIndexEntry): string {
+  return s.alias || s.firstPrompt || s.sessionId;
+}
 
 export function SessionsPage() {
   const { projectId: rawProjectId } = useParams<{ projectId: string }>();
@@ -51,6 +63,31 @@ export function SessionsPage() {
   const [showCleanDialog, setShowCleanDialog] = useState(false);
   const [cleanSelected, setCleanSelected] = useState<Set<string>>(new Set());
   const [cleaning, setCleaning] = useState(false);
+
+  // 多选模式（批量导出 / 批量删除）
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set()); // by filePath
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  // 单会话导出格式浮层
+  const [exportMenu, setExportMenu] = useState<{ session: SessionIndexEntry; rect: DOMRect } | null>(null);
+  // 批量导出格式浮层
+  const [batchExportRect, setBatchExportRect] = useState<DOMRect | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const toggleSelected = (filePath: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(filePath)) next.delete(filePath);
+      else next.add(filePath);
+      return next;
+    });
+  };
+
+  const exitSelectMode = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
 
   // invalidSessions 由 store 在 selectProject 时从同一次 getSessions 响应拆分而来 ——
   // 不再单独 RPC 拉取，避免冷缓存下两个调用各自启动一次完整扫描。
@@ -137,12 +174,91 @@ export function SessionsPage() {
         )
       : sessions;
 
+  // 预计算每个会话的日期文案：date-fns 较重，几百行 × 每行两次会在切换选择
+  // 模式（整列表重渲染）时造成明显卡顿。按 sessions 缓存，仅在会话列表变化时重算。
+  const dateMap = useMemo(() => {
+    const m = new Map<string, { rel: string | null; created: string | null }>();
+    for (const s of sessions) {
+      m.set(s.sessionId, {
+        rel: s.modified
+          ? formatDistanceToNow(new Date(s.modified), { addSuffix: true, locale: zhCN })
+          : null,
+        created: s.created
+          ? format(new Date(s.created), "yyyy-MM-dd HH:mm")
+          : null,
+      });
+    }
+    return m;
+  }, [sessions]);
+
   const editSession = editingSession
     ? sessions.find((s) => s.sessionId === editingSession)
     : null;
 
+  const selectedSessions = filteredSessions.filter((s) => selected.has(s.filePath));
+
+  // 列表虚拟化：只渲染可见行，几百/上千会话也能秒切、流畅滚动。卡片变高，用
+  // measureElement 动态测量。滚动容器是下方 flex-1 区域。
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: filteredSessions.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 96,
+    overscan: 8,
+  });
+
+  // 单会话导出
+  const handleExportSingle = async (s: SessionIndexEntry, fmt: ExportFormat) => {
+    setExportError(null);
+    try {
+      const content = await api.exportSession(source, s.filePath, fmt);
+      await saveExport(content, sessionFilenameBase(s), fmt);
+    } catch (err) {
+      setExportError(typeof err === "string" ? err : String(err));
+      setTimeout(() => setExportError(null), 5000);
+    }
+  };
+
+  // 批量导出：逐个取内容再一次性保存到目录（Tauri）或逐个下载（Web）
+  const handleBatchExport = async (fmt: ExportFormat) => {
+    if (selectedSessions.length === 0) return;
+    setBatchBusy(true);
+    setExportError(null);
+    try {
+      const items = [];
+      for (const s of selectedSessions) {
+        const content = await api.exportSession(source, s.filePath, fmt);
+        items.push({ content, filenameBase: sessionFilenameBase(s) });
+      }
+      await saveExportMany(items, fmt);
+    } catch (err) {
+      setExportError(typeof err === "string" ? err : String(err));
+      setTimeout(() => setExportError(null), 5000);
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  // 批量删除（移入回收站，可还原）
+  const handleBatchDelete = async () => {
+    if (selectedSessions.length === 0) return;
+    setBatchBusy(true);
+    try {
+      await Promise.all(
+        selectedSessions.map((s) => deleteSession(s.filePath, s.sessionId)),
+      );
+      exitSelectMode();
+    } catch (err) {
+      console.error("Failed to batch delete sessions:", err);
+    } finally {
+      setBatchBusy(false);
+      setBatchDeleteOpen(false);
+    }
+  };
+
   return (
-    <div className="p-6">
+    <div className="flex flex-col h-full">
+      <div className="px-6 pt-6 shrink-0">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button
@@ -161,18 +277,39 @@ export function SessionsPage() {
             </p>
           )}
         </div>
-        {emptySessions.length > 0 && (
-          <button
-            onClick={() => {
-              setCleanSelected(new Set(emptySessions.map((s) => s.filePath)));
-              setShowCleanDialog(true);
-            }}
-            className="ml-auto text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center gap-1.5"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            清理空会话 ({emptySessions.length})
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {emptySessions.length > 0 && (
+            <button
+              onClick={() => {
+                setCleanSelected(new Set(emptySessions.map((s) => s.filePath)));
+                setShowCleanDialog(true);
+              }}
+              className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center gap-1.5"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              清理空会话 ({emptySessions.length})
+            </button>
+          )}
+          {sessions.length > 0 && (
+            selectMode ? (
+              <button
+                onClick={exitSelectMode}
+                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+              >
+                <X className="w-3.5 h-3.5" />
+                退出选择
+              </button>
+            ) : (
+              <button
+                onClick={() => setSelectMode(true)}
+                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5"
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                选择
+              </button>
+            )
+          )}
+        </div>
       </div>
 
       {/* 损坏会话提示：has_messages 但 JSONL 中部解析失败，正常列表会过滤掉，
@@ -229,9 +366,12 @@ export function SessionsPage() {
         </div>
       )}
 
-      {/* Sessions list */}
+      </div>
+
+      {/* Sessions list（虚拟化滚动容器） */}
+      <div ref={scrollRef} className="flex-1 min-h-0 overflow-auto px-6 pt-2 pb-24">
       {sessionsLoading ? (
-        <div className="text-muted-foreground">加载会话列表...</div>
+        <ScanProgressView label="加载会话列表" />
       ) : filteredSessions.length === 0 ? (
         <div className="text-muted-foreground">
           {tagFilter.length > 0
@@ -239,18 +379,47 @@ export function SessionsPage() {
             : "此项目没有会话记录。"}
         </div>
       ) : (
-        <div className="space-y-2">
-          {filteredSessions.map((session) => (
+        <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
+          {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+            const session = filteredSessions[virtualRow.index];
+            return (
             <div
               key={session.sessionId}
-              onClick={() =>
+              data-index={virtualRow.index}
+              ref={rowVirtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+                paddingBottom: "0.5rem",
+              }}
+            >
+            <div
+              onClick={() => {
+                if (selectMode) {
+                  toggleSelected(session.filePath);
+                  return;
+                }
                 navigate(
                   `/projects/${encodeURIComponent(projectId)}/session/${encodeURIComponent(session.filePath)}`
-                )
-              }
-              className="bg-card border border-border rounded-lg p-4 hover:border-primary/50 hover:bg-accent/30 transition-all cursor-pointer group"
+                );
+              }}
+              className={`bg-card border rounded-lg p-4 hover:border-primary/50 hover:bg-accent/30 transition-all cursor-pointer group ${
+                selected.has(session.filePath)
+                  ? "border-primary bg-primary/5"
+                  : "border-border"
+              }`}
             >
               <div className="flex items-center justify-between gap-4">
+                <input
+                  type="checkbox"
+                  checked={selected.has(session.filePath)}
+                  onChange={() => toggleSelected(session.filePath)}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`accent-primary w-4 h-4 shrink-0 ${selectMode ? "" : "hidden"}`}
+                />
                 <div className="min-w-0 flex-1">
                   {/* Tags */}
                   {session.tags && session.tags.length > 0 && (
@@ -291,16 +460,12 @@ export function SessionsPage() {
                     {session.modified && (
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
-                        {formatDistanceToNow(
-                          new Date(session.modified),
-                          { addSuffix: true, locale: zhCN }
-                        )}
+                        {dateMap.get(session.sessionId)?.rel}
                       </span>
                     )}
                     {session.created && (
                       <span className="text-muted-foreground/60">
-                        创建于{" "}
-                        {format(new Date(session.created), "yyyy-MM-dd HH:mm")}
+                        创建于 {dateMap.get(session.sessionId)?.created}
                       </span>
                     )}
                     {session.modelProvider && (
@@ -310,7 +475,11 @@ export function SessionsPage() {
                     )}
                   </div>
                 </div>
-                <div className="shrink-0 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div
+                  className={`shrink-0 flex items-center gap-1.5 transition-opacity ${
+                    selectMode ? "hidden" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                >
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -388,6 +557,16 @@ export function SessionsPage() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      setExportMenu({ session, rect: e.currentTarget.getBoundingClientRect() });
+                    }}
+                    className="p-1.5 text-xs text-muted-foreground rounded-md hover:bg-accent hover:text-foreground transition-colors"
+                    title="导出此会话"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setDeleteTarget(session.filePath);
                       setDeleteTargetSessionId(session.sessionId);
                     }}
@@ -399,9 +578,12 @@ export function SessionsPage() {
                 </div>
               </div>
             </div>
-          ))}
+            </div>
+            );
+          })}
         </div>
       )}
+      </div>
 
       {/* Delete confirmation dialog */}
       {deleteTarget && (
@@ -529,6 +711,102 @@ export function SessionsPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 多选底部浮动操作条 */}
+      {selectMode && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-card border border-border rounded-xl shadow-lg px-4 py-2.5">
+          <button
+            onClick={() => {
+              if (selectedSessions.length === filteredSessions.length) {
+                setSelected(new Set());
+              } else {
+                setSelected(new Set(filteredSessions.map((s) => s.filePath)));
+              }
+            }}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            {selectedSessions.length === filteredSessions.length ? "取消全选" : "全选"}
+          </button>
+          <span className="text-sm text-foreground">已选 {selectedSessions.length}</span>
+          <button
+            onClick={(e) => setBatchExportRect(e.currentTarget.getBoundingClientRect())}
+            disabled={batchBusy || selectedSessions.length === 0}
+            className="text-xs px-3 py-1.5 rounded-md border border-border text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            <Download className="w-3.5 h-3.5" />
+            导出
+          </button>
+          <button
+            onClick={() => setBatchDeleteOpen(true)}
+            disabled={batchBusy || selectedSessions.length === 0}
+            className="text-xs px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {batchBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            删除选中
+          </button>
+          <button
+            onClick={exitSelectMode}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            退出
+          </button>
+        </div>
+      )}
+
+      {/* 单会话导出格式浮层 */}
+      {exportMenu && (
+        <ExportFormatMenu
+          anchorRect={exportMenu.rect}
+          onClose={() => setExportMenu(null)}
+          onPick={(fmt) => handleExportSingle(exportMenu.session, fmt)}
+        />
+      )}
+
+      {/* 批量导出格式浮层 */}
+      {batchExportRect && (
+        <ExportFormatMenu
+          anchorRect={batchExportRect}
+          title={`导出选中 ${selectedSessions.length} 个`}
+          onClose={() => setBatchExportRect(null)}
+          onPick={(fmt) => handleBatchExport(fmt)}
+        />
+      )}
+
+      {/* 批量删除确认 */}
+      {batchDeleteOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
+            <h3 className="text-lg font-semibold mb-2">批量删除会话</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              将删除选中的 {selectedSessions.length} 个会话（移入回收站，可在回收站还原）。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setBatchDeleteOpen(false)}
+                disabled={batchBusy}
+                className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={batchBusy}
+                className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {batchBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {batchBusy ? "删除中..." : "删除"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导出错误提示 */}
+      {exportError && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive shadow-lg max-w-md">
+          {exportError}
         </div>
       )}
     </div>

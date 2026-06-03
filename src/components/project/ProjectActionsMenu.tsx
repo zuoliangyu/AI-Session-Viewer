@@ -92,16 +92,14 @@ export function ProjectActionsMenu({
         </button>
       )}
 
-      {/* 删除会话数据（仅 claude） */}
-      {source === "claude" && (
-        <button
-          onClick={() => { onDelete(project); onClose(); }}
-          className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2"
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-          删除会话数据
-        </button>
-      )}
+      {/* 删除会话数据（claude / codex 均支持） */}
+      <button
+        onClick={() => { onDelete(project); onClose(); }}
+        className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+        删除会话数据
+      </button>
 
     </div>,
     document.body

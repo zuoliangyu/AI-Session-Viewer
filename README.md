@@ -26,7 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.14.3）**：修复 v2.12 引入的一个**"加载全部"进度循环波动**回归——长会话（6000+ 消息）在 Linux Web 模式下点"加载全部"时，进度数字会在 `已加载 xx / yy` 的小数和大数之间反复循环、永远不停。根因是 `refreshInBackground` 的尾部静默刷新会把已加载的历史窗口擦回末尾页，与 `handleLoadAll` 的循环互踩；Rocky 上 inotify 比 Windows / macOS 的文件监视事件更频繁，把这个潜伏问题放大暴露。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.15.0）**：新增**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原），并补齐 **Codex 项目删除**。性能与体验上，初次启动新增**扫描进度条**（不再让人误以为卡死）、冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）——几百上千会话切换多选、滚动都恒定流畅。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 截图
 
@@ -148,9 +148,11 @@ environment:
 
 启动即扫描数据源目录，秒开列出所有项目，按最近活跃时间排序，显示每个项目的会话数和最后活跃时间。
 
-- **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径（所有数据源）；Claude 数据源额外支持设置别名、删除会话数据、删除会话数据和源代码
+- **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径（所有数据源）；删除会话数据 **Claude / Codex 均支持**（Codex 含按日期合成的虚拟项目）；设置别名、删除会话数据和源代码仍为 Claude 专属
+- **批量删除项目**：列表右上角「选择」进入多选模式，勾选多个工程后底部操作条一键删除（移入回收站可还原），Claude 可选「同时清理 CC 配置」
 - **工程别名**：设置自定义显示名，不改磁盘目录，删除工程时随目录自动清理
 - **删除源代码保护**：可选连同本地源代码目录一起删，删前自动检查 Git 状态（未提交 / 未推送）并要求输入项目名确认
+- **列表虚拟化**：项目列表按窗口宽度自适应 1~3 列后做行级虚拟化，几百个工程也只渲染可见行，滚动 / 切换多选恒定流畅；首次启动显示扫描进度条
 - **Codex 未归属会话**：codex 数据源中 `cwd` 字段为空的会话（CLI 在无 git/无目录上下文里启动等情况）会按 rollout 文件日期合成虚拟项目，名为「未归属 · YYYY-MM-DD」，侧栏用 `FolderClock` 图标区分，不再被静默丢弃
 
 ### 会话列表
@@ -160,7 +162,10 @@ environment:
 - Claude：Ctrl+C 退出的会话也不会丢失
 - Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）
 - 支持删除会话（带确认弹窗）
+- **会话导出**：单个会话悬停「导出」按钮，选 JSON / Markdown / HTML 任一格式保存；桌面端走系统保存框，Web 端浏览器下载
+- **批量选择**：右上角「选择」进入多选模式，可一次**批量导出**（每会话一个文件）或**批量删除**（移入回收站可还原）多个会话
 - **清理空会话**：存在无消息的空会话时标题栏出现「清理空会话 (N)」，可逐条勾选或全选批量删除
+- **列表虚拟化**：会话列表只渲染可见行，几百上千会话切换多选、滚动都不卡；首次进入显示扫描进度条
 
 ### 标签与别名
 
@@ -396,6 +401,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/sessions` | `source, projectId` | 获取会话列表 |
 | DELETE | `/api/sessions` | `filePath` | 删除会话 |
 | GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
+| GET | `/api/export` | `source, filePath, format` | 导出会话为 JSON / Markdown / HTML |
+| GET | `/api/scan-progress` | — | 冷启动扫描进度 |
 | GET | `/api/search` | `source, query, maxResults` | 全局搜索 |
 | GET | `/api/stats` | `source` | Token 统计汇总（含 cache / cost） |
 | GET | `/api/stats/requests` | `source, projectId?, sessionId?, startDate?, endDate?, model?, page?, pageSize?` | 逐请求账单分页查询 |
@@ -458,6 +465,9 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 项目路径智能解码（文件系统验证）+ 路径不存在警告 + 切换竞态修复
 - [x] Codex Provider 同步工具（rollout / SQLite / global-state 三处元数据对齐 + 自动备份与粒度恢复）
 - [x] 逐请求账单 / 会话级账单徽标 / 项目花费排行 / 缓存命中率走势（内置模型价格表 + 单日按小时聚合 + 可点选 Legend + 进程内 cache 50ms 响应）
+- [x] 会话导出（JSON / Markdown / HTML，单个 + 批量）
+- [x] 批量删除会话 / 项目（移入回收站可还原）+ 补齐 Codex 项目删除
+- [x] 冷启动扫描进度条 + rayon 限流留核给 UI + 会话/项目列表虚拟化（`@tanstack/react-virtual`）
 
 ## Star History
 

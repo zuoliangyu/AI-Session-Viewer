@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.0] - 2026-06-03
+
+### Added
+
+- **会话导出为 JSON / Markdown / HTML**（新增 `crates/session-core/src/export.rs`、`src-tauri/src/commands/export.rs`、`crates/session-web/src/routes/export.rs`、`src/services/exportHelpers.ts`、`src/components/session/ExportFormatMenu.tsx`）：过去会话只能在应用内浏览，无法导出留档。本版本新增导出能力——
+  - 核心渲染 `render_session` 复用既有 `parse_all_messages` 全量读取消息，路径仍经 `validate_session_file` 校验，覆盖全部内容块（text / thinking / tool_use / tool_result / Codex reasoning / function_call / function_call_output）；JSON 为结构化数据，Markdown 按角色标题 + 引用 + fenced 代码块排版，HTML 为单文件自包含（内嵌样式、内容全转义防 XSS）
+  - 会话卡片悬停新增「导出」按钮，点选格式即可保存；Tauri 走系统保存对话框 + 后端写文件，Web 走浏览器 Blob 下载
+  - **批量导出**：进入多选模式后一次导出多个会话（Tauri 选目录后每会话一个文件、文件名自动按别名/首条 Prompt 清洗去重，Web 逐个下载）
+
+- **批量删除会话 / 批量删除项目**（`src/components/session/SessionsPage.tsx`、`src/components/project/ProjectsPage.tsx`）：列表右上角新增「选择」开关，进入多选模式后可勾选多个会话或项目，底部浮动操作条一键批量删除（移入回收站，可还原）。项目批量删除时 Claude 数据源可选「同时清理 CC 配置」。批量删除复用既有单删 API（已正确处理回收站 + 元数据 + 缓存），不新增删除端点。
+
+- **Codex 项目删除**（`crates/session-core/src/provider/codex.rs` 新增 `delete_project`）：此前 `delete_project` 仅 Claude 支持，Codex 项目无法删除。现在 Codex 项目（含 `cwd` 为空、按日期合成的虚拟项目）也能删——遍历该项目的 rollout 文件逐个移入回收站、清理对应会话元数据、失效缓存。Tauri 命令与 Web 路由的 `delete_project` 均接通 codex 分支，单删入口（`ProjectActionsMenu` 的「删除会话数据」）也对 Codex 解锁。
+
+- **冷启动扫描进度**（新增 `crates/session-core/src/scan_progress.rs`、`src-tauri/src/commands/progress.rs`、`crates/session-web/src/routes/progress.rs`、`src/components/common/ScanProgressView.tsx`）：初次启动需并行扫描成百上千个会话文件建缓存，过去这段时间界面只显示静态「加载中…」、用户易误以为卡死。现在三处扫描热点（Claude 项目扫描 / Claude 会话扫描 / Codex 索引构建）按完成数上报全局原子进度，前端加载态轮询 `get_scan_progress` 显示进度条 + `已扫描 / 总数` + 阶段文案 + 已用秒数；缓存命中时延迟 150ms 显示避免一闪而过。
+
+### Changed
+
+- **列表虚拟化：会话页 / 项目页只渲染可见行**（`src/components/session/SessionsPage.tsx`、`src/components/project/ProjectsPage.tsx`，引入既有依赖 `@tanstack/react-virtual`）：之前会话/项目列表未虚拟化，几百张卡片全量挂在 DOM 里，进入/退出多选模式时整列表同步重渲染 + 操作按钮组批量重排，长列表下会明显卡顿甚至卡死。本版本两页都改造为内部滚动容器 + 虚拟化——会话页单列纵向虚拟化（`measureElement` 动态测量变高卡片），项目页按容器宽度自适应列数（1~3）后对「行」做虚拟化。配合把 `date-fns` 日期格式化预计算缓存（`useMemo`，仅列表变化时重算），切换多选模式与滚动均为恒定开销、不再随数据量增长。页头与标签栏改为固定不滚动（与逐请求账单页一致）。
+
+- **冷启动 CPU 限流：rayon 全局线程池留一核给 UI**（`crates/session-core/src/scan_progress.rs` 的 `configure_rayon_pool`，在 `src-tauri/src/lib.rs` 与 `crates/session-web/src/main.rs` 启动时调用）：冷启动并行扫描默认吃满全部 CPU 核，导致 webview 主线程被饿死、界面（甚至整机）卡顿、连进度条都画不动。现在把 rayon 全局线程池限制为「核数 − 1」（至少 1），扫描时 UI 始终可响应，代价是扫描略微变慢。
+
+### Version
+
+- 将工作区版本统一提升到 `2.15.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.14.4] - 2026-06-01
 
 ### Added

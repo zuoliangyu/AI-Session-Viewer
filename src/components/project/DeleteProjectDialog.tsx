@@ -5,12 +5,15 @@ import type { DeleteLevel } from "../../types";
 
 interface DeleteProjectDialogProps {
   project: ProjectEntry;
+  /** 数据源；非 claude 时隐藏「清理 CC 配置」选项（codex 无此配置）。 */
+  source?: string;
   onConfirm: (level: DeleteLevel) => Promise<void>;
   onCancel: () => void;
 }
 
 export function DeleteProjectDialog({
   project,
+  source = "claude",
   onConfirm,
   onCancel,
 }: DeleteProjectDialogProps) {
@@ -41,7 +44,8 @@ export function DeleteProjectDialog({
           将删除 {project.sessionCount} 个会话记录
         </p>
 
-        {/* Level 2 复选框 */}
+        {/* Level 2 复选框（仅 claude 有 CC 配置） */}
+        {source === "claude" && (
         <label className="flex items-start gap-2 cursor-pointer mb-4 group">
           <input
             type="checkbox"
@@ -59,6 +63,7 @@ export function DeleteProjectDialog({
             )}
           </span>
         </label>
+        )}
 
         <div className="flex justify-end gap-2">
           <button

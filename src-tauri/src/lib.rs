@@ -6,6 +6,9 @@ use session_core::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 给 UI 主线程留一个 CPU 核，避免冷启动并行扫描吃满 CPU 导致界面卡顿。
+    session_core::scan_progress::configure_rayon_pool();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
@@ -28,6 +31,9 @@ pub fn run() {
             commands::sessions::get_cross_project_tags,
             commands::messages::get_messages,
             commands::messages::get_messages_range,
+            commands::export::export_session,
+            commands::export::write_export_file,
+            commands::progress::get_scan_progress,
             commands::search::global_search,
             commands::stats::get_stats,
             commands::stats::get_request_log,

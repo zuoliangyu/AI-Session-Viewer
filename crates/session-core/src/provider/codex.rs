@@ -695,10 +695,18 @@ fn project_key_for(fm: &CodexFileMeta) -> String {
 /// This is the only place that opens every file; the project/session lists are
 /// then derived from this in-memory index.
 fn build_file_index() -> Vec<CodexFileMeta> {
-    scan_all_session_files()
+    let files = scan_all_session_files();
+    crate::scan_progress::begin(crate::scan_progress::Phase::Index, files.len() as u64);
+    let index = files
         .into_par_iter()
-        .filter_map(|file_path| file_meta_for(&file_path))
-        .collect()
+        .filter_map(|file_path| {
+            let meta = file_meta_for(&file_path);
+            crate::scan_progress::inc();
+            meta
+        })
+        .collect();
+    crate::scan_progress::finish();
+    index
 }
 
 /// Incrementally update the index for changed rollout files (called by the fs
@@ -877,6 +885,60 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
     }
 
     refresh_projects_cache()
+}
+
+/// 删除一个 Codex「项目」。Codex 的会话是散落在 `<year>/<month>/<day>/` 下的
+/// 独立 rollout 文件，没有 Claude 那样的项目目录，所以删除即把该项目下每个
+/// rollout 文件移入回收站（可还原），并清理对应会话元数据。
+///
+/// `project_id` 可以是真实 cwd，也可以是 `<codex-unrooted>/DATE` 虚拟桶。
+/// 复用 [`super::claude::DeleteResult`] 作为统一返回类型（codex 无 cc 配置 /
+/// 书签清理，对应字段恒为 false / 0）。
+pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, String> {
+    if project_id.is_empty() {
+        return Err("Invalid project id".to_string());
+    }
+
+    let sessions = get_sessions(project_id)?;
+
+    // 回收站条目展示用的项目名：虚拟桶用其日期描述，真实 cwd 取末段目录名。
+    let project_name = match parse_virtual_project_id(project_id) {
+        Some(date) => format!("未归属 · {date}"),
+        None => short_name_from_path(project_id),
+    };
+
+    let mut sessions_deleted = 0;
+    for s in &sessions {
+        let path = Path::new(&s.file_path);
+        if !path.exists() {
+            continue;
+        }
+        match crate::recyclebin::move_to_recyclebin(
+            path,
+            "project",
+            "ManualDelete",
+            "codex",
+            project_id,
+            None,
+            Some(project_name.clone()),
+        ) {
+            Ok(_) => {
+                sessions_deleted += 1;
+                let _ = crate::metadata::remove_session_meta("codex", project_id, &s.session_id);
+            }
+            Err(e) => {
+                eprintln!("[codex::delete_project] Failed to recycle {:?}: {}", path, e);
+            }
+        }
+    }
+
+    invalidate_sessions_cache();
+
+    Ok(super::claude::DeleteResult {
+        sessions_deleted,
+        config_cleaned: false,
+        bookmarks_removed: 0,
+    })
 }
 
 pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {

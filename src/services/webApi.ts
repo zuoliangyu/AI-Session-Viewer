@@ -12,6 +12,8 @@ import type {
   Bookmark,
   DeleteLevel,
   DeleteResult,
+  ExportFormat,
+  ScanProgress,
   RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
@@ -316,6 +318,41 @@ export async function deleteProject(
   level: DeleteLevel = "sessionOnly"
 ): Promise<DeleteResult> {
   return await apiDelete<DeleteResult>("/api/projects", { source, projectId, level });
+}
+
+export async function exportSession(
+  source: string,
+  filePath: string,
+  format: ExportFormat
+): Promise<string> {
+  // 导出端点返回 text/plain 正文（非 JSON），单独处理。
+  const url = new URL("/api/export", window.location.origin);
+  url.searchParams.set("source", source);
+  url.searchParams.set("filePath", filePath);
+  url.searchParams.set("format", format);
+
+  const resp = await withAuthRetry(() =>
+    fetch(url.toString(), { headers: applyAuthHeader({}) }),
+  );
+
+  if (resp.status === 401) {
+    throw new Error("Authentication required");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || resp.statusText);
+  }
+  return resp.text();
+}
+
+// Web 模式不写本地文件——导出通过浏览器 Blob 下载完成。保留此导出仅为与
+// tauriApi 的类型对齐（api.ts 把 webApi 结构性当作 tauriApi）；不应被调用。
+export async function writeExportFile(_path: string, _content: string): Promise<void> {
+  throw new Error("writeExportFile is not supported in web mode");
+}
+
+export async function getScanProgress(): Promise<ScanProgress> {
+  return apiFetch<ScanProgress>("/api/scan-progress");
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {

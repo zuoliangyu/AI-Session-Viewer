@@ -205,6 +205,17 @@ export interface Bookmark {
 
 export type DeleteLevel = "sessionOnly" | "withCcConfig";
 
+/** 会话导出格式。 */
+export type ExportFormat = "json" | "markdown" | "html";
+
+/** 冷启动扫描进度快照。 */
+export interface ScanProgress {
+  active: boolean;
+  scanned: number;
+  total: number;
+  phase: string;
+}
+
 export interface DeleteResult {
   sessionsDeleted: number;
   configCleaned: boolean;

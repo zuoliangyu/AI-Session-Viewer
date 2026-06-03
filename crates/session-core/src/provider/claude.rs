@@ -12,6 +12,7 @@ use crate::models::session::{
     SessionIndexEntry, SessionStatus, SessionsIndex, SessionsIndexFileEntry,
 };
 use crate::parser::jsonl as claude_parser;
+use crate::scan_progress::{self, Phase};
 use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
@@ -406,9 +407,11 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
         .collect();
 
     // Parallel processing: read index.json + count files for each project dir
+    scan_progress::begin(Phase::Projects, dir_entries.len() as u64);
     let mut projects: Vec<ProjectEntry> = dir_entries
         .into_par_iter()
         .filter_map(|path| {
+            let result = (|| {
             let encoded_name = path.file_name().and_then(|n| n.to_str())?.to_string();
 
             let parsed_index = read_sessions_index(&path);
@@ -463,8 +466,12 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
                 path_exists,
                 is_virtual: false,
             })
+            })();
+            scan_progress::inc();
+            result
         })
         .collect();
+    scan_progress::finish();
 
     projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
     Ok(projects)
@@ -633,10 +640,17 @@ fn scan_project_dir_all(project_dir: &Path) -> Vec<SessionIndexEntry> {
         Err(_) => return Vec::new(),
     };
 
-    entries
+    scan_progress::begin(Phase::Sessions, entries.len() as u64);
+    let result = entries
         .into_par_iter()
-        .filter_map(scan_single_session_file)
-        .collect()
+        .filter_map(|p| {
+            let entry = scan_single_session_file(p);
+            scan_progress::inc();
+            entry
+        })
+        .collect();
+    scan_progress::finish();
+    result
 }
 
 /// 扫描单个文件，返回带 status 的 entry；不是合法 .jsonl 或无法读取返回 None。

@@ -607,6 +607,7 @@ export function Sidebar() {
       {deleteTarget && (
         <DeleteProjectDialog
           project={deleteTarget}
+          source={source}
           onConfirm={async (level) => {
             await deleteProject(deleteTarget.id, level);
             setDeleteTarget(null);

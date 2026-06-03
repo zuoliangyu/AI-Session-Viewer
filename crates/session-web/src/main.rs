@@ -257,6 +257,9 @@ async fn list_models_handler(
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // 给请求处理线程留一个 CPU 核，避免冷启动并行扫描吃满 CPU。
+    session_core::scan_progress::configure_rayon_pool();
+
     let config = Config::parse();
 
     // Start file watcher
@@ -288,6 +291,8 @@ async fn main() {
             "/api/messages/range",
             get(routes::messages::get_messages_range),
         )
+        .route("/api/export", get(routes::export::export_session))
+        .route("/api/scan-progress", get(routes::progress::get_scan_progress))
         .route("/api/search", get(routes::search::global_search))
         .route("/api/stats", get(routes::stats::get_stats))
         .route("/api/stats/requests", get(routes::stats::get_request_log))

@@ -13,6 +13,8 @@ import type {
   Bookmark,
   DeleteLevel,
   DeleteResult,
+  ExportFormat,
+  ScanProgress,
   RecycledItem,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
@@ -143,6 +145,25 @@ export async function deleteProject(
   level: DeleteLevel = "sessionOnly"
 ): Promise<DeleteResult> {
   return invoke<DeleteResult>("delete_project", { source, projectId, level });
+}
+
+export async function exportSession(
+  source: string,
+  filePath: string,
+  format: ExportFormat
+): Promise<string> {
+  return invoke<string>("export_session", { source, filePath, format });
+}
+
+export async function writeExportFile(
+  path: string,
+  content: string
+): Promise<void> {
+  return invoke<void>("write_export_file", { path, content });
+}
+
+export async function getScanProgress(): Promise<ScanProgress> {
+  return invoke<ScanProgress>("get_scan_progress");
 }
 
 export async function updateSessionMeta(
