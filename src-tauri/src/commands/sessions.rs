@@ -75,24 +75,37 @@ pub fn delete_session(
     project_id: String,
     session_id: String,
 ) -> Result<(), String> {
-    // Reject paths that aren't an actual `.jsonl` under the source's
-    // allowed root, plus session_ids with path-traversal characters. Without
-    // this, the frontend (or anything that can talk to Tauri's IPC) could
-    // hand us a path like `~/.ssh/id_rsa` and we'd happily move it to the
-    // recycle bin.
-    let path = validate_session_file(&source, &file_path)?;
+    // Reject session_ids with path-traversal characters before doing anything
+    // with the provided identifiers.
     validate_session_id(&session_id)?;
 
-    // 移入回收站而非直接删除
-    recyclebin::move_to_recyclebin(
-        &path,
-        "session",
-        "ManualDelete",
-        &source,
-        &project_id,
-        None,
-        None,
-    )?;
+    // Reject paths that aren't an actual `.jsonl` under the source's allowed
+    // root. Without this, the frontend (or anything that can talk to Tauri's
+    // IPC) could hand us a path like `~/.ssh/id_rsa` and we'd happily move it
+    // to the recycle bin.
+    match validate_session_file(&source, &file_path) {
+        Ok(path) => {
+            // File is present → move it to the recycle bin (restorable).
+            recyclebin::move_to_recyclebin(
+                &path,
+                "session",
+                "ManualDelete",
+                &source,
+                &project_id,
+                None,
+                None,
+            )?;
+        }
+        // The rollout file is already gone — e.g. the conversation was archived
+        // or deleted in Codex desktop while it still lingered in our in-memory
+        // index. There's nothing to recycle, so treat this as an idempotent
+        // delete: fall through to purge the stale metadata + caches so the
+        // ghost entry can finally be cleared from the list. Any *other*
+        // validation failure (wrong extension, path outside the allowed root,
+        // a file that genuinely exists but is rejected) is still surfaced.
+        Err(_) if !std::path::Path::new(&file_path).exists() => {}
+        Err(e) => return Err(e),
+    }
 
     // Clean up metadata
     let _ = metadata::remove_session_meta(&source, &project_id, &session_id);

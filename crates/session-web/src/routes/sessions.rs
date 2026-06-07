@@ -119,10 +119,29 @@ pub async fn delete_session(
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "source is required".to_string()))?;
     let source_kind = SessionSource::parse(&source)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    let resolved_path = resolve_session_file_path(&source, &params.file_path)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let project_id = params.project_id;
     let session_id = params.session_id;
+
+    let resolved_path = match resolve_session_file_path(&source, &params.file_path) {
+        Ok(path) => path,
+        // The rollout file is already gone — e.g. the conversation was archived
+        // or deleted in Codex desktop while it still lingered in our cache.
+        // Treat this as an idempotent delete: purge the stale metadata + cache
+        // so the ghost entry disappears from the list, then return success.
+        // Any other validation failure (wrong extension, path outside the
+        // allowed root) is still surfaced as a 400.
+        Err(_) if !std::path::Path::new(&params.file_path).exists() => {
+            if let (Some(pid), Some(sid)) = (project_id.as_ref(), session_id.as_ref()) {
+                let _ = metadata::remove_session_meta(&source, pid, sid);
+            }
+            match source_kind {
+                SessionSource::Claude => claude::invalidate_cache(),
+                SessionSource::Codex => codex::invalidate_sessions_cache(),
+            }
+            return Ok(Json(()));
+        }
+        Err(e) => return Err((StatusCode::BAD_REQUEST, e)),
+    };
 
     match source_kind {
         SessionSource::Claude => {

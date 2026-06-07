@@ -808,6 +808,14 @@ fn project_files(cwd: &str) -> Vec<CodexFileMeta> {
     load_or_build_file_index()
         .into_iter()
         .filter(|fm| file_matches_project(fm, cwd, virtual_date))
+        // Self-heal stale index entries: a rollout deleted out from under us
+        // (e.g. archived/removed in Codex desktop while the app was closed, or
+        // a filesystem event the watcher missed) would otherwise linger here
+        // and render as a "(无标题) · 0 条消息" ghost the user can't get rid of.
+        // The callers already open every file they keep, so this extra `exists`
+        // stat is negligible. Indexed paths are concrete files (no glob), so
+        // `Path::exists` is the right check.
+        .filter(|fm| Path::new(&fm.path).exists())
         .collect()
 }
 
@@ -817,6 +825,14 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
 
     for fm in &index {
         if !fm.is_interactive {
+            continue;
+        }
+
+        // Drop entries whose rollout file has since vanished (archived/deleted
+        // in Codex desktop, etc.) so a ghost project/session-count doesn't
+        // outlive the file. Mirrors the self-heal in `project_files`; this scan
+        // only runs on a cold/invalidated cache, so the extra stat is cheap.
+        if !Path::new(&fm.path).exists() {
             continue;
         }
 

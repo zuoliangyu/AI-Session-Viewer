@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.1] - 2026-06-07
+
+### Fixed
+
+- **Codex 已删除会话残留为「(无标题)」幽灵条目且无法删除**（`src-tauri/src/commands/sessions.rs`、`crates/session-web/src/routes/sessions.rs`、`crates/session-core/src/provider/codex.rs`）：在 Codex desktop 里归档/删除某个会话后，其 rollout 文件已从磁盘移除，但 ASV 内存索引里的条目仍在，渲染成「(无标题) · 0 条消息」；点删除时 `delete_session` 走 `validate_session_file → canonicalize` 在缺失文件上直接报错，前端 `catch` 只打日志、不移除条目，于是这条幽灵永远清不掉。本版本——
+  - 让删除对「文件已不存在」幂等：文件在则照常移入回收站，文件已消失则跳过回收、清理元数据 + 失效缓存后返回成功，幽灵条目随之从列表移除（其它校验失败如非 `.jsonl` / 越权路径仍照常报错）；Tauri 与 Web 两条删除路径同步处理。
+  - 列表自愈：`project_files` 与 `scan_projects_from_meta` 跳过索引中指向已消失文件的条目，刷新即自动剔除幽灵，无需手动删或重启。
+
+- **全新 checkout 下 `cargo clippy --workspace` 因缺 `dist/` 编译失败**（新增 `crates/session-web/build.rs`）：`session-web` 用 rust-embed `#[folder = "../../dist"]` 内嵌前端，该 derive 在编译期要求目录存在，但 `dist/` 被 gitignore、只有构建前端才生成，导致未先建前端就跑 workspace 级 clippy / check 会失败（正是 CLAUDE.md 推荐的验证命令）。新增 `build.rs` 在编译前兜底创建空 `dist/` 目录；真实打包时前端产物已先写入，build.rs 自动跳过，对打包零影响。
+
+### Version
+
+- 将工作区版本统一提升到 `2.15.1`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.15.0] - 2026-06-03
 
 ### Added
