@@ -26,9 +26,9 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.15.1）**：修复在 **Codex desktop 中归档 / 删除的会话**在本应用残留为「(无标题) · 0 条消息」幽灵条目、且点删除无反应的问题——删除现对「文件已消失」幂等，列表也会在刷新时自动剔除失效条目。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.16.0）**：新增 **Skills 浏览 / 查看 / 导入 / 删除**——独立 Skills 页 + 会话页内嵌折叠面板，统一查看全局（`~/.claude/skills/`，跟随软链）、插件（`~/.claude/plugins/`）与当前项目级 skills；点开看完整 `SKILL.md`，支持导入 `.zip`（全局 / 项目，可覆盖同名、防 zip-slip）与删除（软链只移除链接、真实目录永久删除）。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
-> v2.15.0 起：**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
+> v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
 
 ## 截图
 
@@ -252,6 +252,20 @@ environment:
 - 支持 `--resume` 续聊已有会话（消息详情页「继续对话」入口）
 - 自动记住上次模型、续聊历史会话时自动匹配原会话模型；`/model` 或 `Ctrl+K` 切换模型
 
+### Skills 浏览 / 导入 / 删除
+
+侧边栏「Skills」进入独立页面，会话页顶部也内嵌一个可折叠 Skills 面板，统一查看 Claude Code 的三类 skills：
+
+| 来源 | 路径 | 可写 |
+|------|------|------|
+| **全局** | `~/.claude/skills/`（**跟随符号链接**，正确收录 `lark-*` 等软链） | ✅ |
+| **插件** | `~/.claude/plugins/{marketplaces,cache}/**/SKILL.md`（按 name 去重） | 只读 |
+| **项目级** | `<当前项目>/.claude/skills/`（取应用内正在浏览项目的真实路径） | ✅ |
+
+- **查看全文**：点击任一 skill 弹窗渲染完整 `SKILL.md`（Markdown，自动剥离 frontmatter），可复制路径
+- **导入压缩包**：选作用域（全局 / 当前项目）+ 选 `.zip` + 可勾「覆盖同名」；自动识别根级 `SKILL.md`（整包为一个 skill）或多个 `<子目录>/SKILL.md`（逐个导入），内置 zip-slip 防护
+- **删除**（仅全局 / 项目，插件只读不动）：悬停删除 + 二次确认；**符号链接只移除链接、保留原始文件**，真实目录永久删除并提示不可恢复
+
 ### 无效项管理
 
 侧边栏「无效项管理」按项目分组扫描异常数据（无效项目 = 路径不存在；无效会话 = 消息数为 0），批量勾选后统一清理。桌面端删除入回收站，Web 端为永久删除。
@@ -405,6 +419,10 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
 | GET | `/api/export` | `source, filePath, format` | 导出会话为 JSON / Markdown / HTML |
 | GET | `/api/scan-progress` | — | 冷启动扫描进度 |
+| GET | `/api/skills` | `projectPath?` | 列出全局 / 插件 / 项目级 skills |
+| GET | `/api/skills/content` | `path` | 读取单个 `SKILL.md` 全文 |
+| POST | `/api/skills/import` | `scope, projectPath?, overwrite?, archiveName?` + *(zip body)* | 导入 skill 压缩包 |
+| DELETE | `/api/skills` | `scope, projectPath?, slug` | 删除全局 / 项目 skill |
 | GET | `/api/search` | `source, query, maxResults` | 全局搜索 |
 | GET | `/api/stats` | `source` | Token 统计汇总（含 cache / cost） |
 | GET | `/api/stats/requests` | `source, projectId?, sessionId?, startDate?, endDate?, model?, page?, pageSize?` | 逐请求账单分页查询 |
@@ -470,6 +488,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 会话导出（JSON / Markdown / HTML，单个 + 批量）
 - [x] 批量删除会话 / 项目（移入回收站可还原）+ 补齐 Codex 项目删除
 - [x] 冷启动扫描进度条 + rayon 限流留核给 UI + 会话/项目列表虚拟化（`@tanstack/react-virtual`）
+- [x] Skills 浏览 / 查看全文 / 导入压缩包 / 删除（全局 + 插件 + 项目级，软链安全 + zip-slip 防护）
 
 ## Star History
 

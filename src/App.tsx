@@ -47,6 +47,10 @@ const ProviderSyncPage = lazy(async () => {
   const module = await import("./components/provider-sync/ProviderSyncPage");
   return { default: module.ProviderSyncPage };
 });
+const SkillsPage = lazy(async () => {
+  const module = await import("./components/skills/SkillsPage");
+  return { default: module.SkillsPage };
+});
 
 function RouteFallback() {
   return (
@@ -144,6 +148,14 @@ function App() {
           element={
             <LazyRoute>
               <ProviderSyncPage />
+            </LazyRoute>
+          }
+        />
+        <Route
+          path="/skills"
+          element={
+            <LazyRoute>
+              <SkillsPage />
             </LazyRoute>
           }
         />

@@ -14,5 +14,6 @@ pub mod provider_sync;
 pub mod recyclebin;
 pub mod scan_progress;
 pub mod search;
+pub mod skills;
 pub mod state;
 pub mod stats;

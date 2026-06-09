@@ -7,4 +7,5 @@ pub mod provider_sync;
 pub mod recyclebin;
 pub mod search;
 pub mod sessions;
+pub mod skills;
 pub mod stats;

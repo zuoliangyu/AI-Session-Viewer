@@ -37,7 +37,7 @@ dependencies = [
 
 [[package]]
 name = "ai-session-viewer"
-version = "2.15.0"
+version = "2.15.1"
 dependencies = [
  "chrono",
  "libc",
@@ -2414,6 +2414,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "noyalib"
+version = "0.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e493c05128df7a83b9676b709d590e0ebc285c7ed3152bc679668e8c1e506af5"
+dependencies = [
+ "indexmap 2.13.0",
+ "memchr",
+ "rustc-hash",
+ "serde",
+ "smallvec",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3945,6 +3958,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yml"
+version = "0.0.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909764a65f86829ccdb5eea9ab355843aa02c019a7bfd47465092953565caa05"
+dependencies = [
+ "noyalib",
+ "serde",
+]
+
+[[package]]
 name = "serialize-to-javascript"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3978,7 +4001,7 @@ dependencies = [
 
 [[package]]
 name = "session-core"
-version = "2.15.0"
+version = "2.15.1"
 dependencies = [
  "chrono",
  "dirs",
@@ -3991,15 +4014,17 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "serde_yml",
  "tokio",
  "tokio-util",
  "toml 0.8.2",
  "uuid",
+ "zip 2.4.2",
 ]
 
 [[package]]
 name = "session-web"
-version = "2.15.0"
+version = "2.15.1"
 dependencies = [
  "axum",
  "clap",
@@ -4592,7 +4617,7 @@ dependencies = [
  "tokio",
  "url",
  "windows-sys 0.60.2",
- "zip",
+ "zip 4.6.1",
 ]
 
 [[package]]
@@ -6338,6 +6363,23 @@ dependencies = [
 
 [[package]]
 name = "zip"
+version = "2.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fabe6324e908f85a1c52063ce7aa26b68dcb7eb6dbc83a2d148403c9bc3eba50"
+dependencies = [
+ "arbitrary",
+ "crc32fast",
+ "crossbeam-utils",
+ "displaydoc",
+ "flate2",
+ "indexmap 2.13.0",
+ "memchr",
+ "thiserror 2.0.18",
+ "zopfli",
+]
+
+[[package]]
+name = "zip"
 version = "4.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "caa8cd6af31c3b31c6631b8f483848b91589021b28fffe50adada48d4f4d2ed1"
@@ -6353,6 +6395,18 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zopfli"
+version = "0.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05cd8797d63865425ff89b5c4a48804f35ba0ce8d125800027ad6017d2b5249"
+dependencies = [
+ "bumpalo",
+ "crc32fast",
+ "log",
+ "simd-adler32",
+]
 
 [[package]]
 name = "zstd"

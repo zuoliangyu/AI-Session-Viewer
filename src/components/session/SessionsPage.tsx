@@ -24,6 +24,7 @@ import { api } from "../../services/api";
 import { SessionMetaEditor } from "./SessionMetaEditor";
 import { ExportFormatMenu } from "./ExportFormatMenu";
 import { ScanProgressView } from "../common/ScanProgressView";
+import { ProjectSkillsPanel } from "../skills/ProjectSkillsPanel";
 import { saveExport, saveExportMany } from "../../services/exportHelpers";
 import type { ExportFormat, SessionIndexEntry } from "../../types";
 
@@ -365,6 +366,11 @@ export function SessionsPage() {
           {resumeError}
         </div>
       )}
+
+      {/* 项目 / 全局 Skills（折叠，展开时才扫描） */}
+      <ProjectSkillsPanel
+        projectPath={project && !project.isVirtual ? project.displayPath : null}
+      />
 
       </div>
 

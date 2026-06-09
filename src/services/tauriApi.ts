@@ -16,6 +16,9 @@ import type {
   ExportFormat,
   ScanProgress,
   RecycledItem,
+  SkillsResult,
+  ImportResult,
+  SkillScope,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
 import type {
@@ -164,6 +167,39 @@ export async function writeExportFile(
 
 export async function getScanProgress(): Promise<ScanProgress> {
   return invoke<ScanProgress>("get_scan_progress");
+}
+
+// Skills API
+export async function listSkills(projectPath?: string | null): Promise<SkillsResult> {
+  return invoke<SkillsResult>("list_skills", { projectPath: projectPath ?? null });
+}
+
+export async function getSkillContent(path: string): Promise<string> {
+  return invoke<string>("get_skill_content", { path });
+}
+
+export async function deleteSkill(
+  scope: SkillScope,
+  projectPath: string | null,
+  slug: string,
+): Promise<void> {
+  return invoke<void>("delete_skill", { scope, projectPath: projectPath ?? null, slug });
+}
+
+/** In Tauri mode `archive` is the absolute path to the .zip on disk. */
+export async function importSkills(
+  archive: File | string,
+  scope: SkillScope,
+  projectPath: string | null,
+  overwrite: boolean,
+): Promise<ImportResult> {
+  const archivePath = typeof archive === "string" ? archive : "";
+  return invoke<ImportResult>("import_skills", {
+    archivePath,
+    scope,
+    projectPath: projectPath ?? null,
+    overwrite,
+  });
 }
 
 export async function updateSessionMeta(

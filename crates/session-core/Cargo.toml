@@ -1,6 +1,6 @@
 [package]
 name = "session-core"
-version = "2.15.1"
+version = "2.16.0"
 edition = "2021"
 
 [dependencies]
@@ -16,6 +16,8 @@ tokio = { version = "1", features = ["rt", "process", "io-util", "sync", "macros
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 toml = "0.8"
+serde_yml = "0.0"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 filetime = "0.2"

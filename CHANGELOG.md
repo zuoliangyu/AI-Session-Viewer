@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.0] - 2026-06-09
+
+### Added
+
+- **Skills 浏览 / 查看 / 导入 / 删除**（新增 `crates/session-core/src/skills.rs`、`crates/session-core/src/models/skill.rs`、`src-tauri/src/commands/skills.rs`、`crates/session-web/src/routes/skills.rs`、`src/components/skills/`）：Claude Code 的 skills 此前在本应用中完全不可见。本版本新增独立 **Skills 页**（侧边栏入口）与会话页内嵌的**可折叠 Skills 面板**，统一查看三类来源——
+  - **三类来源**：全局 `~/.claude/skills/`（**跟随符号链接**，正确收录 `lark-*` 这类软链）、插件 `~/.claude/plugins/{marketplaces,cache}/**/SKILL.md`（按 name 去重，避免市场克隆与缓存副本重复）、项目级 `<当前项目>/.claude/skills/`（取应用内正在浏览项目的真实路径）。frontmatter 用 `serde_yml` 只解析 `name` / `description`，忽略 `metadata` / `allowed-tools` 等其它键
+  - **查看全文**：点击任一 skill 弹窗渲染完整 `SKILL.md`（复用既有 Markdown 渲染、自动剥离 frontmatter），可复制路径
+  - **导入压缩包**：Standard 页「导入」支持选作用域（全局 / 当前项目）+ 选 `.zip` + 可勾「覆盖同名」，自动识别根级 `SKILL.md`（整包为一个 skill）或多个 `<子目录>/SKILL.md`（逐个导入）；用 `enclosed_name()` + 落地路径二次校验防 zip-slip。Tauri 走文件对话框取路径、Web 走原始字节 body（`POST /api/skills/import`，免 base64/multipart，body 上限提至 100MB）
+  - **删除**（仅全局 / 项目，插件只读不动）：卡片悬停出现删除入口 + 二次确认。**符号链接安全**——软链只移除链接、保留目标（确认框明确提示）；真实目录递归永久删除并提示不可恢复
+  - 后端删除按 `(scope, project_path, slug)` 反推路径，`slug` 必须为单段路径组件（防 `..` / 路径穿越），插件作用域直接拒绝；读取内容的路径校验拒绝 `..`、限定在 `~/.claude` 内或含 `.claude/skills` 段
+
+### Version
+
+- 将工作区版本统一提升到 `2.16.0`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.15.1] - 2026-06-07
 
 ### Fixed

@@ -13,6 +13,39 @@ export interface ProjectEntry {
   isVirtual?: boolean;
 }
 
+/** A discovered skill (one `SKILL.md` directory). Mirrors the Rust
+ *  `SkillEntry` in session-core. */
+export interface SkillEntry {
+  name: string;
+  description: string;
+  /** Absolute path to the skill's SKILL.md. */
+  path: string;
+  scope: "global" | "project" | "plugin";
+  /** For plugin skills: the marketplace / source dir name. */
+  sourceLabel: string | null;
+  slug: string;
+  /** True when the skill dir is a symlink (deleting only removes the link). */
+  isSymlink: boolean;
+}
+
+/** Grouped result of a skills scan. Mirrors Rust `SkillsResult`. */
+export interface SkillsResult {
+  global: SkillEntry[];
+  plugin: SkillEntry[];
+  project: SkillEntry[];
+  projectPath: string | null;
+}
+
+/** Outcome of importing skills from an archive. Mirrors Rust `ImportResult`. */
+export interface ImportResult {
+  imported: string[];
+  skipped: string[];
+  errors: string[];
+}
+
+/** Writable skill scopes (plugin skills are read-only here). */
+export type SkillScope = "global" | "project";
+
 /** Scan-time health classification of a session file.
  *  - `valid`   — has messages and JSONL parsed cleanly.
  *  - `empty`   — file exists but has no user/assistant messages.

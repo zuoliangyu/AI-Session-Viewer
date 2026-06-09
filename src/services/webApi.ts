@@ -15,6 +15,9 @@ import type {
   ExportFormat,
   ScanProgress,
   RecycledItem,
+  SkillsResult,
+  ImportResult,
+  SkillScope,
 } from "../types";
 import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, CliConfig } from "../types/chat";
 import type {
@@ -353,6 +356,73 @@ export async function writeExportFile(_path: string, _content: string): Promise<
 
 export async function getScanProgress(): Promise<ScanProgress> {
   return apiFetch<ScanProgress>("/api/scan-progress");
+}
+
+// Skills API
+export async function listSkills(projectPath?: string | null): Promise<SkillsResult> {
+  const params: Record<string, string> = {};
+  if (projectPath) params.projectPath = projectPath;
+  return apiFetch("/api/skills", params);
+}
+
+export async function getSkillContent(path: string): Promise<string> {
+  // 内容端点返回 text/plain 正文（非 JSON），单独处理。
+  const url = new URL("/api/skills/content", window.location.origin);
+  url.searchParams.set("path", path);
+  const resp = await withAuthRetry(() =>
+    fetch(url.toString(), { headers: applyAuthHeader({}) }),
+  );
+  if (resp.status === 401) {
+    throw new Error("Authentication required");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || resp.statusText);
+  }
+  return resp.text();
+}
+
+export async function deleteSkill(
+  scope: SkillScope,
+  projectPath: string | null,
+  slug: string,
+): Promise<void> {
+  const params: Record<string, string> = { scope, slug };
+  if (projectPath) params.projectPath = projectPath;
+  await apiDelete("/api/skills", params);
+}
+
+/** In web mode `archive` must be a File; its raw bytes are POSTed as the body. */
+export async function importSkills(
+  archive: File | string,
+  scope: SkillScope,
+  projectPath: string | null,
+  overwrite: boolean,
+): Promise<ImportResult> {
+  if (typeof archive === "string") {
+    throw new Error("Web 模式导入需要选择文件");
+  }
+  const url = new URL("/api/skills/import", window.location.origin);
+  url.searchParams.set("scope", scope);
+  if (projectPath) url.searchParams.set("projectPath", projectPath);
+  url.searchParams.set("overwrite", String(overwrite));
+  url.searchParams.set("archiveName", archive.name);
+
+  const resp = await withAuthRetry(() =>
+    fetch(url.toString(), {
+      method: "POST",
+      headers: applyAuthHeader({ "Content-Type": "application/octet-stream" }),
+      body: archive,
+    }),
+  );
+  if (resp.status === 401) {
+    throw new Error("Authentication required");
+  }
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text || resp.statusText);
+  }
+  return resp.json();
 }
 
 async function apiPut<T>(path: string, body: unknown): Promise<T> {

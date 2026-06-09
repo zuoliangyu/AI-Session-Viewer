@@ -41,6 +41,7 @@ import {
   Star,
   FolderX,
   Repeat,
+  Sparkles,
 } from "lucide-react";
 
 declare const __IS_TAURI__: boolean;
@@ -178,6 +179,17 @@ export function Sidebar() {
           >
             <BarChart3 className="w-4 h-4" />
             使用统计
+          </button>
+          <button
+            onClick={() => navigate("/skills")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+              isActive("/skills")
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            Skills
           </button>
           <button
             onClick={() => navigate("/bookmarks")}

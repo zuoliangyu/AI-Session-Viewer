@@ -294,6 +294,10 @@ async fn main() {
         .route("/api/export", get(routes::export::export_session))
         .route("/api/scan-progress", get(routes::progress::get_scan_progress))
         .route("/api/search", get(routes::search::global_search))
+        .route("/api/skills", get(routes::skills::list_skills))
+        .route("/api/skills", delete(routes::skills::delete_skill))
+        .route("/api/skills/content", get(routes::skills::get_skill_content))
+        .route("/api/skills/import", post(routes::skills::import_skills))
         .route("/api/stats", get(routes::stats::get_stats))
         .route("/api/stats/requests", get(routes::stats::get_request_log))
         .route("/api/stats/projects", get(routes::stats::get_project_costs))
@@ -342,6 +346,8 @@ async fn main() {
         // standard Bearer header. Used by browsers to upgrade to WebSocket
         // without leaking the long-lived token through the URL.
         .route("/api/auth/ws-ticket", post(issue_ws_ticket))
+        // Skill archive uploads can exceed the 2MB default body limit.
+        .layer(axum::extract::DefaultBodyLimit::max(100 * 1024 * 1024))
         .layer(middleware::from_fn(check_auth));
 
     // WebSocket route (with auth via query param or header)
