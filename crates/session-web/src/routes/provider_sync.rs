@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::Json;
 use serde::Deserialize;
 use session_core::provider_sync::{
-    self, ProviderSyncStatus, RestoreOptions, RestoreResult, SyncResult,
+    self, CloneResult, ProviderSyncStatus, RestoreOptions, RestoreResult, SyncResult,
 };
 
 pub async fn get_status() -> Result<Json<ProviderSyncStatus>, (StatusCode, String)> {
@@ -51,6 +51,27 @@ pub async fn switch(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CloneBody {
+    pub file_paths: Vec<String>,
+    pub provider: String,
+    #[serde(default = "default_keep")]
+    pub keep: usize,
+}
+
+pub async fn clone(
+    Json(body): Json<CloneBody>,
+) -> Result<Json<CloneResult>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
+        provider_sync::run_clone(body.file_paths, body.provider, body.keep)
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    .map(Json)
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[derive(Deserialize)]

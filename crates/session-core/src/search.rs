@@ -47,6 +47,9 @@ pub struct SearchResult {
     pub project_name: String,
     pub session_id: String,
     pub first_prompt: Option<String>,
+    /// Codex only: Codex Desktop's thread title (session_index.jsonl).
+    /// Preferred over first_prompt for display. `None` for Claude.
+    pub thread_name: Option<String>,
     pub alias: Option<String>,
     pub tags: Option<Vec<String>>,
     pub matched_text: String,
@@ -63,6 +66,7 @@ struct SearchSessionContext {
     project_id: String,
     project_name: String,
     session_id: String,
+    thread_name: Option<String>,
     alias: Option<String>,
     search_aliases: Vec<String>,
     tags: Option<Vec<String>>,
@@ -204,6 +208,7 @@ fn search_messages_for_session(
                     project_name: ctx.project_name.clone(),
                     session_id: ctx.session_id.clone(),
                     first_prompt: None,
+                    thread_name: ctx.thread_name.clone(),
                     alias: ctx.alias.clone(),
                     tags: ctx.tags.clone(),
                     matched_text: matched_tag.clone(),
@@ -236,6 +241,7 @@ fn search_messages_for_session(
                     project_name: ctx.project_name.clone(),
                     session_id: ctx.session_id.clone(),
                     first_prompt: None,
+                    thread_name: ctx.thread_name.clone(),
                     alias: ctx.alias.clone(),
                     tags: ctx.tags.clone(),
                     matched_text: matched_alias.clone(),
@@ -275,6 +281,7 @@ fn search_messages_for_session(
                                 project_name: ctx.project_name.clone(),
                                 session_id: ctx.session_id.clone(),
                                 first_prompt: first_prompt.clone(),
+                                thread_name: ctx.thread_name.clone(),
                                 alias: ctx.alias.clone(),
                                 tags: ctx.tags.clone(),
                                 matched_text: safe_truncate(text, 100),
@@ -314,6 +321,7 @@ fn search_messages_for_session(
                         project_name: ctx.project_name.clone(),
                         session_id: ctx.session_id.clone(),
                         first_prompt: first_prompt.clone(),
+                        thread_name: ctx.thread_name.clone(),
                         alias: ctx.alias.clone(),
                         tags: ctx.tags.clone(),
                         matched_text: extract_context(text, query_lower, 50),
@@ -423,6 +431,7 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
                     project_id: encoded_name.clone(),
                     project_name: project_name.clone(),
                     session_id,
+                    thread_name: None,
                     alias,
                     search_aliases,
                     tags,
@@ -457,6 +466,8 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
 
     // Pre-load codex metadata (single file for all sessions)
     let codex_meta = metadata::load_metadata("codex", "");
+    // Pre-load Codex Desktop thread titles (session_index.jsonl, one small file)
+    let thread_names = codex::load_thread_names();
 
     let results: Vec<SearchResult> = files
         .par_iter()
@@ -509,11 +520,13 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
             }
 
             if let Ok(messages) = codex::parse_all_messages(file_path) {
+                let thread_name = thread_names.get(&session_id).cloned();
                 let ctx = SearchSessionContext {
                     source: "codex".to_string(),
                     project_id: cwd,
                     project_name: short_name,
                     session_id,
+                    thread_name,
                     alias,
                     search_aliases,
                     tags,

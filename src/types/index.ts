@@ -58,6 +58,9 @@ export interface SessionIndexEntry {
   sessionId: string;
   filePath: string;
   firstPrompt: string | null;
+  /** Codex only: Codex Desktop's human-readable thread title from
+   *  session_index.jsonl. Preferred over firstPrompt for display. */
+  threadName: string | null;
   messageCount: number;
   created: string | null;
   modified: string | null;
@@ -213,6 +216,8 @@ export interface SearchResult {
   projectName: string;
   sessionId: string;
   firstPrompt: string | null;
+  /** Codex only: Codex Desktop thread title. Preferred over firstPrompt. */
+  threadName: string | null;
   alias: string | null;
   tags: string[] | null;
   matchedText: string;

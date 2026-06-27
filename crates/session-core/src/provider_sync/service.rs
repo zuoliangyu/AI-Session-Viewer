@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 use super::backup::{self, BackupMetadata, SessionMetaBackupItem};
 use super::config;
@@ -133,6 +134,140 @@ pub fn run_switch(new_provider: String, keep: usize) -> Result<SyncResult, Strin
     let mut result = sync_to_target(&codex_home, &config_path, &new_provider, keep, true)?;
     result.config_updated = true;
     Ok(result)
+}
+
+/// The path a clone's rollout file should take: the original filename with the
+/// old session id swapped for the new one. Falls back to `rollout-<newid>.jsonl`
+/// in the same directory if the old id isn't embedded in the name.
+fn clone_target_path(orig: &Path, old_id: &str, new_id: &str) -> PathBuf {
+    let name = orig.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let new_name = if name.contains(old_id) {
+        name.replace(old_id, new_id)
+    } else {
+        format!("rollout-{new_id}.jsonl")
+    };
+    orig.with_file_name(new_name)
+}
+
+/// Non-destructive clone: for each source rollout, write a copy carrying a new
+/// id + `target` provider and insert a matching `threads` row, leaving the
+/// originals untouched. Backs up `state_5.sqlite` first (we INSERT into it).
+pub fn run_clone(
+    file_paths: Vec<String>,
+    target_provider: String,
+    keep: usize,
+) -> Result<CloneResult, String> {
+    if target_provider.trim().is_empty() {
+        return Err("provider id cannot be empty".into());
+    }
+    let codex_home = get_codex_home()?;
+    let sqlite_path = sqlite_state::db_path(&codex_home);
+
+    // Back up the DB before inserting rows, so a bad clone is recoverable.
+    let backup_dir = backup::create_backup_dir(&codex_home)?;
+    let mut db_files: Vec<String> = Vec::new();
+    if sqlite_path.exists() {
+        let target_path = backup_dir.join("db").join("state_5.sqlite");
+        if fs::copy(&sqlite_path, &target_path).is_ok() {
+            db_files.push("state_5.sqlite".to_string());
+        }
+        for ext in ["sqlite-shm", "sqlite-wal"] {
+            let src = codex_home.join(format!("state_5.{ext}"));
+            if src.exists() {
+                let dest = backup_dir.join("db").join(format!("state_5.{ext}"));
+                if fs::copy(&src, &dest).is_ok() {
+                    db_files.push(format!("state_5.{ext}"));
+                }
+            }
+        }
+    }
+
+    let mut cloned = 0u32;
+    let mut skipped: Vec<String> = Vec::new();
+    let mut new_session_ids: Vec<String> = Vec::new();
+    let mut encrypted_session_ids: Vec<String> = Vec::new();
+    let mut created_files: Vec<String> = Vec::new();
+
+    for fp in &file_paths {
+        let path = PathBuf::from(fp);
+        let Some(meta) = rollout::read_meta(&path, true) else {
+            skipped.push(fp.clone());
+            continue;
+        };
+        let Some(old_id) = meta.session_id.clone() else {
+            skipped.push(fp.clone());
+            continue;
+        };
+
+        let new_id = Uuid::new_v4().to_string();
+        let new_path = clone_target_path(&path, &old_id, &new_id);
+
+        if rollout::write_cloned_rollout(
+            &path,
+            &new_path,
+            meta.session_meta_line_idx,
+            &meta.original_line,
+            &target_provider,
+            &new_id,
+            meta.mtime,
+        )
+        .is_err()
+        {
+            skipped.push(fp.clone());
+            continue;
+        }
+
+        // Mirror the clone into state_5.sqlite so Codex Desktop lists it. If the
+        // INSERT fails, drop the just-written rollout to avoid an orphan file.
+        if sqlite_path.exists() {
+            match sqlite_state::clone_thread(
+                &sqlite_path,
+                &old_id,
+                &new_id,
+                &new_path.to_string_lossy(),
+                &target_provider,
+            ) {
+                Ok(_) => {}
+                Err(_) => {
+                    let _ = fs::remove_file(&new_path);
+                    skipped.push(fp.clone());
+                    continue;
+                }
+            }
+        }
+
+        if meta.has_encrypted_content {
+            encrypted_session_ids.push(new_id.clone());
+        }
+        created_files.push(new_path.to_string_lossy().into_owned());
+        new_session_ids.push(new_id);
+        cloned += 1;
+    }
+
+    let now: DateTime<Utc> = Utc::now();
+    let metadata = BackupMetadata {
+        namespace: backup::NAMESPACE.to_string(),
+        codex_home: codex_home.to_string_lossy().into_owned(),
+        target_provider: target_provider.clone(),
+        created_at: now.to_rfc3339(),
+        db_files,
+        changed_session_files: created_files,
+    };
+    if let Ok(json) = serde_json::to_string_pretty(&metadata) {
+        let _ = fs::write(backup_dir.join("metadata.json"), json);
+    }
+
+    let _ = backup::prune_backups(&codex_home, keep.max(1));
+    crate::provider::codex::invalidate_sessions_cache();
+
+    Ok(CloneResult {
+        backup_dir: backup_dir.to_string_lossy().into_owned(),
+        target_provider,
+        cloned,
+        skipped,
+        new_session_ids,
+        encrypted_session_ids,
+    })
 }
 
 fn sync_to_target(

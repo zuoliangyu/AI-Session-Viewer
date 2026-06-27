@@ -321,7 +321,7 @@ export function ProjectsPage() {
                     }`}
                     title={
                       project.isVirtual
-                        ? `${project.displayPath} (codex 会话无 cwd，按日期合成的虚拟项目)`
+                        ? `${project.displayPath}（按日期合成的虚拟项目）`
                         : project.displayPath + (project.pathExists === false ? " (路径不存在，解码可能不准确)" : "")
                     }
                   >

@@ -31,7 +31,15 @@ use crate::state::{
 // shared by the project list, session list and invalid-session scans, and
 // dropped the old per-project session_count reconciliation. Old caches lack
 // the index and use stale semantics, so force a clean rebuild.
-const DISK_CACHE_VERSION: u32 = 5;
+// Bumped to 6: session list entries now carry `thread_name` read from
+// `~/.codex/session_index.jsonl` (Codex Desktop's human-readable thread title,
+// preferred over first_prompt for display). Old cached session lists predate
+// the field, so force a rebuild to populate it on first launch of this build.
+// Bumped to 7: `file_index` now stores `originator`, used to bucket Codex
+// Desktop's synthetic per-chat scratch workspaces (`…/Codex/<date>/<slug>`)
+// into a `<codex-direct>/DATE` "直连对话" virtual project. Old indexes lack the
+// field, so force a rebuild.
+const DISK_CACHE_VERSION: u32 = 7;
 
 /// Sentinel prefix for project IDs synthesized from sessions with no cwd.
 /// Format: `<codex-unrooted>/YYYY-MM-DD`. The angle brackets are invalid in
@@ -46,6 +54,55 @@ pub fn virtual_project_id(date: &str) -> String {
 
 pub fn parse_virtual_project_id(id: &str) -> Option<&str> {
     id.strip_prefix(UNROOTED_PREFIX)
+}
+
+/// Sentinel prefix for project IDs that bucket Codex Desktop's "direct chat"
+/// sessions by date. Codex Desktop creates a throwaway scratch workspace per
+/// chat at `…/Codex/<YYYY-MM-DD…>/<slug>`, so each chat would otherwise surface
+/// as its own cryptically-named project ("app", "wo-2", "j", …). We collapse
+/// them into one `<codex-direct>/YYYY-MM-DD` virtual project per day. Same
+/// opaque-string handling as `UNROOTED_PREFIX`.
+const DIRECT_PREFIX: &str = "<codex-direct>/";
+
+pub fn direct_project_id(date: &str) -> String {
+    format!("{DIRECT_PREFIX}{date}")
+}
+
+pub fn parse_direct_project_id(id: &str) -> Option<&str> {
+    id.strip_prefix(DIRECT_PREFIX)
+}
+
+/// Leading `YYYY-MM-DD` of a path segment (Codex date folders look like
+/// `2026-06-24` or `2026-04-22-new-chat`). `None` if it doesn't start with one.
+fn leading_date(seg: &str) -> Option<String> {
+    let b = seg.as_bytes();
+    let ok = b.len() >= 10
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'-'
+        && b[8..10].iter().all(u8::is_ascii_digit);
+    ok.then(|| seg[..10].to_string())
+}
+
+/// If this file is a Codex Desktop "direct chat" — `originator == "Codex
+/// Desktop"` AND a cwd shaped like `…/Codex/<date>/…` (or `…/Codex/<date>`) —
+/// return its date bucket. Real projects opened in Codex Desktop share the same
+/// originator but don't live under the `Codex/<date>` scratch tree, so the path
+/// shape is what disambiguates.
+fn direct_chat_date(fm: &CodexFileMeta) -> Option<String> {
+    if fm.originator.as_deref() != Some("Codex Desktop") || fm.cwd.is_empty() {
+        return None;
+    }
+    let segs: Vec<&str> = fm.cwd.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    for (i, seg) in segs.iter().enumerate() {
+        if seg.eq_ignore_ascii_case("Codex") {
+            if let Some(date) = segs.get(i + 1).and_then(|next| leading_date(next)) {
+                return Some(date);
+            }
+        }
+    }
+    None
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
@@ -78,6 +135,8 @@ struct CodexFileMeta {
     model_provider: Option<String>,
     git_branch: Option<String>,
     is_interactive: bool,
+    #[serde(default)]
+    originator: Option<String>,
     date: Option<String>,
     modified: Option<String>,
     created: Option<String>,
@@ -226,6 +285,47 @@ pub fn get_sessions_dir() -> Option<PathBuf> {
     get_codex_home().map(|h| h.join("sessions"))
 }
 
+/// `~/.codex/session_index.jsonl` — Codex Desktop's index of human-readable
+/// thread titles, one JSON object per line: `{ "id", "thread_name", "updated_at" }`.
+fn session_index_path() -> Option<PathBuf> {
+    get_codex_home().map(|h| h.join("session_index.jsonl"))
+}
+
+/// Build a `session_id → thread_name` map from `session_index.jsonl`. Read once
+/// per session-list build and looked up per entry. Missing file / blank titles
+/// are simply absent from the map (callers fall back to `first_prompt`). Cheap:
+/// one small file, line-by-line, no full rollout reads.
+pub fn load_thread_names() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Some(path) = session_index_path() else {
+        return map;
+    };
+    let Ok(file) = fs::File::open(&path) else {
+        return map;
+    };
+    for line in BufReader::new(file).lines() {
+        let Ok(line) = line else { continue };
+        let trimmed = line.trim_start_matches('\u{feff}').trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(row) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        let id = row.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let name = row
+            .get("thread_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if !id.is_empty() && !name.is_empty() {
+            // Last write wins: later lines in the index are newer.
+            map.insert(id.to_string(), name.to_string());
+        }
+    }
+    map
+}
+
 pub fn scan_all_session_files() -> Vec<PathBuf> {
     let sessions_dir = match get_sessions_dir() {
         Some(d) if d.exists() => d,
@@ -324,6 +424,10 @@ pub struct SessionMeta {
     /// Session source: "cli", "vscode", "exec", "mcp", or an object for "subagent".
     /// Only "cli" and "vscode" are interactive sessions that should be shown to users.
     pub is_interactive: bool,
+    /// Who created the session, e.g. "Codex Desktop". Used to detect Codex
+    /// Desktop's synthetic per-chat scratch workspaces (`…/Codex/<date>/<slug>`)
+    /// so they can be bucketed into a "直连对话" virtual project by date.
+    pub originator: Option<String>,
 }
 
 /// How far into a rollout file we'll scan looking for the `session_meta`
@@ -381,6 +485,10 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
                     .and_then(|g| g.get("branch"))
                     .and_then(|v| v.as_str())
                     .map(String::from);
+                let originator = payload
+                    .get("originator")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
 
                 // Use a *blocklist* rather than an allowlist for the
                 // `source` field. Anything we know is non-interactive
@@ -405,6 +513,7 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
                     model_provider,
                     git_branch,
                     is_interactive,
+                    originator,
                 });
             }
         }
@@ -674,16 +783,21 @@ fn file_meta_for(path: &Path) -> Option<CodexFileMeta> {
         model_provider: meta.model_provider,
         git_branch: meta.git_branch,
         is_interactive: meta.is_interactive,
+        originator: meta.originator,
         date: extract_date_from_path(path),
         modified,
         created,
     })
 }
 
-/// The project id (cache key) an indexed file belongs to: its real cwd, or a
-/// `<codex-unrooted>/DATE` virtual bucket when it has no recorded cwd.
+/// The project id (cache key) an indexed file belongs to:
+/// - `<codex-direct>/DATE` for Codex Desktop direct-chat scratch workspaces,
+/// - `<codex-unrooted>/DATE` when it has no recorded cwd,
+/// - otherwise its real cwd.
 fn project_key_for(fm: &CodexFileMeta) -> String {
-    if fm.cwd.is_empty() {
+    if let Some(date) = direct_chat_date(fm) {
+        direct_project_id(&date)
+    } else if fm.cwd.is_empty() {
         virtual_project_id(fm.date.as_deref().unwrap_or("unknown"))
     } else {
         fm.cwd.clone()
@@ -781,33 +895,19 @@ fn load_or_build_file_index() -> Vec<CodexFileMeta> {
     index
 }
 
-/// Whether an indexed file belongs to the given project id (real cwd, or a
-/// `<codex-unrooted>/DATE` virtual bucket). Mirrors the original matching used
-/// by `refresh_sessions_cache` / `get_invalid_sessions`.
-fn file_matches_project(fm: &CodexFileMeta, cwd: &str, virtual_date: Option<&str>) -> bool {
-    if !fm.is_interactive {
-        return false;
-    }
-    match virtual_date {
-        Some(date) => {
-            fm.cwd.is_empty()
-                && fm
-                    .date
-                    .as_deref()
-                    .map(|d| d == date)
-                    .unwrap_or(date == "unknown")
-        }
-        None => fm.cwd == cwd,
-    }
+/// Whether an indexed file belongs to the given project id. Unified across all
+/// three project kinds (real cwd, `<codex-unrooted>/DATE`, `<codex-direct>/DATE`)
+/// by comparing the file's own derived bucket key against the requested id.
+fn file_matches_project(fm: &CodexFileMeta, project_id: &str) -> bool {
+    fm.is_interactive && project_key_for(fm) == project_id
 }
 
 /// Indexed files belonging to one project — the only files a session/invalid
 /// scan needs to open, instead of re-walking the whole tree.
 fn project_files(cwd: &str) -> Vec<CodexFileMeta> {
-    let virtual_date = parse_virtual_project_id(cwd);
     load_or_build_file_index()
         .into_iter()
-        .filter(|fm| file_matches_project(fm, cwd, virtual_date))
+        .filter(|fm| file_matches_project(fm, cwd))
         // Self-heal stale index entries: a rollout deleted out from under us
         // (e.g. archived/removed in Codex desktop while the app was closed, or
         // a filesystem event the watcher missed) would otherwise linger here
@@ -836,22 +936,25 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
             continue;
         }
 
-        // Sessions without a recorded cwd become "unrooted" virtual projects,
-        // bucketed by the rollout file's date so they don't all collapse into
-        // a single mega-bucket. Real cwd sessions take the normal path.
-        let (project_key, is_virtual, display_path, short_name, path_exists) =
-            if fm.cwd.is_empty() {
-                let date = fm.date.clone().unwrap_or_else(|| "unknown".to_string());
-                let id = virtual_project_id(&date);
+        // Bucketing (see `project_key_for`):
+        // - Codex Desktop direct chats → one `<codex-direct>/DATE` per day,
+        // - sessions with no cwd → `<codex-unrooted>/DATE` per day,
+        // - real cwd sessions → the cwd itself.
+        let project_key = project_key_for(fm);
+        let (is_virtual, display_path, short_name, path_exists) =
+            if let Some(date) = parse_direct_project_id(&project_key) {
+                let display = format!("Codex 直连对话 · {date}");
+                let short = format!("Codex 直连对话 · {date}");
+                (true, display, short, true)
+            } else if let Some(date) = parse_virtual_project_id(&project_key) {
                 let display = format!("未归属会话 · {date}");
                 let short = format!("未归属 · {date}");
-                (id, true, display, short, true)
+                (true, display, short, true)
             } else {
-                let cwd = fm.cwd.clone();
-                let display = cwd.clone();
-                let short = short_name_from_path(&cwd);
-                let exists = std::path::Path::new(&cwd).exists();
-                (cwd, false, display, short, exists)
+                let display = fm.cwd.clone();
+                let short = short_name_from_path(&fm.cwd);
+                let exists = std::path::Path::new(&fm.cwd).exists();
+                (false, display, short, exists)
             };
 
         let entry = project_map
@@ -917,10 +1020,13 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
 
     let sessions = get_sessions(project_id)?;
 
-    // 回收站条目展示用的项目名：虚拟桶用其日期描述，真实 cwd 取末段目录名。
-    let project_name = match parse_virtual_project_id(project_id) {
-        Some(date) => format!("未归属 · {date}"),
-        None => short_name_from_path(project_id),
+    // 回收站条目展示用的项目名：直连/未归属虚拟桶用其日期描述，真实 cwd 取末段目录名。
+    let project_name = if let Some(date) = parse_direct_project_id(project_id) {
+        format!("Codex 直连对话 · {date}")
+    } else if let Some(date) = parse_virtual_project_id(project_id) {
+        format!("未归属 · {date}")
+    } else {
+        short_name_from_path(project_id)
     };
 
     let mut sessions_deleted = 0;
@@ -961,15 +1067,18 @@ pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, Strin
     // Only the files belonging to this project (from the shared index) get
     // opened — no full tree walk, and no meta re-read (it's cached in the
     // index). Just the unavoidable full scan for first_prompt + message count.
+    let thread_names = load_thread_names();
     let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
         .into_par_iter()
         .map(|fm| {
             let scan = scan_session_file(Path::new(&fm.path));
+            let thread_name = thread_names.get(&fm.id).cloned();
             SessionIndexEntry {
                 source: "codex".to_string(),
                 session_id: fm.id,
                 file_path: fm.path,
                 first_prompt: scan.first_prompt,
+                thread_name,
                 message_count: scan.message_count,
                 created: fm.created,
                 modified: fm.modified,
@@ -1003,6 +1112,7 @@ pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String>
     // Same project-file selection as the session list, but keep only files with
     // no visible activity (empty rollouts). Uses the shared index, so no full
     // tree walk and no meta re-read.
+    let thread_names = load_thread_names();
     let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
         .into_par_iter()
         .filter_map(|fm| {
@@ -1011,11 +1121,13 @@ pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String>
                 return None;
             }
 
+            let thread_name = thread_names.get(&fm.id).cloned();
             Some(SessionIndexEntry {
                 source: "codex".to_string(),
                 session_id: fm.id,
                 file_path: fm.path,
                 first_prompt: scan.first_prompt,
+                thread_name,
                 message_count: scan.message_count,
                 created: fm.created,
                 modified: fm.modified,

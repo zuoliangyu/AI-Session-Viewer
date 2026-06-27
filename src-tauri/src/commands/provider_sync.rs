@@ -1,5 +1,5 @@
 use session_core::provider_sync::{
-    self, ProviderSyncStatus, RestoreOptions, RestoreResult, SyncResult,
+    self, CloneResult, ProviderSyncStatus, RestoreOptions, RestoreResult, SyncResult,
 };
 
 #[tauri::command]
@@ -27,6 +27,18 @@ pub async fn provider_sync_switch(
 ) -> Result<SyncResult, String> {
     let keep = keep.unwrap_or(5);
     tokio::task::spawn_blocking(move || provider_sync::run_switch(provider, keep))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn provider_sync_clone(
+    file_paths: Vec<String>,
+    provider: String,
+    keep: Option<usize>,
+) -> Result<CloneResult, String> {
+    let keep = keep.unwrap_or(5);
+    tokio::task::spawn_blocking(move || provider_sync::run_clone(file_paths, provider, keep))
         .await
         .map_err(|e| e.to_string())?
 }

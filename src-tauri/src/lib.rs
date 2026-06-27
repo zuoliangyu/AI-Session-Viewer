@@ -63,6 +63,7 @@ pub fn run() {
             commands::provider_sync::provider_sync_status,
             commands::provider_sync::provider_sync_run,
             commands::provider_sync::provider_sync_switch,
+            commands::provider_sync::provider_sync_clone,
             commands::provider_sync::provider_sync_restore,
             commands::provider_sync::provider_sync_prune,
         ])

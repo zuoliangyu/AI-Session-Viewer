@@ -274,7 +274,7 @@ export function Sidebar() {
                     className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
                     title={
                       project.isVirtual
-                        ? `${project.displayPath} (未归属：codex 会话无 cwd，按日期归类)`
+                        ? `${project.displayPath}（按日期归类的虚拟项目）`
                         : project.displayPath + (project.pathExists === false ? " (路径不存在)" : "")
                     }
                   >

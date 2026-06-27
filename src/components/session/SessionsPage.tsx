@@ -12,6 +12,7 @@ import {
   Loader2,
   Tag,
   Copy,
+  CopyPlus,
   Star,
   AlertTriangle,
   Download,
@@ -22,6 +23,7 @@ import { formatDistanceToNow, format } from "date-fns";
 import { zhCN } from "date-fns/locale";
 import { api } from "../../services/api";
 import { SessionMetaEditor } from "./SessionMetaEditor";
+import { CloneToProviderDialog } from "./CloneToProviderDialog";
 import { ExportFormatMenu } from "./ExportFormatMenu";
 import { ScanProgressView } from "../common/ScanProgressView";
 import { ProjectSkillsPanel } from "../skills/ProjectSkillsPanel";
@@ -31,7 +33,7 @@ import type { ExportFormat, SessionIndexEntry } from "../../types";
 declare const __IS_TAURI__: boolean;
 
 function sessionFilenameBase(s: SessionIndexEntry): string {
-  return s.alias || s.firstPrompt || s.sessionId;
+  return s.alias || s.threadName || s.firstPrompt || s.sessionId;
 }
 
 export function SessionsPage() {
@@ -60,6 +62,7 @@ export function SessionsPage() {
   const [deleteTargetSessionId, setDeleteTargetSessionId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
+  const [cloningSession, setCloningSession] = useState<SessionIndexEntry | null>(null);
 
   const [showCleanDialog, setShowCleanDialog] = useState(false);
   const [cleanSelected, setCleanSelected] = useState<Set<string>>(new Set());
@@ -440,16 +443,19 @@ export function SessionsPage() {
                       ))}
                     </div>
                   )}
-                  {/* Title: alias or firstPrompt */}
+                  {/* Title: alias > Codex thread title > firstPrompt */}
                   <p className="text-sm font-medium text-foreground line-clamp-2">
-                    {session.alias || session.firstPrompt || "（无标题）"}
+                    {session.alias || session.threadName || session.firstPrompt || "（无标题）"}
                   </p>
-                  {/* Show original firstPrompt when alias is set */}
-                  {session.alias && session.firstPrompt && (
-                    <p className="text-xs text-muted-foreground/60 mt-0.5 line-clamp-1">
-                      {session.firstPrompt}
-                    </p>
-                  )}
+                  {/* Show original firstPrompt as subtitle when a generated
+                      title (alias or Codex thread name) replaced it */}
+                  {(session.alias || session.threadName) &&
+                    session.firstPrompt &&
+                    session.firstPrompt !== (session.alias || session.threadName) && (
+                      <p className="text-xs text-muted-foreground/60 mt-0.5 line-clamp-1">
+                        {session.firstPrompt}
+                      </p>
+                    )}
                   <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
                     {session.messageCount != null && (
                       <span className="flex items-center gap-1">
@@ -503,7 +509,7 @@ export function SessionsPage() {
                           filePath: session.filePath,
                           messageId: null,
                           preview: "",
-                          sessionTitle: session.alias || session.firstPrompt || session.sessionId,
+                          sessionTitle: session.alias || session.threadName || session.firstPrompt || session.sessionId,
                           projectName: project?.shortName || projectId,
                         });
                       }
@@ -527,6 +533,18 @@ export function SessionsPage() {
                   >
                     <Tag className="w-3.5 h-3.5" />
                   </button>
+                  {source === "codex" && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setCloningSession(session);
+                      }}
+                      className="p-1.5 text-xs text-muted-foreground rounded-md hover:bg-accent hover:text-foreground transition-colors"
+                      title="克隆到其他 Provider（非破坏式）"
+                    >
+                      <CopyPlus className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                   <button
                     onClick={(e) =>
                       handleResume(
@@ -630,6 +648,17 @@ export function SessionsPage() {
           currentAlias={editSession.alias}
           currentTags={editSession.tags}
           onClose={() => setEditingSession(null)}
+        />
+      )}
+
+      {/* Clone-to-provider modal (codex only) */}
+      {cloningSession && (
+        <CloneToProviderDialog
+          session={cloningSession}
+          onClose={() => setCloningSession(null)}
+          onCloned={() => {
+            void selectProject(projectId);
+          }}
         />
       )}
 

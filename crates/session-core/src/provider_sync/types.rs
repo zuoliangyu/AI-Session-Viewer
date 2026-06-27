@@ -69,6 +69,22 @@ pub struct SyncResult {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct CloneResult {
+    pub backup_dir: String,
+    pub target_provider: String,
+    /// Number of sessions successfully cloned.
+    pub cloned: u32,
+    /// Source file paths that couldn't be cloned (missing/locked/no thread row).
+    pub skipped: Vec<String>,
+    /// New session ids created by the clone.
+    pub new_session_ids: Vec<String>,
+    /// Subset of clones whose source carried `encrypted_content` — these may
+    /// display fine but can fail to resume/compact across providers/accounts.
+    pub encrypted_session_ids: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct RestoreOptions {
     #[serde(default = "default_true")]
     pub include_config: bool,

@@ -55,7 +55,7 @@ function getGroupItemKeys(group: CleanupGroup, includeInvalidProject: boolean) {
 }
 
 function getSessionTitle(session: SessionIndexEntry) {
-  return session.alias || session.firstPrompt || session.sessionId || "未命名会话";
+  return session.alias || session.threadName || session.firstPrompt || session.sessionId || "未命名会话";
 }
 
 function formatDateTime(value: string | null) {

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::types::Value as SqlValue;
+use rusqlite::{params, params_from_iter, Connection, OpenFlags, OptionalExtension};
 
 pub fn db_path(codex_home: &Path) -> PathBuf {
     codex_home.join("state_5.sqlite")
@@ -103,6 +104,86 @@ pub fn update_threads(
     conn.execute_batch("COMMIT;")
         .map_err(|e| format!("commit: {}", e))?;
     Ok(provider_updated)
+}
+
+/// Duplicate the `threads` row identified by `old_id` into a new row with
+/// `new_id`, `new_rollout_path` and `provider`, marked un-archived. Reads the
+/// source row's columns generically (`SELECT *`) so it survives schema changes,
+/// then re-inserts with the three overridden fields. Returns `Ok(false)` when
+/// the source row doesn't exist (caller treats as skip). The cloned rollout
+/// file is the actual conversation; this row just makes Codex Desktop list it.
+pub fn clone_thread(
+    path: &Path,
+    old_id: &str,
+    new_id: &str,
+    new_rollout_path: &str,
+    provider: &str,
+) -> Result<bool, String> {
+    let conn = open_write(path)?;
+    if !table_exists(&conn, "threads") {
+        return Ok(false);
+    }
+
+    // Column names in declared order.
+    let cols: Vec<String> = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(\"threads\")")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| e.to_string())?;
+        rows.flatten().collect()
+    };
+    if cols.is_empty() {
+        return Ok(false);
+    }
+
+    // Read the source row's values as generic SQL values.
+    let col_count = cols.len();
+    let row_vals: Option<Vec<SqlValue>> = conn
+        .query_row(
+            "SELECT * FROM threads WHERE id = ?1",
+            params![old_id],
+            |row| {
+                let mut vals = Vec::with_capacity(col_count);
+                for i in 0..col_count {
+                    vals.push(row.get::<_, SqlValue>(i)?);
+                }
+                Ok(vals)
+            },
+        )
+        .optional()
+        .map_err(|e| format!("read source thread: {}", e))?;
+
+    let Some(mut vals) = row_vals else {
+        return Ok(false);
+    };
+
+    // Override the cloned identity / provider / location, and force it active.
+    for (i, col) in cols.iter().enumerate() {
+        match col.as_str() {
+            "id" => vals[i] = SqlValue::Text(new_id.to_string()),
+            "model_provider" => vals[i] = SqlValue::Text(provider.to_string()),
+            "rollout_path" => vals[i] = SqlValue::Text(new_rollout_path.to_string()),
+            "archived" => vals[i] = SqlValue::Integer(0),
+            "archived_at" => vals[i] = SqlValue::Null,
+            _ => {}
+        }
+    }
+
+    let col_list = cols
+        .iter()
+        .map(|c| format!("\"{}\"", c))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let placeholders = (1..=col_count)
+        .map(|i| format!("?{}", i))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!("INSERT INTO threads ({}) VALUES ({})", col_list, placeholders);
+    conn.execute(&sql, params_from_iter(vals.iter()))
+        .map_err(|e| format!("insert cloned thread: {}", e))?;
+    Ok(true)
 }
 
 fn open_read(path: &Path) -> Result<Connection, String> {

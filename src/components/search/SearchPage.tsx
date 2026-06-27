@@ -152,6 +152,7 @@ export function SearchPage() {
       projectName: string;
       alias: string | null;
       firstPrompt: string | null;
+      threadName: string | null;
       tags: string[] | null;
       filePath: string;
       matchCount: number;
@@ -180,6 +181,7 @@ export function SearchPage() {
           projectName: r.projectName,
           alias: r.alias,
           firstPrompt: r.firstPrompt,
+          threadName: r.threadName,
           tags: r.tags,
           filePath: r.filePath,
           matchCount: 1,
@@ -299,7 +301,7 @@ export function SearchPage() {
               )}
             </p>
             {filteredResults.map((result, i) => {
-              const sessionTitle = result.alias || result.firstPrompt || "（无标题）";
+              const sessionTitle = result.alias || result.threadName || result.firstPrompt || "（无标题）";
               return (
                 <div
                   key={`${result.filePath}-${result.matchedMessageId || i}`}
@@ -385,7 +387,7 @@ export function SearchPage() {
               )}
             </p>
             {groupedSessions.map((session) => {
-              const title = session.alias || session.firstPrompt || "（无标题）";
+              const title = session.alias || session.threadName || session.firstPrompt || "（无标题）";
               return (
                 <div
                   key={session.filePath}

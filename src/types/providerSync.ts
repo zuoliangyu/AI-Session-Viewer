@@ -53,6 +53,15 @@ export interface SyncResult {
   skippedLocked: string[];
 }
 
+export interface CloneResult {
+  backupDir: string;
+  targetProvider: string;
+  cloned: number;
+  skipped: string[];
+  newSessionIds: string[];
+  encryptedSessionIds: string[];
+}
+
 export interface RestoreOptions {
   includeConfig: boolean;
   includeDb: boolean;

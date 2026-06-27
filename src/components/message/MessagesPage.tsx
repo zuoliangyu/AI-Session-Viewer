@@ -424,6 +424,7 @@ export function MessagesPage() {
   const resolvedSessionId = session?.sessionId || searchHit?.sessionId || null;
   const resolvedSessionTitle =
     session?.alias ||
+    session?.threadName ||
     session?.firstPrompt ||
     searchHit?.alias ||
     searchHit?.firstPrompt ||
@@ -1184,7 +1185,7 @@ export function MessagesPage() {
                 className="w-full px-3 py-2 text-left hover:bg-accent transition-colors"
               >
                 <div className="text-sm text-foreground truncate">
-                  {item.alias || item.firstPrompt || item.sessionId}
+                  {item.alias || item.threadName || item.firstPrompt || item.sessionId}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   {item.messageCount} 条消息
@@ -1593,6 +1594,7 @@ function SplitSessionPane({
 
   const sessionTitle =
     session?.alias ||
+    session?.threadName ||
     session?.firstPrompt ||
     session?.sessionId ||
     filePath;

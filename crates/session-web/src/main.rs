@@ -335,6 +335,10 @@ async fn main() {
             post(routes::provider_sync::switch),
         )
         .route(
+            "/api/provider-sync/clone",
+            post(routes::provider_sync::clone),
+        )
+        .route(
             "/api/provider-sync/restore",
             post(routes::provider_sync::restore),
         )

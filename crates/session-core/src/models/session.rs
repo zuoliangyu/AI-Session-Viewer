@@ -67,6 +67,12 @@ pub struct SessionIndexEntry {
     /// Full file path (both sources need this)
     pub file_path: String,
     pub first_prompt: Option<String>,
+    /// Codex-only: the human-readable thread title that Codex Desktop
+    /// generates and stores in `~/.codex/session_index.jsonl`. Preferred over
+    /// `first_prompt` for display when present. `None` for Claude (defaulted so
+    /// older cache files without the field still deserialize cleanly).
+    #[serde(default)]
+    pub thread_name: Option<String>,
     pub message_count: u32,
     pub created: Option<String>,
     pub modified: Option<String>,

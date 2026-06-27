@@ -191,6 +191,68 @@ pub fn rewrite_session_meta_provider(
     Ok(new_line)
 }
 
+/// Write a non-destructive clone of `src` to `dst`, rewriting only the
+/// `session_meta` line so the copy carries a new `model_provider`, a new `id`
+/// (and `session_id` when present). The conversation body is copied verbatim —
+/// like the reference tool, this is a *shallow* clone: event rows deeper in the
+/// file keep references to the original id, which is fine for viewing/resume.
+/// `dst` is a brand-new path, so a plain write is enough (no atomic rename).
+pub fn write_cloned_rollout(
+    src: &Path,
+    dst: &Path,
+    line_idx: usize,
+    original_line: &str,
+    new_provider: &str,
+    new_id: &str,
+    mtime: SystemTime,
+) -> Result<(), String> {
+    let raw_text = fs::read_to_string(src).map_err(|e| e.to_string())?;
+    let original_text = raw_text.replace("\r\n", "\n");
+    let trailing_newline = original_text.ends_with('\n');
+    let mut lines: Vec<String> = original_text.split('\n').map(|s| s.to_string()).collect();
+    if trailing_newline && lines.last().map(|s| s.is_empty()).unwrap_or(false) {
+        lines.pop();
+    }
+    if line_idx >= lines.len() {
+        return Err(format!(
+            "session_meta line index {} out of range (file has {} lines)",
+            line_idx,
+            lines.len()
+        ));
+    }
+    if lines[line_idx] != original_line {
+        return Err(format!(
+            "rollout {} changed during clone; aborting",
+            src.display()
+        ));
+    }
+    let mut v: Value = serde_json::from_str(original_line.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("parse session_meta: {}", e))?;
+    if let Some(payload) = v.get_mut("payload").and_then(|p| p.as_object_mut()) {
+        payload.insert(
+            "model_provider".into(),
+            Value::String(new_provider.to_string()),
+        );
+        payload.insert("id".into(), Value::String(new_id.to_string()));
+        if payload.contains_key("session_id") {
+            payload.insert("session_id".into(), Value::String(new_id.to_string()));
+        }
+    }
+    let new_line = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+    lines[line_idx] = new_line;
+    let mut content = lines.join("\n");
+    if trailing_newline {
+        content.push('\n');
+    }
+
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(dst, content).map_err(|e| format!("write clone {}: {}", dst.display(), e))?;
+    let _ = set_file_mtime(dst, FileTime::from_system_time(mtime));
+    Ok(())
+}
+
 pub fn restore_session_meta(
     path: &Path,
     line_idx: usize,

@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.1] - 2026-06-27
+
+### Added
+
+- **Codex 会话标题改用 Codex Desktop 线程名**（`crates/session-core/src/models/session.rs`、`crates/session-core/src/provider/codex.rs`、`crates/session-core/src/provider/claude.rs`、`crates/session-core/src/search.rs`，前端 `src/types/index.ts`、`src/components/session/SessionsPage.tsx`、`src/components/message/MessagesPage.tsx`、`src/components/cleanup/InvalidItemsPage.tsx`、`src/components/search/SearchPage.tsx`）：此前 Codex 会话标题只能退而取第一句 user prompt。本版本读取 `~/.codex/session_index.jsonl` 的 `thread_name`（Codex Desktop 自动生成的人类可读标题），作为 `SessionIndexEntry.thread_name` 新字段，显示优先级统一为 **alias > threadName > firstPrompt**；会话列表、消息页顶栏、分屏选择器、无效会话页与全局搜索结果一并接入。Claude 无此概念恒为空。实现上每次构建会话列表 / 搜索时读一次这个小文件（不进 `file_index` 缓存），标题随 Codex 更新保持新鲜。
+
+- **Codex「直连对话」按日期归类为虚拟项目**（`crates/session-core/src/provider/codex.rs`、`src/components/layout/Sidebar.tsx`、`src/components/project/ProjectsPage.tsx`）：Codex Desktop 的「直接对话」会为每次对话新建临时工作目录 `…/Documents/Codex/<日期>/<slug>`，导致每条对话在项目列表里各成一个名字晦涩的「项目」（app、wo-2、j、re…）。本版本新增判别（`originator == "Codex Desktop"` 且 cwd 形如 `…/Codex/<日期>/…`），把它们收敛为按天分桶的 `<codex-direct>/DATE` 虚拟项目，显示为「Codex 直连对话 · 日期」。索引新增 `originator` 字段；`project_key_for` / `file_matches_project` 统一改为按桶 key 匹配，一次覆盖真实 cwd、未归属（unrooted）、直连三类。
+
+- **Clone：非破坏式克隆 Codex 会话到其它 Provider**（`crates/session-core/src/provider_sync/{rollout.rs,sqlite_state.rs,service.rs,types.rs,mod.rs}`、`src-tauri/src/commands/provider_sync.rs` + `src-tauri/src/lib.rs`、`crates/session-web/src/routes/provider_sync.rs` + `crates/session-web/src/main.rs`、`src/components/session/CloneToProviderDialog.tsx`、`src/components/session/SessionsPage.tsx`）：`provider_sync` 此前只能就地改 provider，无法复制。新增 `run_clone`——复制 rollout 文件（新 UUID）+ 重写 session_meta 的 `model_provider` / `id`（浅克隆，正文逐字拷贝）+ 用 `SELECT *` 泛型读取并动态 `INSERT` 复制一行 `state_5.sqlite` 的 threads 记录，**原会话保留在旧 provider 下不动**。克隆前自动备份 `state_5.sqlite`（含 `-wal`/`-shm`）；含 `encrypted_content` 的会话给出「跨 provider/账号可显示但可能无法 resume/compact」告警。前端在 codex 会话悬浮操作新增「克隆到其他 Provider」入口 + 目标 provider 选择弹窗，成功后刷新列表。
+
+### Changed
+
+- Codex 列表磁盘缓存版本 `DISK_CACHE_VERSION` 由 5 提升到 7（新增 `thread_name` 读取与 `originator` 索引字段），首次启动本版本会触发一次性全量重扫。
+- Sidebar / ProjectsPage 的虚拟项目 tooltip 文案改为对「未归属」与「直连对话」两类都准确的通用描述（具体含义由 displayPath 区分）。
+
+### Version
+
+- 将工作区版本统一提升到 `2.16.1`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.16.0] - 2026-06-09
 
 ### Added

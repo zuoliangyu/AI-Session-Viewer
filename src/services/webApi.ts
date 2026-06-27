@@ -23,6 +23,7 @@ import type { CliInstallation, ModelInfo, StartChatParams, ContinueChatParams, C
 import type {
   ProviderSyncStatus,
   SyncResult,
+  CloneResult,
   RestoreOptions,
   RestoreResult,
 } from "../types/providerSync";
@@ -553,6 +554,14 @@ export async function providerSyncSwitch(
   keep: number = 5,
 ): Promise<SyncResult> {
   return apiPost("/api/provider-sync/switch", { provider, keep });
+}
+
+export async function providerSyncClone(
+  filePaths: string[],
+  provider: string,
+  keep: number = 5,
+): Promise<CloneResult> {
+  return apiPost("/api/provider-sync/clone", { filePaths, provider, keep });
 }
 
 export async function providerSyncRestore(
