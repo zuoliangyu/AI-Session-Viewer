@@ -12,6 +12,7 @@ import { UpdateIndicator } from "./UpdateIndicator";
 import { ProjectActionsMenu } from "../project/ProjectActionsMenu";
 import { DeleteProjectDialog } from "../project/DeleteProjectDialog";
 import type { ProjectEntry } from "../../types";
+import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   FolderOpen,
@@ -98,6 +99,15 @@ export function Sidebar() {
   const isActive = (path: string) => location.pathname === path;
   const isProjectActive = (projectId: string) =>
     location.pathname.startsWith(`/projects/${encodeURIComponent(projectId)}`);
+
+  // Collapse Codex direct-chat date buckets into one pinned "直连对话" entry,
+  // mirroring the main projects grid.
+  const sidebarProjects = useMemo(() => collapseDirectBuckets(projects), [projects]);
+  // The aggregate entry and the date-list page are "active" together; so is any
+  // drill-down into a `<codex-direct>/DATE` bucket's session list.
+  const isDirectGroupActive =
+    location.pathname === "/direct-chat" ||
+    location.pathname.startsWith(`/projects/${encodeURIComponent("<codex-direct>/")}`);
 
   const handleSourceChange = (s: "claude" | "codex") => {
     if (s !== source) {
@@ -252,7 +262,7 @@ export function Sidebar() {
         {/* Projects list */}
         <div>
           <h2 className="px-3 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            项目 ({projects.length})
+            项目 ({sidebarProjects.length})
           </h2>
           {projectsLoading ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">
@@ -260,17 +270,28 @@ export function Sidebar() {
             </div>
           ) : (
             <div className="mt-1 space-y-0.5">
-              {projects.map((project) => (
+              {sidebarProjects.map((project) => {
+                const isGroup = project.id === DIRECT_GROUP_ID;
+                const active = isGroup
+                  ? isDirectGroupActive
+                  : isProjectActive(project.id);
+                return (
                 <div
                   key={project.id}
                   className={`relative flex items-center rounded-md text-sm transition-colors group ${
-                    isProjectActive(project.id)
+                    active
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   }`}
                 >
                   <button
-                    onClick={() => navigate(`/projects/${encodeURIComponent(project.id)}`)}
+                    onClick={() =>
+                      navigate(
+                        isGroup
+                          ? "/direct-chat"
+                          : `/projects/${encodeURIComponent(project.id)}`
+                      )
+                    }
                     className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
                     title={
                       project.isVirtual
@@ -290,21 +311,24 @@ export function Sidebar() {
                       {project.sessionCount}
                     </span>
                   </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setProjectActionsMenu({
-                        project,
-                        anchorRect: e.currentTarget.getBoundingClientRect(),
-                      });
-                    }}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 mr-1 rounded text-muted-foreground hover:bg-accent/50 shrink-0"
-                    title="操作"
-                  >
-                    <MoreHorizontal className="w-3.5 h-3.5" />
-                  </button>
+                  {!isGroup && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProjectActionsMenu({
+                          project,
+                          anchorRect: e.currentTarget.getBoundingClientRect(),
+                        });
+                      }}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 mr-1 rounded text-muted-foreground hover:bg-accent/50 shrink-0"
+                      title="操作"
+                    >
+                      <MoreHorizontal className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

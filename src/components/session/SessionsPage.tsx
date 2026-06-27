@@ -266,7 +266,9 @@ export function SessionsPage() {
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <button
-          onClick={() => navigate("/projects")}
+          onClick={() =>
+            navigate(projectId.startsWith("<codex-direct>/") ? "/direct-chat" : "/projects")
+          }
           className="p-1 rounded hover:bg-accent transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />

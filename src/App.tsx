@@ -7,6 +7,10 @@ const ProjectsPage = lazy(async () => {
   const module = await import("./components/project/ProjectsPage");
   return { default: module.ProjectsPage };
 });
+const DirectChatDatesPage = lazy(async () => {
+  const module = await import("./components/project/DirectChatDatesPage");
+  return { default: module.DirectChatDatesPage };
+});
 const SessionsPage = lazy(async () => {
   const module = await import("./components/session/SessionsPage");
   return { default: module.SessionsPage };
@@ -76,6 +80,14 @@ function App() {
           element={
             <LazyRoute>
               <ProjectsPage />
+            </LazyRoute>
+          }
+        />
+        <Route
+          path="/direct-chat"
+          element={
+            <LazyRoute>
+              <DirectChatDatesPage />
             </LazyRoute>
           }
         />

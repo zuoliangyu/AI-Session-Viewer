@@ -26,7 +26,7 @@
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
-> **What's New（v2.16.1）**：Codex 会话标题改用 Codex Desktop 的线程名（读 `~/.codex/session_index.jsonl`，比第一句 prompt 友好，列表 / 消息页 / 搜索全接入）；Codex「直接对话」按日期归类为「Codex 直连对话 · 日期」虚拟项目，不再散落成一堆 app/wo-2/j 之类晦涩项目；`provider_sync` 新增 **Clone**——把 Codex 会话非破坏式克隆到其它 Provider（新 UUID + 复制 sqlite 行，原会话不动，自动备份、加密会话告警）。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.16.2）**：Codex 直连对话改为三层下钻——把按日期分散的直连对话折叠成一张「Codex 直连对话」聚合卡并**置顶**在「所有项目」左上角，点进去按日期归档，再点某天进入会话列表；侧边栏同步折叠成单个入口。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
 

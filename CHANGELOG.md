@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.16.2] - 2026-06-27
+
+### Added
+
+- **Codex 直连对话改为三层下钻 + 置顶**（新增 `src/utils/directChat.ts`、`src/components/project/DirectChatDatesPage.tsx`，改 `src/App.tsx`、`src/components/project/ProjectsPage.tsx`、`src/components/layout/Sidebar.tsx`、`src/components/session/SessionsPage.tsx`）：2.16.1 把每条直连对话按日期收成了 `<codex-direct>/DATE` 虚拟项目，但它们仍平铺在项目列表里、各占一格。本版本把这些日期桶在前端折叠成**一张「Codex 直连对话」聚合卡并固定在「所有项目」左上角第一位**，点进去是按日期归档的中间页（`/direct-chat`），再点某一天才进入该天的会话列表——形成「直连对话 → 日期 → 会话」三层结构。侧边栏项目列表同步折叠成单个「Codex 直连对话」入口。
+  - 折叠/聚合逻辑抽到共享 `directChat.ts`（`collapseDirectBuckets` / `buildDirectGroup` 等），主网格与侧边栏共用一份；聚合卡为纯前端合成（id `<codex-direct-group>`），不落后端、不参与删除 / 改名 / 标签筛选 / 多选，避免被当真项目误操作。
+  - 各日期桶仍是真实后端项目，日期中间页点进去复用现有 `/projects/:projectId` 会话列表（删除 / 克隆等操作在桶层级照常可用）；`SessionsPage` 返回按钮对直连桶返回 `/direct-chat`，保证下钻路径闭环。
+  - 标签筛选激活时不折叠（聚合卡无标签，折叠会让筛选语义混乱）。
+
+### Version
+
+- 将工作区版本统一提升到 `2.16.2`，同步 `package.json`、`package-lock.json`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.16.1] - 2026-06-27
 
 ### Added

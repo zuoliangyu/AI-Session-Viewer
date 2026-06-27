@@ -9,6 +9,7 @@ import { zhCN } from "date-fns/locale";
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
 import { ScanProgressView } from "../common/ScanProgressView";
+import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 
 export function ProjectsPage() {
   const navigate = useNavigate();
@@ -90,13 +91,21 @@ export function ProjectsPage() {
   };
 
   // Filter projects by global tag filter
-  const filteredProjects =
+  const tagFilteredProjects =
     globalTagFilter.length > 0
       ? projects.filter((p) => {
           const projectTags = crossProjectTags[p.id] || [];
           return globalTagFilter.every((t) => projectTags.includes(t));
         })
       : projects;
+
+  // Collapse Codex Desktop direct-chat date buckets into one pinned aggregate
+  // card. Skip while a tag filter is active (the synthetic group carries no
+  // tags, and per-date buckets shouldn't surface tag-matched anyway).
+  const filteredProjects =
+    globalTagFilter.length > 0
+      ? tagFilteredProjects
+      : collapseDirectBuckets(tagFilteredProjects);
 
   const emptyText =
     source === "claude"
@@ -137,15 +146,16 @@ export function ProjectsPage() {
   });
 
   // 预计算 lastModified 相对时间，避免切换选择模式（整列表重渲染）时重跑 date-fns。
+  // 用 filteredProjects 而非 projects，以覆盖合成的「直连对话」聚合卡。
   const lastModifiedMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const p of projects) {
+    for (const p of filteredProjects) {
       if (p.lastModified) {
         m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: zhCN }));
       }
     }
     return m;
-  }, [projects]);
+  }, [filteredProjects]);
 
   const handleBatchDelete = async () => {
     if (selectedProjects.length === 0) return;
@@ -260,12 +270,18 @@ export function ProjectsPage() {
                   toggleSelected(project.id);
                   return;
                 }
+                if (project.id === DIRECT_GROUP_ID) {
+                  navigate("/direct-chat");
+                  return;
+                }
                 navigate(`/projects/${encodeURIComponent(project.id)}`);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   if (selectMode) {
                     toggleSelected(project.id);
+                  } else if (project.id === DIRECT_GROUP_ID) {
+                    navigate("/direct-chat");
                   } else {
                     navigate(`/projects/${encodeURIComponent(project.id)}`);
                   }
@@ -281,21 +297,25 @@ export function ProjectsPage() {
                 checked={selected.has(project.id)}
                 onChange={() => toggleSelected(project.id)}
                 onClick={(e) => e.stopPropagation()}
-                className={`absolute top-2 right-2 accent-primary w-4 h-4 ${selectMode ? "" : "hidden"}`}
-              />
-              {/* ⋯ 操作按钮（所有数据源均显示） */}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setActionsMenu({ project, anchorRect: e.currentTarget.getBoundingClientRect() });
-                }}
-                className={`absolute top-2 right-2 p-1.5 rounded transition-opacity text-muted-foreground hover:bg-accent/50 ${
-                  selectMode ? "hidden" : "opacity-0 group-hover:opacity-100"
+                className={`absolute top-2 right-2 accent-primary w-4 h-4 ${
+                  selectMode && project.id !== DIRECT_GROUP_ID ? "" : "hidden"
                 }`}
-                title="操作"
-              >
-                <MoreHorizontal className="w-3.5 h-3.5" />
-              </button>
+              />
+              {/* ⋯ 操作按钮（聚合卡不显示——它不是真项目，不能删/改名） */}
+              {project.id !== DIRECT_GROUP_ID && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setActionsMenu({ project, anchorRect: e.currentTarget.getBoundingClientRect() });
+                  }}
+                  className={`absolute top-2 right-2 p-1.5 rounded transition-opacity text-muted-foreground hover:bg-accent/50 ${
+                    selectMode ? "hidden" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                  title="操作"
+                >
+                  <MoreHorizontal className="w-3.5 h-3.5" />
+                </button>
+              )}
               <div className="flex items-start gap-3">
                 {project.isVirtual ? (
                   <FolderClock className="w-5 h-5 text-muted-foreground mt-0.5 shrink-0" />
