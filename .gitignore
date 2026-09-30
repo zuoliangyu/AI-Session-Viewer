@@ -33,7 +33,4 @@ src-tauri/gen/
 .playwright-mcp/
 .codegraph/
 
-# Design docs / specs (local only)
-docs/
-
 session-web-linux-x86_64
