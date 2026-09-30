@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import {
   getApiToken,
@@ -18,6 +20,7 @@ declare const __IS_TAURI__: boolean;
  * events are ignored. Once dismissed, the next event reopens it.
  */
 export function AuthGate() {
+  const { t } = useTranslation();
   const usesLocalTauri = __IS_TAURI__ && !isRemoteNodeActive();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
@@ -86,15 +89,10 @@ export function AuthGate() {
     >
       <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
         <h3 id="asv-auth-title" className="text-lg font-semibold mb-2">
-          需要 API 访问令牌
-        </h3>
+          {t("需要 API 访问令牌")}</h3>
         <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
-          服务器返回 401。请粘贴部署时配置的访问令牌（启动 session-web 时设置的
-          <code className="mx-1 rounded bg-muted px-1 py-0.5">--token</code>
-          或
-          <code className="mx-1 rounded bg-muted px-1 py-0.5">ASV_TOKEN</code>）。
-          令牌会保存在浏览器的 localStorage 中。
-        </p>
+          {t("服务器返回 401。请粘贴部署时配置的访问令牌（启动 session-web 时设置的")}<code className="mx-1 rounded bg-muted px-1 py-0.5">--token</code>
+          {t("或")}<code className="mx-1 rounded bg-muted px-1 py-0.5">ASV_TOKEN</code>{t("）。 令牌会保存在浏览器的 localStorage 中。")}</p>
         <input
           ref={inputRef}
           type="password"
@@ -102,7 +100,7 @@ export function AuthGate() {
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="访问令牌"
+          placeholder={t("访问令牌")}
           className="w-full bg-background border border-border rounded px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-ring"
         />
         <div className="flex justify-end gap-2">
@@ -112,16 +110,14 @@ export function AuthGate() {
             onClick={handleCancel}
             disabled={submitting}
           >
-            取消
-          </button>
+            {t("取消")}</button>
           <button
             type="button"
             className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:opacity-90"
             onClick={handleSave}
             disabled={submitting}
           >
-            保存
-          </button>
+            {t("保存")}</button>
         </div>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import { t } from "./i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "./components/layout/AppLayout";
@@ -57,18 +59,20 @@ const SkillsPage = lazy(async () => {
 });
 
 function RouteFallback() {
+  const { t } = useTranslation();
   return (
     <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      页面加载中...
-    </div>
+      {t("页面加载中...")}</div>
   );
 }
 
 function LazyRoute({ children }: { children: ReactNode }) {
+  useTranslation();
   return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
 function App() {
+  useTranslation();
   return (
     <>
       <AuthGate />

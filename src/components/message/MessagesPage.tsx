@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import {
   Profiler,
   memo,
@@ -352,6 +354,7 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
 }
 
 export function MessagesPage() {
+  const { t } = useTranslation();
   const params = useParams();
   const location = useLocation();
   const projectId = params.projectId || "";
@@ -875,16 +878,16 @@ export function MessagesPage() {
         };
       })
       .filter(Boolean) as Array<{ id: string; index: number; preview: string; timestamp: string | null }>;
-  }, [displayedMessages, loadedStart, timeZone]);
+  }, [displayedMessages, loadedStart, timeZone, t]);
 
   const questionTocItems = useMemo(
     () => questionIndex.map((question, index) => ({
       id: question.messageId,
       index,
-      preview: question.preview || "（用户消息）",
+      preview: question.preview || t("（用户消息）"),
       timestamp: question.timestamp ? formatTime(question.timestamp, timeZone) : null,
     })),
-    [questionIndex, timeZone],
+    [questionIndex, timeZone, t],
   );
 
   const userMessageIds = useMemo(() => userDots.map((d) => d.id), [userDots]);
@@ -949,7 +952,7 @@ export function MessagesPage() {
         const firstText = chatMessages[i].content.find((block) => block.type === "text");
         return {
           key: `${chatMessages[i].id}:${chatMessages[i].timestamp}`,
-          preview: firstText && "text" in firstText ? firstText.text.slice(0, 80) : "有新回复",
+          preview: firstText && "text" in firstText ? firstText.text.slice(0, 80) : t("有新回复"),
         };
       }
       return null;
@@ -960,17 +963,17 @@ export function MessagesPage() {
       const firstText = messages[i].content.find((block) => block.type === "text");
       return {
         key: `${messages[i].uuid ?? i}:${messages[i].timestamp}`,
-        preview: firstText && "text" in firstText ? firstText.text.slice(0, 80) : "有新回复",
+        preview: firstText && "text" in firstText ? firstText.text.slice(0, 80) : t("有新回复"),
       };
     }
 
     return null;
-  }, [messages, chatMessages]);
+  }, [messages, chatMessages, t]);
 
   const { unreadCount: unreadReplyCount, clear: clearUnreadReplies } = useReplyNotification(
     latestReply?.key ?? null,
-    `${assistantName} 有新回复`,
-    latestReply?.preview || "点击查看最新消息"
+    t("{{v0}} 有新回复", { v0: assistantName }),
+    latestReply?.preview || t("点击查看最新消息")
   );
 
   // Drop the unread banner when the user navigates to a different session so
@@ -1002,7 +1005,7 @@ export function MessagesPage() {
     e.preventDefault();
     const command = getResumeCommand();
     if (!await copyTextToClipboard(command)) {
-      setResumeError(`复制失败，请手动复制：${command}`);
+      setResumeError(t("复制失败，请手动复制：{{v0}}", { v0: command }));
       return;
     }
     setCopied(true);
@@ -1029,7 +1032,7 @@ export function MessagesPage() {
     } else {
       const cmd = getResumeCommand();
       if (!await copyTextToClipboard(cmd)) {
-        setResumeError(`复制失败，请手动复制：${cmd}`);
+        setResumeError(t("复制失败，请手动复制：{{v0}}", { v0: cmd }));
         return;
       }
       setCopied(true);
@@ -1136,7 +1139,7 @@ export function MessagesPage() {
         <div className="flex flex-1 items-center gap-2 min-w-0 basis-60">
           <button
             onClick={() => navigate(`/projects/${encodeURIComponent(projectId)}`)}
-            aria-label="返回会话列表"
+            aria-label={t("返回会话列表")}
             className="p-1 rounded hover:bg-accent transition-colors shrink-0"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -1151,14 +1154,14 @@ export function MessagesPage() {
                   onClick={handleLoadAll}
                   disabled={!messagesHasMore && !loadingAll}
                   className="inline-flex items-center gap-1 rounded border border-border/60 bg-background/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-60"
-                  title={loadingAll ? "点击中止加载" : "点击一次性加载全部历史消息"}
+                  title={loadingAll ? t("点击中止加载") : t("点击一次性加载全部历史消息")}
                 >
                   {loadingAll && <Loader2 className="w-3 h-3 animate-spin" />}
-                  已加载 {messages.length} / {messagesTotal}
-                  <span className="text-primary">{loadingAll ? "·中止" : "·加载全部"}</span>
+                  {t("已加载")}{messages.length} / {messagesTotal}
+                  <span className="text-primary">{loadingAll ? t("·中止") : t("·加载全部")}</span>
                 </button>
               ) : (
-                <span>{messagesTotal} 条消息</span>
+                <span>{messagesTotal} {t("条消息")}</span>
               )}
               {session?.gitBranch && <span>· {session.gitBranch}</span>}
               <span>· {assistantName}</span>
@@ -1175,30 +1178,30 @@ export function MessagesPage() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {viewMode === "messages" && questionTocItems.length > 0 && !matchedOnly && <button id="message-directory-toggle" className="toolbar-button" aria-expanded={!tocCollapsed} onClick={() => handleToggleToc(!tocCollapsed)}><ListTree className="h-3.5 w-3.5" />目录 · {questionTocItems.length}</button>}
-          <select aria-label="阅读视图" value={viewMode} onChange={(event) => setViewMode(event.target.value as "messages" | "thread" | "trajectory")} className="toolbar-button pr-1">
-            <option value="messages">消息</option><option value="thread">提问汇总</option>{source === "codex" && <option value="trajectory">轨迹</option>}
+          {viewMode === "messages" && questionTocItems.length > 0 && !matchedOnly && <button id="message-directory-toggle" className="toolbar-button" aria-expanded={!tocCollapsed} onClick={() => handleToggleToc(!tocCollapsed)}><ListTree className="h-3.5 w-3.5" />{t("目录 ·")}{questionTocItems.length}</button>}
+          <select aria-label={t("阅读视图")} value={viewMode} onChange={(event) => setViewMode(event.target.value as "messages" | "thread" | "trajectory")} className="toolbar-button pr-1">
+            <option value="messages">{t("消息")}</option><option value="thread">{t("提问汇总")}</option>{source === "codex" && <option value="trajectory">{t("轨迹")}</option>}
           </select>
-          <ActionMenu label="显示">
-            <label><span>消息时间</span><input type="checkbox" checked={showTimestamp} onChange={toggleTimestamp} /></label>
-            <label><span>模型名称</span><input type="checkbox" checked={showModel} onChange={toggleModel} /></label>
-            <button onClick={() => { setAllExpandedPersist(true); setExpandVersion((v) => v + 1); }}><Rows3 className="h-4 w-4" />展开全部消息</button>
-            <button onClick={() => { setAllExpandedPersist(false); setExpandVersion((v) => v + 1); }}><ChevronsUpDown className="h-4 w-4" />折叠全部消息</button>
+          <ActionMenu label={t("显示")}>
+            <label><span>{t("消息时间")}</span><input type="checkbox" checked={showTimestamp} onChange={toggleTimestamp} /></label>
+            <label><span>{t("模型名称")}</span><input type="checkbox" checked={showModel} onChange={toggleModel} /></label>
+            <button onClick={() => { setAllExpandedPersist(true); setExpandVersion((v) => v + 1); }}><Rows3 className="h-4 w-4" />{t("展开全部消息")}</button>
+            <button onClick={() => { setAllExpandedPersist(false); setExpandVersion((v) => v + 1); }}><ChevronsUpDown className="h-4 w-4" />{t("折叠全部消息")}</button>
             <div className="my-1 border-t border-border" />
-            <button onClick={() => setShowSplitPicker((v) => !v)}><Plus className="h-4 w-4" />分屏查看其他会话</button>
-            {splitFilePaths.length > 0 && <button onClick={() => setSplitDirection((prev) => prev === "horizontal" ? "vertical" : "horizontal")}><Columns2 className="h-4 w-4" />{splitDirection === "horizontal" ? "改为上下分屏" : "改为左右分屏"}</button>}
+            <button onClick={() => setShowSplitPicker((v) => !v)}><Plus className="h-4 w-4" />{t("分屏查看其他会话")}</button>
+            {splitFilePaths.length > 0 && <button onClick={() => setSplitDirection((prev) => prev === "horizontal" ? "vertical" : "horizontal")}><Columns2 className="h-4 w-4" />{splitDirection === "horizontal" ? t("改为上下分屏") : t("改为左右分屏")}</button>}
           </ActionMenu>
-          <ActionMenu label="详情">
-            <p>会话信息</p>
+          <ActionMenu label={t("详情")}>
+            <p>{t("会话信息")}</p>
             {supportsCli && filePath && <div className="px-3 py-2"><SessionCostBadge filePath={filePath} /></div>}
-            {resolvedSessionId && <button onClick={() => setEditingSession(true)}><Tag className="h-4 w-4" />编辑标签和别名</button>}
-            {supportsResume && <button onClick={handleCopyCommand}><Copy className="h-4 w-4" />{copied ? "已复制" : "复制续聊命令"}</button>}
-            {supportsResume && USE_TAURI_TRANSPORT && <button onClick={handleResume}><Play className="h-4 w-4" />在终端打开</button>}
+            {resolvedSessionId && <button onClick={() => setEditingSession(true)}><Tag className="h-4 w-4" />{t("编辑标签和别名")}</button>}
+            {supportsResume && <button onClick={handleCopyCommand}><Copy className="h-4 w-4" />{copied ? t("已复制") : t("复制续聊命令")}</button>}
+            {supportsResume && USE_TAURI_TRANSPORT && <button onClick={handleResume}><Play className="h-4 w-4" />{t("在终端打开")}</button>}
           </ActionMenu>
           {resolvedSessionId && cliAvailable ? (
-            <button className="toolbar-primary" onClick={() => { setViewMode("messages"); setComposerVisible(true); requestAnimationFrame(() => chatInputRef.current?.focus()); }}><MessageSquare className="h-3.5 w-3.5" />继续对话</button>
+            <button className="toolbar-primary" onClick={() => { setViewMode("messages"); setComposerVisible(true); requestAnimationFrame(() => chatInputRef.current?.focus()); }}><MessageSquare className="h-3.5 w-3.5" />{t("继续对话")}</button>
           ) : supportsResume && resolvedSessionId ? (
-            <button className="toolbar-primary" onClick={handleResume}>{USE_TAURI_TRANSPORT ? <Play className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{USE_TAURI_TRANSPORT ? "终端续聊" : copied ? "已复制" : "复制续聊命令"}</button>
+            <button className="toolbar-primary" onClick={handleResume}>{USE_TAURI_TRANSPORT ? <Play className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{USE_TAURI_TRANSPORT ? t("终端续聊") : copied ? t("已复制") : t("复制续聊命令")}</button>
           ) : null}
         </div>
       </div>
@@ -1206,8 +1209,7 @@ export function MessagesPage() {
       {showSplitPicker && availableSplitSessions.length > 0 && (
         <div className="mx-4 mt-2 rounded-lg border border-border bg-card shadow-sm max-w-md">
           <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
-            选择要分屏查看的会话
-          </div>
+            {t("选择要分屏查看的会话")}</div>
           <div className="max-h-56 overflow-y-auto">
             {availableSplitSessions.map((item) => (
               <button
@@ -1222,8 +1224,7 @@ export function MessagesPage() {
                   {item.alias || item.threadName || item.firstPrompt || item.sessionId}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {item.messageCount} 条消息
-                </div>
+                  {item.messageCount} {t("条消息")}</div>
               </button>
             ))}
           </div>
@@ -1232,7 +1233,7 @@ export function MessagesPage() {
 
       {matchedOnly && scrollToMessageId && (
         <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2 text-sm">
-          <span className="text-muted-foreground">当前仅显示匹配消息片段</span>
+          <span className="text-muted-foreground">{t("当前仅显示匹配消息片段")}</span>
           <button
             onClick={() => {
               const next = new URLSearchParams(searchParams);
@@ -1241,8 +1242,7 @@ export function MessagesPage() {
             }}
             className="text-primary hover:text-primary/80 transition-colors"
           >
-            显示全部消息
-          </button>
+            {t("显示全部消息")}</button>
         </div>
       )}
 
@@ -1259,11 +1259,11 @@ export function MessagesPage() {
       {/* Resume error toast */}
       {createdFork && (
         <div role="status" className="mx-4 mt-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm">
-          <div>已创建独立分叉，原会话保留。</div>
+          <div>{t("已创建独立分叉，原会话保留。")}</div>
           {location.state.forkWarning && <div className="mt-1 text-destructive">{location.state.forkWarning}</div>}
           {(!USE_TAURI_TRANSPORT || location.state.forkWarning) && (
             <div className="mt-1 space-y-1">
-              <div>{source === "grok" ? "Grok 请使用下方命令续聊。" : "可在下方继续对话，或使用命令续聊。"}在会话所在机器的项目目录运行：</div>
+              <div>{source === "grok" ? t("Grok 请使用下方命令续聊。") : t("可在下方继续对话，或使用命令续聊。")}{t("在会话所在机器的项目目录运行：")}</div>
               <div className="break-all text-xs text-muted-foreground">{createdFork.projectPath}</div>
               <code className="block select-all break-all font-mono text-xs">{getResumeCommand()}</code>
             </div>
@@ -1279,7 +1279,7 @@ export function MessagesPage() {
       {/* Unread replies banner — accumulates while the page is hidden, shown on return */}
       {unreadReplyCount > 0 && (
         <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/10 px-4 py-2 text-sm">
-          <span className="text-primary">期间收到 {unreadReplyCount} 条新回复</span>
+          <span className="text-primary">{t("期间收到")}{unreadReplyCount} {t("条新回复")}</span>
           <button
             onClick={() => {
               clearUnreadReplies();
@@ -1287,14 +1287,12 @@ export function MessagesPage() {
             }}
             className="ml-auto rounded px-2 py-0.5 text-xs text-primary hover:bg-primary/15 transition-colors"
           >
-            跳到底部
-          </button>
+            {t("跳到底部")}</button>
           <button
             onClick={clearUnreadReplies}
             className="rounded px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
           >
-            关闭
-          </button>
+            {t("关闭")}</button>
         </div>
       )}
 
@@ -1302,7 +1300,7 @@ export function MessagesPage() {
         <div className="relative flex-1 min-h-0 flex min-w-0">
           {viewMode === "messages" && questionTocItems.length > 0 && !matchedOnly && !tocCollapsed && (
             <>
-            <button className="message-directory-backdrop" aria-label="关闭提问目录" onClick={() => handleToggleToc(true)} />
+            <button className="message-directory-backdrop" aria-label={t("关闭提问目录")} onClick={() => handleToggleToc(true)} />
             <div className="message-directory" onKeyDown={(event) => { if (event.key === "Escape") { handleToggleToc(true); document.getElementById("message-directory-toggle")?.focus(); } }}>
               <MessageTOCSidebar
                 items={questionTocItems}
@@ -1382,8 +1380,7 @@ export function MessagesPage() {
                     }`}
                   >
                     <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-primary/15 px-1.5 font-mono text-[10px] text-primary">
-                      首问
-                    </span>
+                      {t("首问")}</span>
                     <span className="min-w-0 flex-1 truncate text-foreground">
                       {firstUserAnchor.preview}
                     </span>
@@ -1402,14 +1399,13 @@ export function MessagesPage() {
                       className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-70"
                     >
                       {messagesLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                      {messagesLoading ? "加载更早的消息..." : "加载更早的消息"}
+                      {messagesLoading ? t("加载更早的消息...") : t("加载更早的消息")}
                     </button>
                   </div>
                 )}
                 {viewMode === "messages" && !messagesHasMore && messages.length > 0 && (
                   <div className="text-center py-4 text-xs text-muted-foreground">
-                    — 会话开始 —
-                  </div>
+                    {t("— 会话开始 —")}</div>
                 )}
                 {viewMode === "thread" ? (
                   <ThreadSummaryView
@@ -1422,15 +1418,13 @@ export function MessagesPage() {
                 ) : messagesLoading && messages.length === 0 ? (
                   <div className="flex items-center justify-center h-32 text-muted-foreground">
                     <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    加载消息中...
-                  </div>
+                    {t("加载消息中...")}</div>
                 ) : (
                   measuredMessageThread
                 )}
                 {viewMode === "messages" && !messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
                   <div className="text-center py-4 text-xs text-muted-foreground">
-                    — 会话结束 —
-                  </div>
+                    {t("— 会话结束 —")}</div>
                 )}
 
                 {viewMode === "messages" && chatMessages.length > 0 && (
@@ -1487,8 +1481,8 @@ export function MessagesPage() {
       {resolvedSessionId && cliAvailable && viewMode === "messages" && (
         <div className="shrink-0 border-t border-border bg-card">
           <div className="flex items-center justify-between gap-2 px-4 py-2 text-xs text-muted-foreground">
-            <span>{chatStreaming ? "正在回复…" : "在此会话中继续"}</span>
-            <button className="toolbar-button" disabled={chatStreaming} aria-expanded={composerOpen || chatStreaming} onClick={() => setComposerVisible(!composerOpen)}>{composerOpen || chatStreaming ? "收起输入框" : "输入消息"}</button>
+            <span>{chatStreaming ? t("正在回复…") : t("在此会话中继续")}</span>
+            <button className="toolbar-button" disabled={chatStreaming} aria-expanded={composerOpen || chatStreaming} onClick={() => setComposerVisible(!composerOpen)}>{composerOpen || chatStreaming ? t("收起输入框") : t("输入消息")}</button>
           </div>
           <div hidden={!composerOpen && !chatStreaming}>
           <ChatInput
@@ -1540,7 +1534,7 @@ export function MessagesPage() {
               setExpandVersion((v) => v + 1);
             }}
             className="p-2.5 rounded-full bg-card border border-border text-foreground shadow-lg hover:bg-accent transition-all hover:scale-105"
-            title={allExpanded ? "全部折叠（默认值已记住）" : "全部展开（默认值已记住）"}
+            title={allExpanded ? t("全部折叠（默认值已记住）") : t("全部展开（默认值已记住）")}
           >
             {allExpanded ? (
               <ChevronsUpDown className="w-4 h-4" />
@@ -1553,7 +1547,7 @@ export function MessagesPage() {
           <button
             onClick={scrollToTop}
             className="p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:scale-105"
-            title="跳转到顶部"
+            title={t("跳转到顶部")}
           >
             <ArrowUp className="w-4 h-4" />
           </button>
@@ -1562,7 +1556,7 @@ export function MessagesPage() {
           <button
             onClick={scrollToBottom}
             className="p-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:bg-primary/90 transition-all hover:scale-105"
-            title="跳转到底部"
+            title={t("跳转到底部")}
           >
             <ArrowDown className="w-4 h-4" />
           </button>
@@ -1628,6 +1622,7 @@ function SplitSessionPane({
   splitDirection: SplitDirection;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const initialScrollDoneRef = useRef(false);
   const requestVersionRef = useRef(0);
@@ -1824,14 +1819,13 @@ function SplitSessionPane({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">{sessionTitle}</p>
           <p className="text-xs text-muted-foreground">
-            分屏续聊
-            {total > 0 && ` · ${messages.length < total ? `已加载 ${messages.length} / ${total}` : `${total} 条消息`}`}
+            {t("分屏续聊")}{total > 0 && ` · ${messages.length < total ? t("已加载 {{v0}} / {{v1}}", { v0: messages.length, v1: total }) : t("{{v0}} 条消息", { v0: total })}`}
           </p>
         </div>
         <button
           onClick={onClose}
           className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title="关闭分屏"
+          title={t("关闭分屏")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -1851,22 +1845,20 @@ function SplitSessionPane({
               className="inline-flex items-center gap-2 rounded-full border border-border bg-background px-4 py-2 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {loading ? "加载更早的消息..." : "加载更早的消息"}
+              {loading ? t("加载更早的消息...") : t("加载更早的消息")}
             </button>
           </div>
         )}
 
         {!hasMore && messages.length > 0 && (
           <div className="py-4 text-center text-xs text-muted-foreground">
-            — 会话开始 —
-          </div>
+            {t("— 会话开始 —")}</div>
         )}
 
         {loading && messages.length === 0 ? (
           <div className="flex h-32 items-center justify-center text-muted-foreground">
             <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-            加载消息中...
-          </div>
+            {t("加载消息中...")}</div>
         ) : error ? (
           <div className="px-4 py-6 text-sm text-destructive">{error}</div>
         ) : (
@@ -1881,8 +1873,7 @@ function SplitSessionPane({
 
         {!loading && !error && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
           <div className="py-4 text-center text-xs text-muted-foreground">
-            — 会话结束 —
-          </div>
+            {t("— 会话结束 —")}</div>
         )}
 
         {chatMessages.length > 0 && (
@@ -1939,6 +1930,7 @@ const ChatMessagesBlock = memo(function ChatMessagesBlock({
   source: MessageSource;
   onSubmitAnswers: (answers: string) => void;
 }) {
+  useTranslation();
   const { toolResultMap, linkedToolUseIds } = useMemo(() => {
     const resultMap = new Map<string, { content: string; isError: boolean }>();
     for (const msg of messages) {
@@ -2015,7 +2007,7 @@ function extractUserQuestionPreview(message: DisplayMessage) {
     .trim();
 
   if (!normalized) {
-    return "（用户消息）";
+    return t("（用户消息）");
   }
 
   const sentenceEndChars = new Set(["。", "！", "？", "!", "?", "；", ";", "…"]);

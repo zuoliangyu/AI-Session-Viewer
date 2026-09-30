@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import { FileJson, FileText, FileCode } from "lucide-react";
@@ -21,10 +23,11 @@ const FORMATS: { format: ExportFormat; icon: typeof FileJson }[] = [
 /** 选择导出格式的小浮层（portal 定位，自动翻转防溢出）。 */
 export function ExportFormatMenu({
   anchorRect,
-  title = "导出为",
+  title = t("导出为"),
   onPick,
   onClose,
 }: ExportFormatMenuProps) {
+  useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

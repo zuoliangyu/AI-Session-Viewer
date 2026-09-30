@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { Copy, Check, Pencil, Trash2 } from "lucide-react";
@@ -20,6 +22,7 @@ export function ProjectActionsMenu({
   onRename,
   onDelete,
 }: ProjectActionsMenuProps) {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -73,7 +76,7 @@ export function ProjectActionsMenu({
         <button
           onClick={handleCopy}
           className="shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-          title="复制路径"
+          title={t("复制路径")}
         >
           {copied
             ? <Check className="w-3.5 h-3.5 text-green-500" />
@@ -88,8 +91,7 @@ export function ProjectActionsMenu({
           className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-accent/50 transition-colors flex items-center gap-2"
         >
           <Pencil className="w-3.5 h-3.5" />
-          设置别名
-        </button>
+          {t("设置别名")}</button>
       )}
 
       {/* 所有本地会话源均支持删除会话数据 */}
@@ -98,8 +100,7 @@ export function ProjectActionsMenu({
         className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2"
       >
         <Trash2 className="w-3.5 h-3.5" />
-        删除会话数据
-      </button>
+        {t("删除会话数据")}</button>
 
     </div>,
     document.body

@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 function pageInactive() {
@@ -107,7 +108,7 @@ export function useReplyNotification(
 
     setUnreadCount((prev) => prev + 1);
 
-    document.title = `有新回复 · ${originalTitleRef.current}`;
+    document.title = t("有新回复 · {{v0}}", { v0: originalTitleRef.current });
 
     void ensurePermission().then((permission) => {
       if (permission !== "granted") return;

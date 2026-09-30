@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ProjectEntry } from "../../types";
@@ -17,6 +19,7 @@ export function DeleteProjectDialog({
   onConfirm,
   onCancel,
 }: DeleteProjectDialogProps) {
+  const { t } = useTranslation();
   const [deleting, setDeleting] = useState(false);
   const [withCcConfig, setWithCcConfig] = useState(false);
 
@@ -36,13 +39,12 @@ export function DeleteProjectDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
-        <h3 className="text-lg font-semibold mb-2">确认删除工程</h3>
+        <h3 className="text-lg font-semibold mb-2">{t("确认删除工程")}</h3>
         <p className="text-sm text-muted-foreground mb-1">
-          工程：<span className="font-medium text-foreground">{displayName}</span>
+          {t("工程：")}<span className="font-medium text-foreground">{displayName}</span>
         </p>
         <p className="text-xs text-muted-foreground mb-4">
-          将删除 {project.sessionCount} 个会话记录
-        </p>
+          {t("将删除")}{project.sessionCount} {t("个会话记录")}</p>
 
         {/* Level 2 复选框（仅 claude 有 CC 配置） */}
         {source === "claude" && (
@@ -55,11 +57,9 @@ export function DeleteProjectDialog({
             className="mt-0.5 accent-destructive"
           />
           <span className="text-xs text-muted-foreground leading-relaxed">
-            同时清理 Claude Code 项目配置
-            {withCcConfig && (
+            {t("同时清理 Claude Code 项目配置")}{withCcConfig && (
               <span className="block mt-1 text-yellow-600 dark:text-yellow-400">
-                将从 ~/.claude.json 移除该项目配置，下次进入该目录等于全新项目
-              </span>
+                {t("将从 ~/.claude.json 移除该项目配置，下次进入该目录等于全新项目")}</span>
             )}
           </span>
         </label>
@@ -71,8 +71,7 @@ export function DeleteProjectDialog({
             disabled={deleting}
             className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
           >
-            取消
-          </button>
+            {t("取消")}</button>
           <button
             onClick={handleConfirm}
             disabled={deleting}
@@ -81,10 +80,9 @@ export function DeleteProjectDialog({
             {deleting ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                删除中...
-              </>
+                {t("删除中...")}</>
             ) : (
-              "删除"
+              t("删除")
             )}
           </button>
         </div>

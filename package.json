@@ -1,7 +1,7 @@
 {
   "name": "ai-session-viewer",
   "private": true,
-  "version": "2.22.0",
+  "version": "2.22.1",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -25,9 +25,11 @@
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.10.0",
     "date-fns": "^4.1.0",
+    "i18next": "^26.4.2",
     "lucide-react": "^0.460.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-i18next": "^17.0.15",
     "react-markdown": "^9.0.0",
     "react-router-dom": "^7.0.0",
     "react-syntax-highlighter": "^15.6.0",
@@ -36,7 +38,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0",
+    "@tauri-apps/cli": "2.11.4",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/react-syntax-highlighter": "^15.5.0",

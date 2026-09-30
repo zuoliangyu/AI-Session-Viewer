@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useState, type KeyboardEvent } from "react";
 
 interface Props {
@@ -8,6 +10,7 @@ interface Props {
 const PRESETS = [0, 25, 50, 75, 100];
 
 export function JumpToPercentControl({ onJump, disabled = false }: Props) {
+  const { t } = useTranslation();
   const [value, setValue] = useState("");
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -21,8 +24,8 @@ export function JumpToPercentControl({ onJump, disabled = false }: Props) {
   };
 
   return (
-    <span className="inline-flex items-center gap-1" title="跳到会话的百分比位置（只加载该位置附近的一小段）">
-      <span className="text-[11px] text-muted-foreground">跳至</span>
+    <span className="inline-flex items-center gap-1" title={t("跳到会话的百分比位置（只加载该位置附近的一小段）")}>
+      <span className="text-[11px] text-muted-foreground">{t("跳至")}</span>
       {PRESETS.map((p) => (
         <button
           key={p}
@@ -45,7 +48,7 @@ export function JumpToPercentControl({ onJump, disabled = false }: Props) {
           onKeyDown={onKeyDown}
           placeholder="%"
           className="w-9 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-60 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-          aria-label="跳到指定百分比"
+          aria-label={t("跳到指定百分比")}
         />
         <span className="text-[11px] text-muted-foreground">%</span>
       </span>

@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import type { ImportResult, SkillsResult } from "../types";
 import {
   getViewerNodes,
@@ -15,7 +16,7 @@ export function getSkillSyncNodes(): ViewerNode[] {
   return [
     {
       id: LOCAL_NODE_ID,
-      name: "当前服务器",
+      name: t("当前服务器"),
       baseUrl: currentOrigin,
       token: localStorage.getItem("asv_token") ?? "",
     },
@@ -31,10 +32,10 @@ async function nodeFetch(
   const headers = new Headers(init?.headers);
   if (node.token) headers.set("Authorization", `Bearer ${node.token}`);
   const response = await fetch(new URL(path, node.baseUrl), { ...init, headers });
-  if (response.status === 401) throw new Error(`${node.name} 的访问令牌无效`);
+  if (response.status === 401) throw new Error(t("{{v0}} 的访问令牌无效", { v0: node.name }));
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(message || `${node.name} 请求失败 (${response.status})`);
+    throw new Error(message || t("{{v0}} 请求失败 ({{v1}})", { v0: node.name, v1: response.status }));
   }
   return response;
 }

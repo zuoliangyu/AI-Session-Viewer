@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { useUpdateStore } from "../../stores/updateStore";
@@ -15,6 +17,7 @@ import {
 declare const __IS_TAURI__: boolean;
 
 export function UpdateToast() {
+  const { t } = useTranslation();
   if (!__IS_TAURI__) return null;
   const {
     status,
@@ -34,12 +37,12 @@ export function UpdateToast() {
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-center gap-2">
           <Bell className="w-4 h-4 text-blue-400 shrink-0" />
-          <span className="text-sm font-medium text-foreground">发现新版本</span>
+          <span className="text-sm font-medium text-foreground">{t("发现新版本")}</span>
         </div>
         <button
           onClick={dismiss}
           className="p-0.5 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-          title="忽略此版本"
+          title={t("忽略此版本")}
         >
           <X className="w-3.5 h-3.5" />
         </button>
@@ -53,22 +56,21 @@ export function UpdateToast() {
           className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
         >
           <ArrowDownToLine className="w-3.5 h-3.5" />
-          更新并重启
-        </button>
+          {t("更新并重启")}</button>
       ) : (
         <button
           onClick={() => { dismiss(); openDownloadPage(); }}
           className="w-full flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
         >
           <ExternalLink className="w-3.5 h-3.5" />
-          前往下载新版本
-        </button>
+          {t("前往下载新版本")}</button>
       )}
     </div>
   );
 }
 
 export function UpdateIndicator() {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const {
     installType,
@@ -117,7 +119,7 @@ export function UpdateIndicator() {
           onClick={() => checkForUpdate()}
           disabled={isChecking || isWorking}
           className="p-0.5 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
-          title="检查更新"
+          title={t("检查更新")}
         >
           <RefreshCw
             className={`w-3 h-3 ${isChecking ? "animate-spin" : ""}`}
@@ -132,7 +134,7 @@ export function UpdateIndicator() {
           {status === "idle" && !newVersion && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-              <span>已是最新版本</span>
+              <span>{t("已是最新版本")}</span>
             </div>
           )}
 
@@ -140,7 +142,7 @@ export function UpdateIndicator() {
           {isChecking && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-              <span>检查更新中...</span>
+              <span>{t("检查更新中...")}</span>
             </div>
           )}
 
@@ -149,15 +151,14 @@ export function UpdateIndicator() {
             <>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-foreground">
-                  新版本可用
-                </span>
+                  {t("新版本可用")}</span>
                 <button
                   onClick={() => {
                     dismiss();
                     setExpanded(false);
                   }}
                   className="text-muted-foreground hover:text-foreground"
-                  title="忽略此版本"
+                  title={t("忽略此版本")}
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -176,16 +177,14 @@ export function UpdateIndicator() {
                   className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                 >
                   <ArrowDownToLine className="w-3.5 h-3.5" />
-                  更新并重启
-                </button>
+                  {t("更新并重启")}</button>
               ) : (
                 <button
                   onClick={() => openDownloadPage()}
                   className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  前往下载新版本
-                </button>
+                  {t("前往下载新版本")}</button>
               )}
             </>
           )}
@@ -194,8 +193,7 @@ export function UpdateIndicator() {
           {status === "downloading" && (
             <>
               <div className="text-xs font-medium text-foreground">
-                正在下载更新...
-              </div>
+                {t("正在下载更新...")}</div>
               <div className="w-full bg-muted rounded-full h-1.5">
                 <div
                   className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
@@ -212,14 +210,14 @@ export function UpdateIndicator() {
           {status === "installing" && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-              <span>正在安装，即将重启...</span>
+              <span>{t("正在安装，即将重启...")}</span>
             </div>
           )}
 
           {/* Error */}
           {status === "error" && (
             <>
-              <div className="text-xs text-destructive">更新检查失败</div>
+              <div className="text-xs text-destructive">{t("更新检查失败")}</div>
               {errorMessage && (
                 <div className="text-[10px] text-muted-foreground break-all line-clamp-2">
                   {errorMessage}
@@ -229,8 +227,7 @@ export function UpdateIndicator() {
                 onClick={() => checkForUpdate()}
                 className="text-xs text-blue-500 hover:text-blue-400"
               >
-                重试
-              </button>
+                {t("重试")}</button>
             </>
           )}
         </div>

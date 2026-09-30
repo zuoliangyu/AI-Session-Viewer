@@ -1,3 +1,5 @@
+import { t } from "../../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
@@ -192,6 +194,7 @@ function hasAnswerValue(value: string | string[]): boolean {
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -206,7 +209,7 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handleCopy}
       className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
-      title="复制"
+      title={t("复制")}
     >
       {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
     </button>
@@ -226,6 +229,7 @@ function DeferredSyntaxBlock({
   showLineNumbers?: boolean;
   startingLineNumber?: number;
 }) {
+  const { t } = useTranslation();
   const deferredByDefault = shouldDeferHighlight(content);
   const [highlightEnabled, setHighlightEnabled] = useState(!deferredByDefault);
   const lineCount = useMemo(() => getLineCount(content), [content]);
@@ -255,15 +259,13 @@ function DeferredSyntaxBlock({
         <div className="overflow-hidden border-t border-border bg-muted/10">
           <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
             <span className="truncate">
-              {language} · {lineCount} 行 · {content.length} 字符
-            </span>
+              {language} · {lineCount} {t("行 ·")}{content.length} {t("字符")}</span>
             <button
               type="button"
               onClick={() => setHighlightEnabled(true)}
               className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
             >
-              启用高亮
-            </button>
+              {t("启用高亮")}</button>
           </div>
           <pre className="max-h-96 overflow-auto px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all text-foreground">
             {content}
@@ -312,13 +314,13 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
       const nw = String(data.new_string || "");
       const oldLines = old.split("\n").length;
       const newLines = nw.split("\n").length;
-      return fp ? `${getFileName(fp)} ${oldLines} → ${newLines} 行` : "";
+      return fp ? t("{{v0}} {{v1}} → {{v2}} 行", { v0: getFileName(fp), v1: oldLines, v2: newLines }) : "";
     }
     case "Write": {
       const fp = String(data.file_path || "");
       const content = String(data.content || "");
       const lines = content.split("\n").length;
-      return fp ? `${getFileName(fp)} ${lines} 行` : "";
+      return fp ? t("{{v0}} {{v1}} 行", { v0: getFileName(fp), v1: lines }) : "";
     }
     case "Bash": {
       return String(data.description || "");
@@ -335,9 +337,9 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
     case "AskUserQuestion": {
       const questions = data.questions as Array<{ question?: string }> | undefined;
       if (questions && questions.length > 0) {
-        return `${questions.length} 个问题`;
+        return t("{{v0}} 个问题", { v0: questions.length });
       }
-      return "用户问答";
+      return t("用户问答");
     }
     default:
       return "";
@@ -347,18 +349,19 @@ function toolSummary(name: string, parsed: ToolInput | null): string {
 /* ── Main ToolViewer ──────────────────────────────── */
 
 export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }: ToolViewerProps) {
+  const { t } = useTranslation();
   const { expanded, setExpanded } = useExpandAllControl(true);
   const [viewMode, setViewMode] = useState<"preview" | "code">("preview");
   const normalizedName = useMemo(() => normalizeToolName(name), [name]);
   const parsed = useMemo(() => tryParseJson(input), [input]);
   const rawViewLanguage = parsed ? "json" : normalizedName === "Bash" ? "bash" : "text";
-  const rawViewTitle = parsed ? "原始 JSON" : "原始输入";
+  const rawViewTitle = parsed ? t("原始 JSON") : t("原始输入");
   const summary = useMemo(() => {
     if (normalizedName === "Bash" && !parsed) {
       return getCommandInput(parsed, input);
     }
     return toolSummary(normalizedName, parsed);
-  }, [normalizedName, parsed, input]);
+  }, [normalizedName, parsed, input, t]);
   const hasError = result?.isError ?? false;
 
   return (
@@ -406,7 +409,7 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
               ? "text-blue-400"
               : "text-muted-foreground hover:text-foreground"
           }`}
-          title={!expanded ? `展开并显示${rawViewTitle}` : viewMode === "code" ? "切换到预览模式" : `切换到${rawViewTitle}`}
+          title={!expanded ? t("展开并显示{{v0}}", { v0: rawViewTitle }) : viewMode === "code" ? t("切换到预览模式") : t("切换到{{v0}}", { v0: rawViewTitle })}
         >
           <Code2 className="w-3.5 h-3.5" />
         </button>
@@ -468,6 +471,7 @@ function ToolContent({
   onSubmitAnswers?: (answers: string) => void;
   interactive?: boolean;
 }) {
+  useTranslation();
   switch (name) {
     case "Read":
       return <ReadContent parsed={parsed} result={result} />;
@@ -503,6 +507,7 @@ function ReadContent({
   parsed: ToolInput | null;
   result?: { content: string; isError: boolean } | null;
 }) {
+  const { t } = useTranslation();
   const filePath = String(parsed?.file_path || "");
   const lang = getLanguageFromPath(filePath);
   const content = result?.content || "";
@@ -512,7 +517,7 @@ function ReadContent({
   }
 
   if (!content) {
-    return <div className="p-3 text-xs text-muted-foreground">无内容</div>;
+    return <div className="p-3 text-xs text-muted-foreground">{t("无内容")}</div>;
   }
 
   const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
@@ -546,6 +551,7 @@ function EditContent({
   parsed: ToolInput | null;
   result?: { content: string; isError: boolean } | null;
 }) {
+  const { t } = useTranslation();
   const filePath = String(parsed?.file_path || "");
   const oldString = String(parsed?.old_string || "");
   const newString = String(parsed?.new_string || "");
@@ -557,7 +563,7 @@ function EditContent({
   if (!oldString && !newString) {
     return (
       <div className="p-3 text-xs text-muted-foreground">
-        {result?.content || "无变更内容"}
+        {result?.content || t("无变更内容")}
       </div>
     );
   }
@@ -583,6 +589,7 @@ function WriteContent({
   parsed: ToolInput | null;
   result?: { content: string; isError: boolean } | null;
 }) {
+  const { t } = useTranslation();
   const filePath = String(parsed?.file_path || "");
   const content = String(parsed?.content || "");
   const lang = getLanguageFromPath(filePath);
@@ -594,7 +601,7 @@ function WriteContent({
   if (!content) {
     return (
       <div className="p-3 text-xs text-muted-foreground">
-        {result?.content || "无写入内容"}
+        {result?.content || t("无写入内容")}
       </div>
     );
   }
@@ -631,6 +638,7 @@ function BashContent({
   rawInput: string;
   result?: { content: string; isError: boolean } | null;
 }) {
+  useTranslation();
   const command = getCommandInput(parsed, rawInput);
   const description = String(parsed?.description || "");
   const output = result?.content || "";
@@ -682,6 +690,7 @@ function SearchContent({
   parsed: ToolInput | null;
   result?: { content: string; isError: boolean } | null;
 }) {
+  useTranslation();
   const output = result?.content || "";
   const pattern = String(parsed?.pattern || "");
   const path = String(parsed?.path || "");
@@ -731,26 +740,26 @@ const HIDDEN_FIELDS = new Set([
 
 // Priority display order for well-known fields, with Chinese labels and code-block hint
 const FIELD_META: Record<string, { label: string; code?: boolean }> = {
-  command:     { label: "命令",   code: true  },
-  file_path:   { label: "文件"               },
-  description: { label: "描述"               },
-  pattern:     { label: "模式",   code: true  },
-  path:        { label: "路径"               },
-  url:         { label: "地址"               },
-  prompt:      { label: "提示词"             },
-  query:       { label: "查询"               },
-  content:     { label: "内容",   code: true  },
-  text:        { label: "文本"               },
-  code:        { label: "代码",   code: true  },
-  element:     { label: "元素"               },
-  skill:       { label: "技能"               },
-  args:        { label: "参数"               },
-  taskId:      { label: "任务ID"             },
-  subject:     { label: "主题"               },
-  status:      { label: "状态"               },
-  questions:   { label: "问题"               },
-  new_string:  { label: "新内容", code: true  },
-  old_string:  { label: "旧内容", code: true  },
+  command:     { get label() { return t("命令"); },   code: true  },
+  file_path:   { get label() { return t("文件"); }               },
+  description: { get label() { return t("描述"); }               },
+  pattern:     { get label() { return t("模式"); },   code: true  },
+  path:        { get label() { return t("路径"); }               },
+  url:         { get label() { return t("地址"); }               },
+  prompt:      { get label() { return t("提示词"); }             },
+  query:       { get label() { return t("查询"); }               },
+  content:     { get label() { return t("内容"); },   code: true  },
+  text:        { get label() { return t("文本"); }               },
+  code:        { get label() { return t("代码"); },   code: true  },
+  element:     { get label() { return t("元素"); }               },
+  skill:       { get label() { return t("技能"); }               },
+  args:        { get label() { return t("参数"); }               },
+  taskId:      { get label() { return t("任务ID"); }             },
+  subject:     { get label() { return t("主题"); }               },
+  status:      { get label() { return t("状态"); }               },
+  questions:   { get label() { return t("问题"); }               },
+  new_string:  { get label() { return t("新内容"); }, code: true  },
+  old_string:  { get label() { return t("旧内容"); }, code: true  },
 };
 
 const PRIORITY_ORDER = [
@@ -759,6 +768,7 @@ const PRIORITY_ORDER = [
 ];
 
 function FieldList({ parsed }: { parsed: ToolInput }) {
+  useTranslation();
   const entries = Object.entries(parsed).filter(([k]) => !HIDDEN_FIELDS.has(k));
 
   // Known fields first (in priority order), then the rest alphabetically
@@ -812,6 +822,7 @@ function DefaultContent({
   rawInput: string;
   result?: { content: string; isError: boolean } | null;
 }) {
+  useTranslation();
   const output = result?.content || "";
 
   return (
@@ -861,6 +872,7 @@ function AskUserQuestionContent({
   onSubmitAnswers?: (answers: string) => void;
   interactive?: boolean;
 }) {
+  const { t } = useTranslation();
   if (result?.isError) {
     return <ErrorBlock content={result.content} />;
   }
@@ -872,7 +884,7 @@ function AskUserQuestionContent({
   if (questions.length === 0) {
     return (
       <div className="p-3 text-xs text-muted-foreground">
-        {result?.content || "无问题内容"}
+        {result?.content || t("无问题内容")}
       </div>
     );
   }
@@ -896,7 +908,7 @@ function AskUserQuestionContent({
             {q.header && (
               <span className="inline-block px-2 py-0.5 mb-1.5 text-[10px] font-medium rounded-full bg-primary/15 text-primary">
                 {q.header}
-                {q.multiSelect && " · 多选"}
+                {q.multiSelect && t(" · 多选")}
               </span>
             )}
             {/* Question text */}
@@ -973,20 +985,20 @@ function AskUserQuestionContent({
                       : value,
                   }));
                 }}
-                placeholder="可直接输入回答，或点击上方选项"
+                placeholder={t("可直接输入回答，或点击上方选项")}
                 className="mt-2 w-full min-h-[72px] rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               />
             )}
             {/* Show answer if present and not matching any option */}
             {answerText && !q.multiSelect && !q.options?.some((o) => o.label === answerText) && (
               <div className="mt-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
-                <span className="text-primary font-medium">回答：</span>
+                <span className="text-primary font-medium">{t("回答：")}</span>
                 <span className="text-foreground ml-1">{answerText}</span>
               </div>
             )}
             {q.multiSelect && unmatchedAnswers.length > 0 && (
               <div className="mt-1.5 px-2.5 py-1.5 rounded-md bg-primary/10 border border-primary/30 text-xs">
-                <span className="text-primary font-medium">补充回答：</span>
+                <span className="text-primary font-medium">{t("补充回答：")}</span>
                 <span className="text-foreground ml-1">{unmatchedAnswers.join("、")}</span>
               </div>
             )}
@@ -1001,23 +1013,22 @@ function AskUserQuestionContent({
               const lines = questions.map((q) => {
                 const value = draftAnswers[q.question] ?? normalizeAnswerValue(answers[q.question], Boolean(q.multiSelect));
                 if (Array.isArray(value)) {
-                  return `- ${q.question}：${value.join("、") || "未选择"}`;
+                  return `- ${q.question}：${value.join("、") || t("未选择")}`;
                 }
-                return `- ${q.question}：${String(value || "").trim() || "未填写"}`;
+                return `- ${q.question}：${String(value || "").trim() || t("未填写")}`;
               });
-              onSubmitAnswers(`针对上面的补充问题，我的回答如下：\n${lines.join("\n")}`);
+              onSubmitAnswers(t("针对上面的补充问题，我的回答如下：\n{{v0}}", { v0: lines.join("\n") }));
             }}
             disabled={!questions.some((q) => hasAnswerValue(draftAnswers[q.question] ?? normalizeAnswerValue(answers[q.question], Boolean(q.multiSelect))))}
             className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
-            提交选择
-          </button>
+            {t("提交选择")}</button>
         </div>
       )}
       {/* Show raw result if no structured answers */}
       {result?.content && Object.keys(answers).length === 0 && (
         <div className="px-3 py-2 text-xs text-muted-foreground">
-          <span className="font-medium">用户回答：</span>
+          <span className="font-medium">{t("用户回答：")}</span>
           <span className="ml-1">{result.content.length > 500 ? result.content.slice(0, 500) + "..." : result.content}</span>
         </div>
       )}
@@ -1028,6 +1039,7 @@ function AskUserQuestionContent({
 /* ── Shared error block ───────────────────────────── */
 
 function ErrorBlock({ content }: { content: string }) {
+  useTranslation();
   return (
     <div className="p-3 text-xs font-mono text-red-400 bg-red-500/5 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
       {content.length > 5000 ? content.slice(0, 5000) + "\n... (truncated)" : content}

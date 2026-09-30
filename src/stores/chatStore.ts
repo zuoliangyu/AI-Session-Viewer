@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import { create } from "zustand";
 import type {
   CliInstallation,
@@ -443,10 +444,10 @@ function parseClaudeStreamLine(line: string): ParseResult {
     let tokenInfo = "";
     if (usage) {
       const parts: string[] = [];
-      if (usage.input_tokens) parts.push(`输入: ${usage.input_tokens.toLocaleString()}`);
-      if (usage.output_tokens) parts.push(`输出: ${usage.output_tokens.toLocaleString()}`);
-      if (usage.cache_creation_input_tokens) parts.push(`写入缓存: ${usage.cache_creation_input_tokens.toLocaleString()}`);
-      if (usage.cache_read_input_tokens) parts.push(`读取缓存: ${usage.cache_read_input_tokens.toLocaleString()}`);
+      if (usage.input_tokens) parts.push(t("输入: {{v0}}", { v0: usage.input_tokens.toLocaleString() }));
+      if (usage.output_tokens) parts.push(t("输出: {{v0}}", { v0: usage.output_tokens.toLocaleString() }));
+      if (usage.cache_creation_input_tokens) parts.push(t("写入缓存: {{v0}}", { v0: usage.cache_creation_input_tokens.toLocaleString() }));
+      if (usage.cache_read_input_tokens) parts.push(t("读取缓存: {{v0}}", { v0: usage.cache_read_input_tokens.toLocaleString() }));
       if (parts.length > 0) tokenInfo = ` [${parts.join(" · ")}]`;
     }
 
@@ -1073,7 +1074,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const provider = source === "codex" ? "openai" : source === "omp" ? "omp" : "anthropic";
       const customModels: ModelInfo[] = customIds
         .filter((id) => !existingIds.has(id))
-        .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
+        .map((id) => ({ id, name: id, provider, group: t("自定义"), created: null }));
       const allModels = [...customModels, ...models];
       set((currentState) => {
         const nextPaneModelList = createChatPaneModelListState({
@@ -1292,7 +1293,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       id: modelId,
       name: modelId,
       provider: src === "codex" ? "openai" : "anthropic",
-      group: "自定义",
+      group: t("自定义"),
       created: null,
     } satisfies ModelInfo;
     set((currentState) => {
@@ -1558,9 +1559,9 @@ export const useChatStore = create<ChatState>((set, get) => {
         })();
         if (stash) {
           const parts: string[] = [];
-          if (stash.inputTokens) parts.push(`输入: ${stash.inputTokens.toLocaleString()}`);
-          if (stash.outputTokens) parts.push(`输出: ${stash.outputTokens.toLocaleString()}`);
-          if (stash.cachedInputTokens) parts.push(`缓存命中: ${stash.cachedInputTokens.toLocaleString()}`);
+          if (stash.inputTokens) parts.push(t("输入: {{v0}}", { v0: stash.inputTokens.toLocaleString() }));
+          if (stash.outputTokens) parts.push(t("输出: {{v0}}", { v0: stash.outputTokens.toLocaleString() }));
+          if (stash.cachedInputTokens) parts.push(t("缓存命中: {{v0}}", { v0: stash.cachedInputTokens.toLocaleString() }));
           if (parts.length > 0) {
             get().setPaneState(paneId, (currentPane) => ({
               ...currentPane,
@@ -1571,7 +1572,7 @@ export const useChatStore = create<ChatState>((set, get) => {
                 {
                   id: generateUUID(),
                   role: "system",
-                  content: [{ type: "text", text: `完成 [${parts.join(" · ")}]` }],
+                  content: [{ type: "text", text: t("完成 [{{v0}}]", { v0: parts.join(" · ") }) }],
                   timestamp: new Date().toISOString(),
                 },
               ],

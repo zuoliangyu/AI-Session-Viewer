@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import type { ProjectEntry } from "../types";
 
 /** Backend sentinel prefix for Codex Desktop "direct chat" date buckets
@@ -33,8 +34,8 @@ export function buildDirectGroup(buckets: ProjectEntry[]): ProjectEntry | null {
   return {
     source: "codex",
     id: DIRECT_GROUP_ID,
-    displayPath: `Codex Desktop 直接对话（${buckets.length} 天）`,
-    shortName: "Codex 直连对话",
+    displayPath: t("Codex Desktop 直接对话（{{v0}} 天）", { v0: buckets.length }),
+    shortName: t("Codex 直连对话"),
     sessionCount,
     lastModified,
     modelProvider: null,

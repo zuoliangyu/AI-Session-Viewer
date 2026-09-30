@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo, useState } from "react";
 import type { DisplayMessage } from "../../types";
 import { Copy, Check, ChevronDown, ChevronUp } from "lucide-react";
@@ -35,6 +37,7 @@ export const UserMessage = memo(function UserMessage({
   repliesExpanded,
   onToggleReplies,
 }: Props) {
+  const { t } = useTranslation();
   const timeZone = useAppStore((state) => state.timeZone);
   const [copied, setCopied] = useState(false);
   const { expanded, setExpanded } = useExpandAllControl(true, { followGlobal: true });
@@ -67,8 +70,8 @@ export const UserMessage = memo(function UserMessage({
   const hasCopyContent = copyText.length > 0;
   const previewText = useMemo(() => {
     const raw = (textContent.join("\n\n") || copyText).replace(/\s+/g, " ").trim();
-    return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || "（用户消息）";
-  }, [textContent, copyText]);
+    return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || t("（用户消息）");
+  }, [textContent, copyText, t]);
   const isShortPreview = previewText.length <= 12;
 
   const handleCopy = async (e: React.MouseEvent) => {
@@ -106,11 +109,11 @@ export const UserMessage = memo(function UserMessage({
   const isThreadLayout = layout === "thread";
   const foldTitle = hasReplyControl
     ? allCollapsed
-      ? `展开提问与 ${replyCount} 条回复`
-      : `折叠提问与 ${replyCount} 条回复`
+      ? t("展开提问与 {{v0}} 条回复", { v0: replyCount })
+      : t("折叠提问与 {{v0}} 条回复", { v0: replyCount })
     : expanded
-      ? "折叠此消息"
-      : "展开此消息";
+      ? t("折叠此消息")
+      : t("展开此消息");
 
   return (
     <div className="flex justify-start">
@@ -141,8 +144,7 @@ export const UserMessage = memo(function UserMessage({
             </span>
             {hasReplyControl && (
               <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${hue ? `${hue.bubbleBg} ${hue.text}` : "bg-primary/15 text-primary"}`}>
-                {replyCount} 条回复
-              </span>
+                {replyCount} {t("条回复")}</span>
             )}
           </button>
         ) : (
@@ -155,12 +157,12 @@ export const UserMessage = memo(function UserMessage({
               {hue && questionIndex !== undefined && (
                 <span
                   className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 font-mono text-[10px] text-white ${hue.swatch}`}
-                  title={`第 ${questionIndex + 1} 个提问`}
+                  title={t("第 {{v0}} 个提问", { v0: questionIndex + 1 })}
                 >
                   {questionIndex + 1}
                 </span>
               )}
-              <span className={`text-[11px] font-medium ${hue ? hue.text : "text-primary/80"}`}>用户</span>
+              <span className={`text-[11px] font-medium ${hue ? hue.text : "text-primary/80"}`}>{t("用户")}</span>
               {showTimestamp && message.timestamp && (
                 <span className="text-[11px] text-muted-foreground">
                   {formatTime(message.timestamp, timeZone)}
@@ -168,26 +170,23 @@ export const UserMessage = memo(function UserMessage({
               )}
               {hasReplyControl && (
                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${hue ? `${hue.previewBg} ${hue.text}` : "bg-primary/15 text-primary"}`}>
-                  {replyCount} 条回复
-                </span>
+                  {replyCount} {t("条回复")}</span>
               )}
               <div className="ml-auto flex items-center gap-1">
                 {hasCopyContent && (
                   <button
                     onClick={handleCopy}
                     className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md border border-border/60 bg-background/70 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    title={hasTextContent ? "复制全部内容" : "复制 Tool Result"}
+                    title={hasTextContent ? t("复制全部内容") : t("复制 Tool Result")}
                   >
                     {copied ? (
                       <>
                         <Check className="w-3 h-3 text-green-500" />
-                        已复制
-                      </>
+                        {t("已复制")}</>
                     ) : (
                       <>
                         <Copy className="w-3 h-3" />
-                        复制
-                      </>
+                        {t("复制")}</>
                     )}
                   </button>
                 )}
@@ -197,8 +196,7 @@ export const UserMessage = memo(function UserMessage({
                   title={foldTitle}
                 >
                   <ChevronUp className="w-3 h-3" />
-                  折叠
-                </button>
+                  {t("折叠")}</button>
               </div>
             </div>
             {message.content.map((block, i) => {

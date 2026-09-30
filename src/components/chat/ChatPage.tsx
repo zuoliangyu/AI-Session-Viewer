@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -277,7 +279,7 @@ function buildChatDerivedState(messages: ChatMessage[]): ChatDerivedState {
       const text = message.content.find((block) => block.type === "text");
       latestAssistantMessage = {
         key: `${message.id}:${message.timestamp}`,
-        preview: text && "text" in text ? text.text.slice(0, 80) : "有新回复",
+        preview: text && "text" in text ? text.text.slice(0, 80) : t("有新回复"),
       };
     }
 
@@ -326,6 +328,7 @@ interface ChatPageProps {
 }
 
 export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
+  const { t } = useTranslation();
   const { sessionId: urlSessionId } = useParams<{ sessionId?: string }>();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pane = useChatStore((state) => state.getPaneState(paneId));
@@ -417,7 +420,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
 
   const { toolResultMap, turns, linkedToolUseIds, latestAssistantMessage } = useMemo(
     () => buildChatDerivedState(messages),
-    [messages]
+    [messages, t]
   );
 
   const useVirtual = turns.length > VIRTUAL_THRESHOLD;
@@ -432,8 +435,8 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
 
   useReplyNotification(
     latestAssistantMessage?.key ?? null,
-    `${cliLabel} 有新回复`,
-    latestAssistantMessage?.preview || "点击查看最新对话"
+    t("{{v0}} 有新回复", { v0: cliLabel }),
+    latestAssistantMessage?.preview || t("点击查看最新对话")
   );
 
   const handleSubmitAnswers = useCallback(async (answers: string) => {
@@ -532,6 +535,7 @@ function VirtualizedTurns({
   scrollContainer: React.RefObject<HTMLDivElement | null>;
   onSubmitAnswers: (answers: string) => void;
 }) {
+  useTranslation();
   // +1 for the streaming/error footer row
   const count = turns.length + 1;
 
@@ -609,6 +613,7 @@ function TurnBlock({
   linkedToolUseIds: Set<string>;
   onSubmitAnswers: (answers: string) => void;
 }) {
+  useTranslation();
   return (
     <div>
       {turn.turnIndex > 0 && (
@@ -647,6 +652,7 @@ function StreamingAndError({
   isStreaming: boolean;
   error: string | null;
 }) {
+  useTranslation();
   return (
     <>
       {isStreaming && (
@@ -681,15 +687,15 @@ function EmptyState({
   cliAvailable: boolean;
   cliLabel: string;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-center justify-center h-full">
       <div className="max-w-md w-full px-6 space-y-6">
         <div className="text-center space-y-2">
           <MessageSquarePlus className="w-10 h-10 mx-auto text-muted-foreground" />
-          <h2 className="text-lg font-semibold">新建对话</h2>
+          <h2 className="text-lg font-semibold">{t("新建对话")}</h2>
           <p className="text-sm text-muted-foreground">
-            选择工作目录，开始与 {cliLabel} 对话
-          </p>
+            {t("选择工作目录，开始与 {{agent}} 对话", { agent: cliLabel })}</p>
         </div>
 
         <div>
@@ -700,26 +706,23 @@ function EmptyState({
             {cliLabel === "Oh My Pi" ? <OmpMark className="w-4 h-4" /> : <Bot className={`w-4 h-4 ${cliLabel === "Codex" ? "text-green-500" : "text-orange-500"}`} />}
             <span className="text-sm font-medium">{cliLabel}</span>
             <span className={`ml-auto text-xs ${cliAvailable ? "text-green-500" : "text-red-400"}`}>
-              {cliAvailable ? "已安装" : "未检测到"}
+              {cliAvailable ? t("已安装") : t("未检测到")}
             </span>
           </div>
           {!cliAvailable && (
             <p className="mt-1.5 text-xs text-red-400">
-              未检测到 {cliLabel} CLI。请先安装后再试。
-            </p>
+              {t("未检测到 {{agent}} CLI。请先安装后再试。", { agent: cliLabel })}</p>
           )}
         </div>
 
         <div>
           <label className="block text-xs font-medium text-muted-foreground mb-1.5">
-            工作目录
-          </label>
+            {t("工作目录")}</label>
           <FolderSelector value={projectPath} onChange={onProjectPathChange} />
         </div>
 
         <p className="text-xs text-center text-muted-foreground">
-          选择工作目录后，在下方输入框输入提示词开始对话
-        </p>
+          {t("选择工作目录后，在下方输入框输入提示词开始对话")}</p>
       </div>
     </div>
   );

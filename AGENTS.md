@@ -112,7 +112,7 @@ CSS 变量定义在 `index.css`（`:root` 浅色，`.dark` 深色）。Tailwind 
 - Model 使用 `#[serde(rename_all = "camelCase")]` 做 JSON ↔ Rust 字段映射
 - React 组件统一使用函数组件 + hooks
 - URL 参数中的项目 ID 经过 `encodeURIComponent` 编码（路径含特殊字符）
-- UI 文字使用中文（简体中文）
+- UI 默认简体中文，支持手动切换英文；文案通过 `src/i18n/` 管理，两套词典同步更新。组件使用 `useTranslation`，工具函数使用共享 `t`；不得翻译会话原文或用户自定义名称。维护方法见 `src/i18n/README.md`。
 - 图标来自 `lucide-react`，样式使用 Tailwind CSS 工具类
 - 字体：Inter（正文）+ JetBrains Mono（代码），内嵌 woff2
 - Web 模式条件渲染使用 `__IS_TAURI__` 编译时变量

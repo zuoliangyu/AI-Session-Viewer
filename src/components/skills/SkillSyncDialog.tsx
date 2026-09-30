@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftRight,
@@ -22,7 +24,8 @@ export function SkillSyncDialog({
   onClose: () => void;
   onSynced: () => void;
 }) {
-  const nodes = useMemo(getSkillSyncNodes, []);
+  const { t } = useTranslation();
+  const nodes = useMemo(getSkillSyncNodes, [t]);
   const activeId = getActiveNodeId();
   const initialSource = nodes.some((node) => node.id === activeId)
     ? activeId
@@ -114,10 +117,10 @@ export function SkillSyncDialog({
       }
       if (target.id === activeId) onSynced();
       await loadPreview();
-      setResult(`已同步 ${completed} 个 Skill`);
+      setResult(t("已同步 {{v0}} 个 Skill", { v0: completed }));
     } catch (cause) {
       setError(
-        `${completed > 0 ? `已完成 ${completed} 个；` : ""}${
+        `${completed > 0 ? t("已完成 {{v0}} 个；", { v0: completed }) : ""}${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -138,12 +141,12 @@ export function SkillSyncDialog({
         <div className="flex items-center justify-between border-b border-border p-4">
           <div className="flex items-center gap-2">
             <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">同步全局 Skills</h2>
+            <h2 className="text-sm font-semibold">{t("同步全局 Skills")}</h2>
           </div>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="关闭"
+            title={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -151,8 +154,7 @@ export function SkillSyncDialog({
 
         {nodes.length < 2 ? (
           <div className="p-6 text-sm text-muted-foreground">
-            至少需要两个可访问的 session-web 节点。
-          </div>
+            {t("至少需要两个可访问的 session-web 节点。")}</div>
         ) : (
           <>
             <div className="flex items-center gap-2 border-b border-border p-4">
@@ -160,7 +162,7 @@ export function SkillSyncDialog({
                 value={sourceId}
                 onChange={(event) => setSourceId(event.target.value)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
-                title="源机器"
+                title={t("源机器")}
               >
                 {nodes.map((node) => (
                   <option key={node.id} value={node.id} disabled={node.id === targetId}>
@@ -174,7 +176,7 @@ export function SkillSyncDialog({
                   setTargetId(sourceId);
                 }}
                 className="rounded p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                title="交换源机器和目标机器"
+                title={t("交换源机器和目标机器")}
               >
                 <ArrowLeftRight className="h-4 w-4" />
               </button>
@@ -182,7 +184,7 @@ export function SkillSyncDialog({
                 value={targetId}
                 onChange={(event) => setTargetId(event.target.value)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
-                title="目标机器"
+                title={t("目标机器")}
               >
                 {nodes.map((node) => (
                   <option key={node.id} value={node.id} disabled={node.id === sourceId}>
@@ -194,7 +196,7 @@ export function SkillSyncDialog({
                 onClick={() => void loadPreview()}
                 disabled={loading || syncing}
                 className="rounded p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                title="刷新预览"
+                title={t("刷新预览")}
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               </button>
@@ -205,8 +207,7 @@ export function SkillSyncDialog({
                 onClick={selectAll}
                 className="text-muted-foreground hover:text-foreground"
               >
-                全选 / 取消全选
-              </button>
+                {t("全选 / 取消全选")}</button>
               <label className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -224,18 +225,16 @@ export function SkillSyncDialog({
                     }
                   }}
                 />
-                覆盖同名 Skill（自动备份）
-              </label>
+                {t("覆盖同名 Skill（自动备份）")}</label>
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto divide-y divide-border">
               {loading ? (
                 <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  正在生成差异预览...
-                </div>
+                  {t("正在生成差异预览...")}</div>
               ) : sourceSkills.length === 0 ? (
-                <div className="p-6 text-sm text-muted-foreground">源机器没有全局 Skill。</div>
+                <div className="p-6 text-sm text-muted-foreground">{t("源机器没有全局 Skill。")}</div>
               ) : (
                 sourceSkills.map((skill) => {
                   const conflict = targetSlugs.has(skill.slug);
@@ -258,7 +257,7 @@ export function SkillSyncDialog({
                         <div className="truncate text-xs text-muted-foreground">{skill.slug}</div>
                       </div>
                       <span className="text-xs text-muted-foreground">
-                        {conflict ? (overwrite ? "覆盖" : "冲突") : "新增"}
+                        {conflict ? (overwrite ? t("覆盖") : t("冲突")) : t("新增")}
                       </span>
                     </label>
                   );
@@ -282,8 +281,7 @@ export function SkillSyncDialog({
                 disabled={syncing}
                 className="rounded border border-border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
               >
-                关闭
-              </button>
+                {t("关闭")}</button>
               <button
                 onClick={() => void sync()}
                 disabled={syncing || loading || selected.size === 0}
@@ -294,8 +292,7 @@ export function SkillSyncDialog({
                 ) : (
                   <Check className="h-3.5 w-3.5" />
                 )}
-                开始同步
-              </button>
+                {t("开始同步")}</button>
             </div>
           </>
         )}

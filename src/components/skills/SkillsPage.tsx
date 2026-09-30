@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import {
   Sparkles,
@@ -20,6 +22,7 @@ import { SkillSyncDialog } from "./SkillSyncDialog";
 import { ConfigSyncDialog } from "./ConfigSyncDialog";
 
 export function SkillsPage() {
+  const { t } = useTranslation();
   const projects = useAppStore((s) => s.projects);
   const selectedProject = useAppStore((s) => s.selectedProject);
   const loadProjects = useAppStore((s) => s.loadProjects);
@@ -105,7 +108,7 @@ export function SkillsPage() {
           <div>
             <h1 className="workspace-page-title">Skills</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              查看全局、插件与项目级 Skills（{totalCount}）
+              {t("查看全局、插件与项目级 Skills（")}{totalCount}）
             </p>
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -113,9 +116,9 @@ export function SkillsPage() {
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
               className="bg-muted border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary max-w-[16rem]"
-              title="选择项目以查看其项目级 Skills"
+              title={t("选择项目以查看其项目级 Skills")}
             >
-              <option value="">（不选项目）</option>
+              <option value="">{t("（不选项目）")}</option>
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.alias ?? p.shortName}
@@ -127,30 +130,26 @@ export function SkillsPage() {
               className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors"
             >
               <ArrowLeftRight className="w-3.5 h-3.5" />
-              跨机同步
-            </button>
+              {t("跨机同步")}</button>
             <button
               onClick={() => setShowConfigSync(true)}
               className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors"
             >
               <Plug className="w-3.5 h-3.5" />
-              MCP / 插件
-            </button>
+              {t("MCP / 插件")}</button>
             <button
               onClick={() => setShowImport(true)}
               className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors"
             >
               <Upload className="w-3.5 h-3.5" />
-              导入
-            </button>
+              {t("导入")}</button>
             <button
               onClick={() => setRefreshKey((k) => k + 1)}
               disabled={loading}
               className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-              刷新
-            </button>
+              {t("刷新")}</button>
           </div>
         </div>
       </div>
@@ -160,8 +159,7 @@ export function SkillsPage() {
         {loading ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-4 h-4 animate-spin" />
-            扫描 Skills 中...
-          </div>
+            {t("扫描 Skills 中...")}</div>
         ) : error ? (
           <div className="flex items-center gap-2 text-sm text-destructive">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -171,28 +169,28 @@ export function SkillsPage() {
           <>
             {projectPath && (
               <SkillSection
-                title="项目级 Skills"
+                title={t("项目级 Skills")}
                 icon={<FolderOpen className="w-4 h-4 text-green-500" />}
                 skills={data.project}
                 onSelect={setActive}
                 onDelete={setDeleteTarget}
-                emptyHint={`该项目（${project?.alias ?? project?.shortName}）下没有 .claude/skills/`}
+                emptyHint={t("该项目（{{v0}}）下没有 .claude/skills/", { v0: project?.alias ?? project?.shortName })}
               />
             )}
             <SkillSection
-              title="全局 Skills"
+              title={t("全局 Skills")}
               icon={<Globe className="w-4 h-4 text-blue-500" />}
               skills={data.global}
               onSelect={setActive}
               onDelete={setDeleteTarget}
-              emptyHint="~/.claude/skills/ 下没有 Skills"
+              emptyHint={t("~/.claude/skills/ 下没有 Skills")}
             />
             <SkillSection
-              title="插件 Skills"
+              title={t("插件 Skills")}
               icon={<Puzzle className="w-4 h-4 text-purple-500" />}
               skills={data.plugin}
               onSelect={setActive}
-              emptyHint="~/.claude/plugins/ 下没有 Skills"
+              emptyHint={t("~/.claude/plugins/ 下没有 Skills")}
             />
           </>
         ) : null}

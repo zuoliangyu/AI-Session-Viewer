@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
@@ -209,6 +211,7 @@ function buildCacheTrend(rows: BucketRow[]): {
 }
 
 export function StatsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     source,
@@ -380,13 +383,12 @@ export function StatsPage() {
       <div className="flex flex-col items-center justify-center h-64 gap-3 text-muted-foreground">
         <div className="flex items-center gap-2">
           <Loader2 className="w-5 h-5 animate-spin" />
-          <span>{mayBeFirstBuild ? "正在建立统计索引..." : "加载统计数据..."}</span>
+          <span>{mayBeFirstBuild ? t("正在建立统计索引...") : t("加载统计数据...")}</span>
         </div>
         {mayBeFirstBuild && (
           <p className="text-xs text-center max-w-sm leading-relaxed px-4">
-            首次使用需要扫描所有会话文件建立索引，会话较多时可能需要一些时间，请耐心等待。
-            <br />
-            <span className="text-muted-foreground/60">索引完成后将缓存到本地，下次打开会非常快。</span>
+            {t("首次使用需要扫描所有会话文件建立索引，会话较多时可能需要一些时间，请耐心等待。")}<br />
+            <span className="text-muted-foreground/60">{t("索引完成后将缓存到本地，下次打开会非常快。")}</span>
           </p>
         )}
       </div>
@@ -396,11 +398,11 @@ export function StatsPage() {
   if (!tokenSummary) {
     const hint =
       source === "claude"
-        ? "请确认 ~/.claude/ 目录下存在统计数据。"
-        : "请确认 ~/.codex/sessions/ 目录下存在会话数据。";
+        ? t("请确认 ~/.claude/ 目录下存在统计数据。")
+        : t("请确认 ~/.codex/sessions/ 目录下存在会话数据。");
     return (
       <div className="p-6 text-muted-foreground">
-        未找到统计数据。{hint}
+        {t("未找到统计数据。")}{hint}
       </div>
     );
   }
@@ -443,7 +445,7 @@ export function StatsPage() {
   const dataMaxDate = allDates[allDates.length - 1];
   const dataDayCount = allDates.length;
 
-  const granularityLabel = isSingleDay ? "按小时" : "按日";
+  const granularityLabel = isSingleDay ? t("按小时") : t("按日");
   const messageCount = bucketRows.reduce((s, b) => s + b.messages, 0);
 
   // Build a quick lookup so the cache trend chart can hide lines by model.
@@ -453,8 +455,7 @@ export function StatsPage() {
     <div className="workspace-page">
       <div className="workspace-page-header">
         <h1 className="workspace-page-title">
-          使用统计
-          <span className="text-sm font-normal text-muted-foreground ml-2">
+          {t("使用统计")}<span className="text-sm font-normal text-muted-foreground ml-2">
             ({source === "claude" ? "Claude" : "Codex"})
           </span>
         </h1>
@@ -463,15 +464,14 @@ export function StatsPage() {
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border bg-card hover:bg-accent transition-colors"
         >
           <Receipt className="w-3.5 h-3.5" />
-          查看逐请求账单
-        </button>
+          {t("查看逐请求账单")}</button>
       </div>
 
       {/* Time range filter */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
         {(["today", "week", "month", "30d", "all"] as const).map((p) => {
           const labels: Record<string, string> = {
-            today: "今天", week: "本周", month: "本月", "30d": "最近30天", all: "全部",
+            today: t("今天"), week: t("本周"), month: t("本月"), "30d": t("最近30天"), all: t("全部"),
           };
           return (
             <button
@@ -487,7 +487,7 @@ export function StatsPage() {
             </button>
           );
         })}
-        <span className="text-xs text-muted-foreground ml-2">自定义：</span>
+        <span className="text-xs text-muted-foreground ml-2">{t("自定义：")}</span>
         <input
           type="date"
           value={customStart}
@@ -514,18 +514,16 @@ export function StatsPage() {
         {isSingleDay && (
           <span className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/50 px-2 py-1 rounded">
             <Calendar className="w-3 h-3" />
-            按小时显示
-            {hourlyLoading && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
+            {t("按小时显示")}{hourlyLoading && <Loader2 className="w-3 h-3 animate-spin ml-1" />}
           </span>
         )}
         {!isSingleDay && dataMinDate && dataMaxDate && (
           <span
             className="ml-auto inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/50 px-2 py-1 rounded"
-            title={`仅统计当前来源下现存的会话文件，已清理或不在当前机器上的会话不会纳入统计。`}
+            title={t("仅统计当前来源下现存的会话文件，已清理或不在当前机器上的会话不会纳入统计。")}
           >
             <Calendar className="w-3 h-3" />
-            数据覆盖 {dataMinDate} ~ {dataMaxDate}（共 {dataDayCount} 天）
-          </span>
+            {t("数据覆盖")}{dataMinDate} ~ {dataMaxDate}{t("（共")}{dataDayCount} {t("天）")}</span>
         )}
       </div>
 
@@ -533,17 +531,17 @@ export function StatsPage() {
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-3">
         <StatCard
           icon={<Calendar className="w-5 h-5" />}
-          label="总会话数（全期）"
+          label={t("总会话数（全期）")}
           value={tokenSummary.sessionCount.toLocaleString()}
         />
         <StatCard
           icon={<MessageSquare className="w-5 h-5" />}
           label={
             isAllRange
-              ? "总请求数（全期）"
+              ? t("总请求数（全期）")
               : isSingleDay
-                ? "当日请求数"
-                : "区间请求数"
+                ? t("当日请求数")
+                : t("区间请求数")
           }
           value={(isAllRange
             ? tokenSummary.messageCount
@@ -552,42 +550,42 @@ export function StatsPage() {
         />
         <StatCard
           icon={<DollarSign className="w-5 h-5" />}
-          label="累计花费 (USD)"
+          label={t("累计花费 (USD)")}
           value={
             filteredTotals.unpricedModels.size > 0
-              ? "未定价"
+              ? t("未定价")
               : formatCost(filteredTotals.totalCost)
           }
           accent="text-green-500"
         />
         <StatCard
           icon={<Activity className="w-5 h-5" />}
-          label="总 Token"
+          label={t("总 Token")}
           value={formatTokens(filteredTotals.totalTokens)}
         />
       </div>
 
       {/* Additional token metrics */}
-      <details className="workspace-filter mb-5"><summary>Token 与缓存明细</summary>
+      <details className="workspace-filter mb-5"><summary>{t("Token 与缓存明细")}</summary>
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
         <StatCard
           icon={<Zap className="w-5 h-5" />}
-          label="未缓存输入 Token"
+          label={t("未缓存输入 Token")}
           value={formatTokens(filteredTotals.totalInputTokens)}
         />
         <StatCard
           icon={<Database className="w-5 h-5" />}
-          label="缓存读取 Token"
+          label={t("缓存读取 Token")}
           value={formatTokens(filteredTotals.totalCacheRead)}
         />
         <StatCard
           icon={<Database className="w-5 h-5" />}
-          label="缓存写入 Token"
+          label={t("缓存写入 Token")}
           value={formatTokens(filteredTotals.totalCacheCreation)}
         />
         <StatCard
           icon={<Activity className="w-5 h-5" />}
-          label="缓存命中率"
+          label={t("缓存命中率")}
           value={`${(overallCacheHitRate * 100).toFixed(1)}%`}
           accent={
             overallCacheHitRate < 0.6
@@ -603,8 +601,7 @@ export function StatsPage() {
       {chartData.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4 mb-4">
           <h2 className="text-sm font-medium mb-4">
-            Token 用量
-            <span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
+            {t("Token 用量")}<span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
           </h2>
           <ResponsiveContainer width="100%" height={260}>
             <BarChart data={chartData}>
@@ -627,13 +624,13 @@ export function StatsPage() {
                 formatter={(value: number, name: string) => {
                   const label =
                     name === "input"
-                      ? "输入"
+                      ? t("输入")
                       : name === "output"
-                        ? "输出"
+                        ? t("输出")
                         : name === "cacheRead"
-                          ? "缓存读"
+                          ? t("缓存读")
                           : name === "cacheCreation"
-                            ? "缓存写"
+                            ? t("缓存写")
                             : name;
                   return [formatTokens(value), label];
                 }}
@@ -651,8 +648,7 @@ export function StatsPage() {
       {chartData.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4 mb-4">
           <h2 className="text-sm font-medium mb-4">
-            花费趋势 (USD)
-            <span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
+            {t("花费趋势 (USD)")}<span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
           </h2>
           <ResponsiveContainer width="100%" height={200}>
             <AreaChart data={chartData}>
@@ -672,7 +668,7 @@ export function StatsPage() {
                   borderRadius: "6px",
                   fontSize: 12,
                 }}
-                formatter={(value: number) => [formatCost(value), "花费"]}
+                formatter={(value: number) => [formatCost(value), t("花费")]}
               />
               <Area
                 type="monotone"
@@ -692,12 +688,10 @@ export function StatsPage() {
           <div className="flex items-start justify-between mb-1">
             <div>
               <h2 className="text-sm font-medium">
-                缓存命中率走势
-                <span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
+                {t("缓存命中率走势")}<span className="text-xs text-muted-foreground ml-2">({granularityLabel})</span>
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                横线为 60% 经验值。点击下方模型胶囊隐藏/显示对应曲线。
-              </p>
+                {t("横线为 60% 经验值。点击下方模型胶囊隐藏/显示对应曲线。")}</p>
             </div>
           </div>
 
@@ -722,7 +716,7 @@ export function StatsPage() {
                       ? "border-border bg-muted/30 text-muted-foreground"
                       : "border-border bg-background hover:bg-accent text-foreground"
                   }`}
-                  title={hidden ? "显示" : "隐藏"}
+                  title={hidden ? t("显示") : t("隐藏")}
                 >
                   <span
                     className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -738,8 +732,7 @@ export function StatsPage() {
                 onClick={() => setHiddenModels(new Set())}
                 className="text-[11px] text-primary hover:underline ml-1"
               >
-                全部显示
-              </button>
+                {t("全部显示")}</button>
             )}
           </div>
 
@@ -789,11 +782,9 @@ export function StatsPage() {
         <div className="bg-card border border-border rounded-lg p-4 mb-4">
           <h2 className="text-sm font-medium mb-1 flex items-center gap-1.5">
             <FolderOpen className="w-4 h-4" />
-            项目花费排行 (Top 10)
-          </h2>
+            {t("项目花费排行 (Top 10)")}</h2>
           <p className="text-xs text-muted-foreground mb-3">
-            点击柱形过滤到该项目的逐请求账单。
-          </p>
+            {t("点击柱形过滤到该项目的逐请求账单。")}</p>
           <ResponsiveContainer width="100%" height={Math.max(40 + topProjects.length * 26, 200)}>
             <BarChart
               data={topProjects}
@@ -831,8 +822,8 @@ export function StatsPage() {
                     items?.[0]?.payload?.displayName ?? "") as any)
                 }
                 formatter={(value: number, _name: string, item) => [
-                  `${item?.payload?.hasUnpricedUsage ? "未定价" : formatCost(value)} · ${item?.payload?.requestCount ?? 0} 次请求`,
-                  "花费",
+                  t("{{v0}} · {{v1}} 次请求", { v0: item?.payload?.hasUnpricedUsage ? t("未定价") : formatCost(value), v1: item?.payload?.requestCount ?? 0 }),
+                  t("花费"),
                 ]}
               />
               <Bar
@@ -857,15 +848,14 @@ export function StatsPage() {
       {modelBreakdown.length > 0 && (
         <div className="bg-card border border-border rounded-lg p-4">
           <h2 className="text-sm font-medium mb-4">
-            模型用量分布
-          </h2>
+            {t("模型用量分布")}</h2>
           <div className="space-y-3">
             {modelBreakdown.map(({ model, tokens, cost, pct }) => (
               <div key={model}>
                 <div className="flex items-center justify-between text-sm mb-1">
                   <span className="font-mono text-xs truncate mr-2">{model}</span>
                   <span className="text-muted-foreground text-xs shrink-0">
-                    {formatTokens(tokens)} · {filteredTotals.unpricedModels.has(model) ? "未定价" : formatCost(cost)} ({pct}%)
+                    {formatTokens(tokens)} · {filteredTotals.unpricedModels.has(model) ? t("未定价") : formatCost(cost)} ({pct}%)
                   </span>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
@@ -894,6 +884,7 @@ function StatCard({
   value: string;
   accent?: string;
 }) {
+  useTranslation();
   return (
     <div className="bg-card border border-border rounded-lg p-4">
       <div className="flex items-center gap-2 text-muted-foreground mb-2">

@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api } from "../../services/api";
@@ -14,6 +16,7 @@ interface ScanProgressViewProps {
  * 让用户明确知道是在扫描而不是卡死。
  */
 export function ScanProgressView({ label }: ScanProgressViewProps) {
+  const { t } = useTranslation();
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [show, setShow] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -80,8 +83,7 @@ export function ScanProgressView({ label }: ScanProgressViewProps) {
         )}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        首次启动需要扫描会话缓存，请稍候…
-      </p>
+        {t("首次启动需要扫描会话缓存，请稍候…")}</p>
     </div>
   );
 }

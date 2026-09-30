@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import type {
   ProjectEntry,
   SessionIndexEntry,
@@ -433,7 +434,7 @@ export async function importSkills(
   overwrite: boolean,
 ): Promise<ImportResult> {
   if (typeof archive === "string") {
-    throw new Error("Web 模式导入需要选择文件");
+    throw new Error(t("Web 模式导入需要选择文件"));
   }
   const url = new URL("/api/skills/import", getApiBaseUrl());
   url.searchParams.set("scope", scope);

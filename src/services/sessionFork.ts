@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import type { ForkResult } from "./tauriApi";
 
 interface ForkApi {
@@ -20,7 +21,7 @@ export async function createSessionFork(
     try {
       await api.resumeSession(source, result.newSessionId, result.projectPath, result.newFilePath, shell);
     } catch (error) {
-      warning = `新会话已创建，但终端打开失败：${error instanceof Error ? error.message : String(error)}。可使用恢复按钮重试。`;
+      warning = t("新会话已创建，但终端打开失败：{{v0}}。可使用恢复按钮重试。", { v0: error instanceof Error ? error.message : String(error) });
     }
   }
   return { result, warning };

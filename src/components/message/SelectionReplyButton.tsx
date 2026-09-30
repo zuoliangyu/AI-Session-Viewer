@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CornerDownLeft } from "lucide-react";
 
@@ -35,6 +37,7 @@ function isRangeInsideElement(range: Range, element: HTMLElement): boolean {
 }
 
 export function SelectionReplyButton({ scopeRef, onReply, disabled }: Props) {
+  const { t } = useTranslation();
   const [floating, setFloating] = useState<FloatingState | null>(null);
   const pendingClickRef = useRef(false);
 
@@ -155,7 +158,7 @@ export function SelectionReplyButton({ scopeRef, onReply, disabled }: Props) {
       disabled={disabled}
       className="fixed z-50 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white shadow-lg transition-transform hover:-translate-y-0.5 hover:bg-zinc-800 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-zinc-800 dark:hover:bg-zinc-700"
       style={{ left: `${floating.x}px`, top: `${floating.y}px` }}
-      title={disabled ? "当前无法回复所选文本" : "以所选内容为引用开始回复"}
+      title={disabled ? t("当前无法回复所选文本") : t("以所选内容为引用开始回复")}
     >
       <span>Reply</span>
       <CornerDownLeft className="h-3.5 w-3.5" />

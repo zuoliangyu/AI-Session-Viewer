@@ -1,3 +1,5 @@
+import { t, getDateLocale } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -18,13 +20,14 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { zhCN } from "date-fns/locale";
+
 import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
 import { ScanProgressView } from "../common/ScanProgressView";
 import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const {
     source,
@@ -133,12 +136,12 @@ export function ProjectsPage() {
 
   const emptyText =
     source === "claude"
-      ? "未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。"
+      ? t("未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。")
       : source === "codex"
-        ? "未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。"
+        ? t("未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。")
         : source === "grok"
-          ? "未找到任何 Grok 项目。请确认 ~/.grok/sessions/ 目录存在。"
-          : "未找到任何 Oh My Pi 项目。请确认 ~/.omp/agent/sessions/ 目录存在。";
+          ? t("未找到任何 Grok 项目。请确认 ~/.grok/sessions/ 目录存在。")
+          : t("未找到任何 Oh My Pi 项目。请确认 ~/.omp/agent/sessions/ 目录存在。");
 
   const selectedProjects = filteredProjects.filter((p) => selected.has(p.id));
 
@@ -180,11 +183,11 @@ export function ProjectsPage() {
     const m = new Map<string, string>();
     for (const p of filteredProjects) {
       if (p.lastModified) {
-        m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: zhCN }));
+        m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: getDateLocale() }));
       }
     }
     return m;
-  }, [filteredProjects]);
+  }, [filteredProjects, t]);
 
   const handleBatchDelete = async () => {
     if (selectedProjects.length === 0) return;
@@ -208,17 +211,16 @@ export function ProjectsPage() {
     <div className="flex flex-col h-full">
       <div className="workspace-list-header">
       <div className="workspace-page-header">
-        <div><h1 className="workspace-page-title">所有项目</h1><p className="workspace-page-description">{filteredProjects.length} 个项目 · 选择项目查看会话</p></div>
+        <div><h1 className="workspace-page-title">{t("所有项目")}</h1><p className="workspace-page-description">{filteredProjects.length} {t("个项目 · 选择项目查看会话")}</p></div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select aria-label="项目显示方式" className="toolbar-button" value={projectView} onChange={(event) => { setProjectView(event.target.value); localStorage.setItem("projectLayout", event.target.value); }}><option value="list">列表</option><option value="grid">网格</option></select>
+          <select aria-label={t("项目显示方式")} className="toolbar-button" value={projectView} onChange={(event) => { setProjectView(event.target.value); localStorage.setItem("projectLayout", event.target.value); }}><option value="list">{t("列表")}</option><option value="grid">{t("网格")}</option></select>
           <button
             onClick={handleRefresh}
             disabled={refreshing || projectsLoading || selectMode}
             className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
-            刷新缓存
-          </button>
+            {t("刷新缓存")}</button>
           {projects.length > 0 &&
             (selectMode ? (
               <button
@@ -226,23 +228,21 @@ export function ProjectsPage() {
                 className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
               >
                 <X className="w-3.5 h-3.5" />
-                退出选择
-              </button>
+                {t("退出选择")}</button>
             ) : (
               <button
                 onClick={() => setSelectMode(true)}
                 className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5"
               >
                 <CheckSquare className="w-3.5 h-3.5" />
-                选择
-              </button>
+                {t("选择")}</button>
             ))}
         </div>
       </div>
 
       {/* Global tag filter bar */}
       {allGlobalTags.length > 0 && (
-        <details className="workspace-filter"><summary>标签筛选{globalTagFilter.length > 0 ? " · 已选 " + globalTagFilter.length : ""}</summary>
+        <details className="workspace-filter"><summary>{t("标签筛选")}{globalTagFilter.length > 0 ? t(" · 已选 ") + globalTagFilter.length : ""}</summary>
         <div className="flex flex-wrap items-center gap-2">
           <Tag className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           {allGlobalTags.map((tag) => (
@@ -263,8 +263,7 @@ export function ProjectsPage() {
               onClick={() => setGlobalTagFilter([])}
               className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
-              清除筛选
-            </button>
+              {t("清除筛选")}</button>
           )}
         </div></details>
       )}
@@ -274,11 +273,11 @@ export function ProjectsPage() {
       {/* 项目网格（行分块虚拟化滚动容器） */}
       <div ref={scrollRef} className={"workspace-list-body " + (projectView === "list" ? "project-list-view" : "")}>
       {projectsLoading ? (
-        <ScanProgressView label="加载项目列表" />
+        <ScanProgressView label={t("加载项目列表")} />
       ) : filteredProjects.length === 0 ? (
         <div className="text-muted-foreground">
           {globalTagFilter.length > 0
-            ? "没有匹配筛选条件的项目。"
+            ? t("没有匹配筛选条件的项目。")
             : emptyText}
         </div>
       ) : (
@@ -349,7 +348,7 @@ export function ProjectsPage() {
                   className={`absolute top-2 right-2 p-1.5 rounded transition-opacity text-muted-foreground hover:bg-accent/50 ${
                     selectMode ? "hidden" : "opacity-0 group-hover:opacity-100"
                   }`}
-                  title="操作"
+                  title={t("操作")}
                 >
                   <MoreHorizontal className="w-3.5 h-3.5" />
                 </button>
@@ -379,8 +378,8 @@ export function ProjectsPage() {
                     }`}
                     title={
                       project.isVirtual
-                        ? `${project.displayPath}（按日期合成的虚拟项目）`
-                        : project.displayPath + (project.pathExists === false ? " (路径不存在，解码可能不准确)" : "")
+                        ? t("{{v0}}（按日期合成的虚拟项目）", { v0: project.displayPath })
+                        : project.displayPath + (project.pathExists === false ? t(" (路径不存在，解码可能不准确)") : "")
                     }
                   >
                     {project.displayPath}
@@ -404,8 +403,7 @@ export function ProjectsPage() {
                   <div className="project-card-meta flex items-center gap-4 mt-2 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1">
                       <Hash className="w-3 h-3" />
-                      {project.sessionCount} 个会话
-                    </span>
+                      {project.sessionCount} {t("个会话")}</span>
                     {project.lastModified && (
                       <span className="flex items-center gap-1">
                         <Clock className="w-3 h-3" />
@@ -464,10 +462,9 @@ export function ProjectsPage() {
     {renameTarget && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
-          <h3 className="text-lg font-semibold mb-1">设置工程别名</h3>
+          <h3 className="text-lg font-semibold mb-1">{t("设置工程别名")}</h3>
           <p className="text-xs text-muted-foreground mb-3">
-            别名仅影响显示名称，不修改磁盘目录
-          </p>
+            {t("别名仅影响显示名称，不修改磁盘目录")}</p>
           <input
             type="text"
             value={renameValue}
@@ -504,8 +501,7 @@ export function ProjectsPage() {
                   disabled={renameLoading}
                   className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  清除别名
-                </button>
+                  {t("清除别名")}</button>
               )}
             </div>
             <div className="flex gap-2">
@@ -514,8 +510,7 @@ export function ProjectsPage() {
                 disabled={renameLoading}
                 className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
               >
-                取消
-              </button>
+                {t("取消")}</button>
               <button
                 onClick={async () => {
                   setRenameLoading(true);
@@ -532,7 +527,7 @@ export function ProjectsPage() {
                 disabled={renameLoading}
                 className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
               >
-                {renameLoading ? "保存中..." : "确认"}
+                {renameLoading ? t("保存中...") : t("确认")}
               </button>
             </div>
           </div>
@@ -553,23 +548,21 @@ export function ProjectsPage() {
           }}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {selectedProjects.length === filteredProjects.length ? "取消全选" : "全选"}
+          {selectedProjects.length === filteredProjects.length ? t("取消全选") : t("全选")}
         </button>
-        <span className="text-sm text-foreground">已选 {selectedProjects.length}</span>
+        <span className="text-sm text-foreground">{t("已选")}{selectedProjects.length}</span>
         <button
           onClick={() => setBatchDeleteOpen(true)}
           disabled={batchBusy || selectedProjects.length === 0}
           className="text-xs px-3 py-1.5 rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
         >
           {batchBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-          删除选中
-        </button>
+          {t("删除选中")}</button>
         <button
           onClick={exitSelectMode}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          退出
-        </button>
+          {t("退出")}</button>
       </div>
     )}
 
@@ -577,10 +570,9 @@ export function ProjectsPage() {
     {batchDeleteOpen && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
-          <h3 className="text-lg font-semibold mb-2">批量删除工程</h3>
+          <h3 className="text-lg font-semibold mb-2">{t("批量删除工程")}</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            将删除选中的 {selectedProjects.length} 个工程的会话记录（移入回收站，可在回收站还原）。
-          </p>
+            {t("将删除选中的")}{selectedProjects.length} {t("个工程的会话记录（移入回收站，可在回收站还原）。")}</p>
 
           {source === "claude" && (
             <label className="flex items-start gap-2 cursor-pointer mb-4 group">
@@ -592,11 +584,9 @@ export function ProjectsPage() {
                 className="mt-0.5 accent-destructive"
               />
               <span className="text-xs text-muted-foreground leading-relaxed">
-                同时清理 Claude Code 项目配置
-                {batchWithCcConfig && (
+                {t("同时清理 Claude Code 项目配置")}{batchWithCcConfig && (
                   <span className="block mt-1 text-yellow-600 dark:text-yellow-400">
-                    将从 ~/.claude.json 移除这些项目配置
-                  </span>
+                    {t("将从 ~/.claude.json 移除这些项目配置")}</span>
                 )}
               </span>
             </label>
@@ -608,15 +598,14 @@ export function ProjectsPage() {
               disabled={batchBusy}
               className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
             >
-              取消
-            </button>
+              {t("取消")}</button>
             <button
               onClick={handleBatchDelete}
               disabled={batchBusy}
               className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors flex items-center gap-1.5 disabled:opacity-50"
             >
               {batchBusy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-              {batchBusy ? "删除中..." : "删除"}
+              {batchBusy ? t("删除中...") : t("删除")}
             </button>
           </div>
         </div>

@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { ActionMenu } from "../common/ActionMenu";
 import { useMemo, useState } from "react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
@@ -25,6 +27,7 @@ export function ChatHeader({
   onExpandAll: () => void;
   onCollapseAll: () => void;
 }) {
+  const { t } = useTranslation();
   const pane = useChatStore((state) => state.getPaneState(paneId));
   const availableClis = useChatStore((state) => state.availableClis);
   const skipPermissions = useChatStore((state) => state.skipPermissions);
@@ -84,8 +87,8 @@ export function ChatHeader({
           {cliInfo
             ? cliInfo.version
               ? `v${cliInfo.version}`
-              : "已安装"
-            : "未检测到"}
+              : t("已安装")
+            : t("未检测到")}
         </span>
       </div>
 
@@ -100,14 +103,14 @@ export function ChatHeader({
       )}
 
       <div className="flex-1" />
-      <ActionMenu label="详情">
+      <ActionMenu label={t("详情")}>
       {/* Session ID (for CLI resume) */}
       {sessionId && (
         <button
           type="button"
           onClick={handleCopySessionId}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          title={`点击复制完整 ID — ${resumeHint}`}
+          title={t("点击复制完整 ID — {{v0}}", { v0: resumeHint })}
         >
           <Hash className="w-3 h-3 shrink-0" />
           <span className="font-mono tabular-nums">{shortSessionId}</span>
@@ -123,19 +126,19 @@ export function ChatHeader({
       {tokenStats.total > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-muted-foreground tabular-nums">
           <Cpu className="w-3 h-3 shrink-0" />
-          <span title="输入 tokens">入 {tokenStats.input.toLocaleString()}</span>
+          <span title={t("输入 tokens")}>{t("入")}{tokenStats.input.toLocaleString()}</span>
           <span className="opacity-30">|</span>
-          <span title="输出 tokens">出 {tokenStats.output.toLocaleString()}</span>
+          <span title={t("输出 tokens")}>{t("出")}{tokenStats.output.toLocaleString()}</span>
           {tokenStats.cacheWrite > 0 && (
             <>
               <span className="opacity-30">|</span>
-              <span title="写入缓存 tokens">写缓存 {tokenStats.cacheWrite.toLocaleString()}</span>
+              <span title={t("写入缓存 tokens")}>{t("写缓存")}{tokenStats.cacheWrite.toLocaleString()}</span>
             </>
           )}
           {tokenStats.cacheRead > 0 && (
             <>
               <span className="opacity-30">|</span>
-              <span title="读取缓存 tokens">读缓存 {tokenStats.cacheRead.toLocaleString()}</span>
+              <span title={t("读取缓存 tokens")}>{t("读缓存")}{tokenStats.cacheRead.toLocaleString()}</span>
             </>
           )}
         </div>
@@ -157,8 +160,8 @@ export function ChatHeader({
         } disabled:opacity-50`}
         title={
           skipPermissions
-            ? "已跳过权限确认（危险模式）"
-            : "正常权限模式"
+            ? t("已跳过权限确认（危险模式）")
+            : t("正常权限模式")
         }
       >
         {skipPermissions ? (
@@ -167,30 +170,30 @@ export function ChatHeader({
           <Shield className="w-3 h-3" />
         )}
         <span className="hidden sm:inline">
-          {skipPermissions ? "跳过权限" : "正常权限"}
+          {skipPermissions ? t("跳过权限") : t("正常权限")}
         </span>
       </button>
 
-      <ActionMenu label="显示">
+      <ActionMenu label={t("显示")}>
         <button
           type="button"
           onClick={onExpandAll}
           disabled={!canToggleExpand}
           className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:hover:text-muted-foreground"
-          title="全部展开"
+          title={t("全部展开")}
         >
           <Rows3 className="w-3 h-3" />
-          <span className="inline">展开</span>
+          <span className="inline">{t("展开")}</span>
         </button>
         <button
           type="button"
           onClick={onCollapseAll}
           disabled={!canToggleExpand}
           className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:hover:text-muted-foreground"
-          title="全部折叠"
+          title={t("全部折叠")}
         >
           <ChevronsUpDown className="w-3 h-3" />
-          <span className="inline">折叠</span>
+          <span className="inline">{t("折叠")}</span>
         </button>
       </ActionMenu>
 
@@ -198,8 +201,7 @@ export function ChatHeader({
       {isStreaming && (
         <div className="flex items-center gap-1.5 text-xs text-blue-400">
           <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
-          对话中...
-        </div>
+          {t("对话中...")}</div>
       )}
     </div>
   );

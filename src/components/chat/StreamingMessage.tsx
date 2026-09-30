@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { memo } from "react";
 import type { ChatMessage, ChatContentBlock } from "../../types/chat";
 import {
@@ -137,6 +139,7 @@ export const StreamingMessage = memo(function StreamingMessage({
   onSubmitAnswers,
   interactiveQuestions,
 }: Props) {
+  useTranslation();
   const timeZone = useAppStore((state) => state.timeZone);
   if (message.role === "system") {
     return <SystemMsg message={message} />;
@@ -279,6 +282,7 @@ export function getLinkedToolUseIds(
 /* ── System (result / info) ─────────────────────────────── */
 
 function SystemMsg({ message }: { message: ChatMessage }) {
+  useTranslation();
   const text = message.content.map((b) => (b.type === "text" ? b.text : "")).join("");
   return (
     <div className="flex items-center justify-center gap-2 py-2">
@@ -301,6 +305,7 @@ function UserMsg({
   linkedToolUseIds?: Set<string>;
   timeZone: string;
 }) {
+  useTranslation();
   return (
     <div className="flex justify-end">
       <div className="max-w-[85%]">
@@ -367,6 +372,7 @@ function AssistantMsg({
   interactiveQuestions?: boolean;
   timeZone: string;
 }) {
+  const { t } = useTranslation();
   const { blocks: displayBlocks } = getToolDisplayState(message.content, toolResultMap);
   const assistantName = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
   const iconColor = source === "codex" ? "text-green-500" : source === "omp" ? "text-fuchsia-500" : "text-orange-500";
@@ -394,18 +400,18 @@ function AssistantMsg({
             <span
               className="text-xs text-muted-foreground tabular-nums"
               title={[
-                `输入: ${message.usage.inputTokens.toLocaleString()}`,
-                `输出: ${message.usage.outputTokens.toLocaleString()}`,
+                t("输入: {{v0}}", { v0: message.usage.inputTokens.toLocaleString() }),
+                t("输出: {{v0}}", { v0: message.usage.outputTokens.toLocaleString() }),
                 message.usage.cacheCreationInputTokens > 0
-                  ? `写入缓存: ${message.usage.cacheCreationInputTokens.toLocaleString()}`
+                  ? t("写入缓存: {{v0}}", { v0: message.usage.cacheCreationInputTokens.toLocaleString() })
                   : "",
                 message.usage.cacheReadInputTokens > 0
-                  ? `读取缓存: ${message.usage.cacheReadInputTokens.toLocaleString()}`
+                  ? t("读取缓存: {{v0}}", { v0: message.usage.cacheReadInputTokens.toLocaleString() })
                   : "",
               ].filter(Boolean).join(" · ")}
             >
-              入{message.usage.inputTokens.toLocaleString()} 出{message.usage.outputTokens.toLocaleString()}
-              {message.usage.cacheReadInputTokens > 0 && ` 缓存${message.usage.cacheReadInputTokens.toLocaleString()}`}
+              {t("入")}{message.usage.inputTokens.toLocaleString()} {t("出")}{message.usage.outputTokens.toLocaleString()}
+              {message.usage.cacheReadInputTokens > 0 && t(" 缓存{{v0}}", { v0: message.usage.cacheReadInputTokens.toLocaleString() })}
             </span>
           )}
         </div>
@@ -436,6 +442,7 @@ function ContentBlockRenderer({
   onSubmitAnswers?: (answers: string) => void;
   interactiveQuestions?: boolean;
 }) {
+  useTranslation();
   if (block.type === "text") {
     return <TextBlock text={block.text} />;
   }
@@ -468,6 +475,7 @@ function ContentBlockRenderer({
 /* ── Text block with markdown ── */
 
 function TextBlock({ text }: { text: string }) {
+  useTranslation();
   return (
     <div className="prose prose-sm max-w-none text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
       <ReactMarkdown
@@ -552,6 +560,7 @@ function TextBlock({ text }: { text: string }) {
 /* ── Thinking block ── */
 
 function ThinkingBlock({ text }: { text: string }) {
+  const { t } = useTranslation();
   const { expanded, setExpanded } = useExpandAllControl(true);
   return (
     <div className="mt-2 mb-2">
@@ -560,8 +569,7 @@ function ThinkingBlock({ text }: { text: string }) {
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <Brain className="w-3.5 h-3.5 shrink-0" />
-        思考过程
-        {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+        {t("思考过程")}{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
       </button>
       {expanded && (
         <div className="mt-1 pl-5 text-xs text-muted-foreground whitespace-pre-wrap border-l-2 border-muted">
@@ -575,6 +583,7 @@ function ThinkingBlock({ text }: { text: string }) {
 /* ── Fallback tool result (for edge cases) ── */
 
 function FallbackToolResult({ content, isError }: { content: string; isError: boolean }) {
+  useTranslation();
   const { expanded, setExpanded } = useExpandAllControl(false);
   const isLong = content.length > 300;
 

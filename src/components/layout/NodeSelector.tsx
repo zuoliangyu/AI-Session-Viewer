@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import {
   Check,
@@ -28,6 +30,7 @@ declare const __IS_TAURI__: boolean;
 const EMPTY_FORM = { name: "", baseUrl: "", token: "" };
 
 export function NodeSelector() {
+  const { t } = useTranslation();
   const [nodes, setNodes] = useState(getViewerNodes);
   const [activeId, setActiveId] = useState(getActiveNodeId);
   const [statuses, setStatuses] = useState<Record<string, NodeStatus>>({});
@@ -100,7 +103,7 @@ export function NodeSelector() {
   };
 
   const remove = (node: ViewerNode) => {
-    if (!window.confirm(`确定删除机器“${node.name}”吗？`)) return;
+    if (!window.confirm(t("确定删除机器“{{v0}}”吗？", { v0: node.name }))) return;
     const wasActive = node.id === activeId;
     removeViewerNode(node.id);
     setNodes(getViewerNodes());
@@ -125,25 +128,25 @@ export function NodeSelector() {
           }`}
           title={
             activeStatus === "online"
-              ? "机器在线"
+              ? t("机器在线")
               : activeStatus === "unauthorized"
-                ? "访问令牌无效"
+                ? t("访问令牌无效")
                 : activeStatus === "checking"
-                  ? "正在检查连接"
+                  ? t("正在检查连接")
                   : activeStatus
-                    ? "机器离线"
-                    : "尚未检查连接"
+                    ? t("机器离线")
+                    : t("尚未检查连接")
           }
         />
         <select
           value={activeId}
           onChange={(event) => switchNode(event.target.value)}
           className="h-9 min-w-0 flex-1 rounded-md border border-border bg-card px-1 text-xs text-foreground"
-          aria-label="当前机器"
-          title="当前机器"
+          aria-label={t("当前机器")}
+          title={t("当前机器")}
         >
           <option value={LOCAL_NODE_ID}>
-            {__IS_TAURI__ ? "本机" : "当前服务器"}
+            {__IS_TAURI__ ? t("本机") : t("当前服务器")}
           </option>
           {nodes.map((node) => (
             <option key={node.id} value={node.id}>
@@ -154,7 +157,7 @@ export function NodeSelector() {
         <button
           onClick={() => setOpen(true)}
           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-          title="管理机器"
+          title={t("管理机器")}
         >
           <Settings2 className="h-3.5 w-3.5" />
         </button>
@@ -172,12 +175,12 @@ export function NodeSelector() {
             <div className="flex items-center justify-between border-b border-border p-4">
               <div className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">机器管理</h2>
+                <h2 className="text-sm font-semibold">{t("机器管理")}</h2>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                title="关闭"
+                title={t("关闭")}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -206,21 +209,21 @@ export function NodeSelector() {
                     <button
                       onClick={() => void probe(node)}
                       className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                      title="测试连接"
+                      title={t("测试连接")}
                     >
                       <Wifi className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => startEdit(node)}
                       className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                      title="编辑机器"
+                      title={t("编辑机器")}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       onClick={() => remove(node)}
                       className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-destructive"
-                      title="删除机器"
+                      title={t("删除机器")}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -232,7 +235,7 @@ export function NodeSelector() {
             <div className="space-y-3 border-t border-border p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium">
-                  {editingId ? "编辑机器" : "添加机器"}
+                  {editingId ? t("编辑机器") : t("添加机器")}
                 </h3>
                 {editingId && (
                   <button
@@ -240,14 +243,13 @@ export function NodeSelector() {
                     className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                   >
                     <Plus className="h-3.5 w-3.5" />
-                    添加机器
-                  </button>
+                    {t("添加机器")}</button>
                 )}
               </div>
               <input
                 value={form.name}
                 onChange={(event) => setForm({ ...form, name: event.target.value })}
-                placeholder="机器名称"
+                placeholder={t("机器名称")}
                 className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
               />
               <input
@@ -262,7 +264,7 @@ export function NodeSelector() {
                 autoComplete="off"
                 value={form.token}
                 onChange={(event) => setForm({ ...form, token: event.target.value })}
-                placeholder="Bearer Token（可选）"
+                placeholder={t("Bearer Token（可选）")}
                 className="w-full rounded border border-border bg-background px-3 py-2 text-sm"
               />
               {error && <p className="text-xs text-destructive">{error}</p>}
@@ -272,8 +274,7 @@ export function NodeSelector() {
                   className="flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90"
                 >
                   <Check className="h-3.5 w-3.5" />
-                  保存
-                </button>
+                  {t("保存")}</button>
               </div>
             </div>
           </div>

@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import {
@@ -15,38 +17,40 @@ import type { RecycledItem } from "../../types";
 import { formatDateTime } from "../../utils/dateTime";
 
 const REASON_LABELS: Record<string, string> = {
-  ManualDelete: "手动删除",
-  Empty: "空文件",
-  NoMessages: "无消息",
-  Corrupt: "文件损坏",
-  OrphanDir: "孤儿目录",
+  get ManualDelete() { return t("手动删除"); },
+  get Empty() { return t("空文件"); },
+  get NoMessages() { return t("无消息"); },
+  get Corrupt() { return t("文件损坏"); },
+  get OrphanDir() { return t("孤儿目录"); },
 };
 
 type TypeFilter = "all" | "session" | "project" | "orphanDir";
 
 const TYPE_TABS: { key: TypeFilter; label: string }[] = [
-  { key: "all", label: "全部" },
-  { key: "session", label: "会话" },
-  { key: "project", label: "项目" },
-  { key: "orphanDir", label: "孤儿目录" },
+  { key: "all", get label() { return t("全部"); } },
+  { key: "session", get label() { return t("会话"); } },
+  { key: "project", get label() { return t("项目"); } },
+  { key: "orphanDir", get label() { return t("孤儿目录"); } },
 ];
 
 function ItemIcon({ itemType }: { itemType: string }) {
+  useTranslation();
   if (itemType === "project") return <FolderOpen className="w-4 h-4 text-blue-400" />;
   if (itemType === "orphanDir") return <FolderX className="w-4 h-4 text-yellow-400" />;
   return <FileText className="w-4 h-4 text-muted-foreground" />;
 }
 
 function TypeBadge({ itemType }: { itemType: string }) {
+  const { t } = useTranslation();
   const styles: Record<string, string> = {
     session: "bg-muted text-muted-foreground",
     project: "bg-blue-500/15 text-blue-400",
     orphanDir: "bg-yellow-500/15 text-yellow-500",
   };
   const labels: Record<string, string> = {
-    session: "会话",
-    project: "项目",
-    orphanDir: "孤儿目录",
+    session: t("会话"),
+    project: t("项目"),
+    orphanDir: t("孤儿目录"),
   };
   return (
     <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${styles[itemType] ?? "bg-muted text-muted-foreground"}`}>
@@ -56,6 +60,7 @@ function TypeBadge({ itemType }: { itemType: string }) {
 }
 
 function ReasonBadge({ reason }: { reason: string }) {
+  useTranslation();
   const isAuto = reason !== "ManualDelete";
   return (
     <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${isAuto ? "bg-orange-500/15 text-orange-400" : "bg-muted text-muted-foreground"}`}>
@@ -65,6 +70,7 @@ function ReasonBadge({ reason }: { reason: string }) {
 }
 
 export function RecyclebinPage() {
+  const { t } = useTranslation();
   const {
     recycledItems,
     recyclebinLoading,
@@ -149,11 +155,10 @@ export function RecyclebinPage() {
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div className="flex items-center gap-2">
             <Trash2 className="w-5 h-5 text-muted-foreground" />
-            <h1 className="workspace-page-title">回收站</h1>
+            <h1 className="workspace-page-title">{t("回收站")}</h1>
             {recycledItems.length > 0 && (
               <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
-                {recycledItems.length} 项
-              </span>
+                {recycledItems.length} {t("项")}</span>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -162,22 +167,20 @@ export function RecyclebinPage() {
               onClick={handleScanOrphanDirs}
               disabled={scanLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-border text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-              title="扫描所有项目中的孤儿 UUID 目录并移入回收站"
+              title={t("扫描所有项目中的孤儿 UUID 目录并移入回收站")}
             >
               {scanLoading
                 ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 : <ScanLine className="w-3.5 h-3.5" />
               }
-              扫描孤儿目录
-            </button>
+              {t("扫描孤儿目录")}</button>
             {recycledItems.length > 0 && (
               <button
                 onClick={() => setConfirmEmpty(true)}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
               >
                 <Trash className="w-3.5 h-3.5" />
-                清空
-              </button>
+                {t("清空")}</button>
             )}
           </div>
         </div>
@@ -186,7 +189,7 @@ export function RecyclebinPage() {
         {scanResult !== null && (
           <div className="mb-2 flex items-center gap-1.5 text-xs text-green-400">
             <ScanLine className="w-3.5 h-3.5" />
-            {scanResult === 0 ? "未发现孤儿目录" : `已将 ${scanResult} 个孤儿目录移入回收站`}
+            {scanResult === 0 ? t("未发现孤儿目录") : t("已将 {{v0}} 个孤儿目录移入回收站", { v0: scanResult })}
             <button onClick={() => setScanResult(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
           </div>
         )}
@@ -230,13 +233,12 @@ export function RecyclebinPage() {
       <div className="flex-1 overflow-y-auto p-4">
         {recyclebinLoading ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-            加载中...
-          </div>
+            {t("加载中...")}</div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
             <Trash2 className="w-12 h-12 opacity-20" />
             <p className="text-sm">
-              {typeFilter === "all" ? "回收站为空" : `没有「${TYPE_TABS.find(t => t.key === typeFilter)?.label}」类型的条目`}
+              {typeFilter === "all" ? t("回收站为空") : t("没有「{{v0}}」类型的条目", { v0: TYPE_TABS.find(t => t.key === typeFilter)?.label })}
             </p>
           </div>
         ) : (
@@ -276,20 +278,18 @@ export function RecyclebinPage() {
                     onClick={() => handleRestore(item)}
                     disabled={actionLoading === item.id}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-border text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-                    title="还原到原始路径"
+                    title={t("还原到原始路径")}
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
-                    还原
-                  </button>
+                    {t("还原")}</button>
                   <button
                     onClick={() => handlePermanentDelete(item)}
                     disabled={actionLoading === item.id}
                     className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                    title="永久删除"
+                    title={t("永久删除")}
                   >
                     <Trash className="w-3.5 h-3.5" />
-                    删除
-                  </button>
+                    {t("删除")}</button>
                 </div>
               </div>
             ))}
@@ -309,24 +309,21 @@ export function RecyclebinPage() {
           >
             <div className="flex items-center gap-2 mb-3">
               <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-              <h3 className="workspace-page-title">清空回收站</h3>
+              <h3 className="workspace-page-title">{t("清空回收站")}</h3>
             </div>
             <p className="text-sm text-muted-foreground mb-5">
-              将永久删除回收站中的全部 {recycledItems.length} 项内容，此操作无法撤销。
-            </p>
+              {t("将永久删除回收站中的全部")}{recycledItems.length} {t("项内容，此操作无法撤销。")}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmEmpty(false)}
                 className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
               >
-                取消
-              </button>
+                {t("取消")}</button>
               <button
                 onClick={handleEmptyRecyclebin}
                 className="px-4 py-2 text-sm rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
               >
-                永久删除全部
-              </button>
+                {t("永久删除全部")}</button>
             </div>
           </div>
         </div>

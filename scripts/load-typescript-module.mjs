@@ -28,7 +28,21 @@ export async function loadTypeScriptModule(path) {
   }
 
   const sourceUrl = pathToFileURL(path).href;
-  const withSourceUrl = outputText + "\n//# sourceURL=" + sourceUrl;
+  // data: modules have no filesystem base URL. Keep runtime JS imports working
+  // when a small TypeScript utility shares modules with the application.
+  const parsed = ts.createSourceFile(path + ".js", outputText, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
+  const imports = parsed.statements
+    .filter((statement) => ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text.startsWith("."))
+    .map((statement) => statement.moduleSpecifier);
+  let executable = outputText;
+  for (const specifier of imports.reverse()) {
+    executable = executable.slice(0, specifier.getStart(parsed))
+      + JSON.stringify(new URL(specifier.text, sourceUrl).href)
+      + executable.slice(specifier.end);
+  }
+  const withSourceUrl = executable + "\n//# sourceURL=" + sourceUrl;
   const encoded = Buffer.from(withSourceUrl).toString("base64");
   return import("data:text/javascript;base64," + encoded);
 }

@@ -1,3 +1,5 @@
+import { t, getLanguage } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import {
   memo,
   startTransition,
@@ -37,12 +39,12 @@ interface TrajectoryViewProps {
 }
 
 const RECORD_KIND_LABELS: Record<string, string> = {
-  user: "用户",
-  assistant: "助手",
-  reasoning: "推理",
-  tool: "工具",
-  subagent: "子 Agent",
-  compaction: "上下文压缩",
+  get user() { return t("用户"); },
+  get assistant() { return t("助手"); },
+  get reasoning() { return t("推理"); },
+  get tool() { return t("工具"); },
+  get subagent() { return t("子 Agent"); },
+  get compaction() { return t("上下文压缩"); },
 };
 const TRAJECTORY_PAGE_SIZE = 80;
 
@@ -127,7 +129,7 @@ function formatTime(value: string | null): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? value
-    : date.toLocaleTimeString([], {
+    : date.toLocaleTimeString(getLanguage(), {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -135,15 +137,16 @@ function formatTime(value: string | null): string {
 }
 
 function formatTokens(value: number): string {
-  return new Intl.NumberFormat("zh-CN", {
+  return new Intl.NumberFormat(getLanguage(), {
     notation: value >= 100_000 ? "compact" : "standard",
     maximumFractionDigits: 1,
   }).format(value);
 }
 
 function TokenStrip({ usage }: { usage: TrajectoryTokenUsage | null }) {
+  const { t } = useTranslation();
   if (!usage)
-    return <span className="text-muted-foreground">暂无 Token 记录</span>;
+    return <span className="text-muted-foreground">{t("暂无 Token 记录")}</span>;
   const input = Math.max(0, usage.inputTokens - usage.cachedInputTokens);
   const inputTotal = Math.max(1, usage.inputTokens);
   const output = Math.max(0, usage.outputTokens - usage.reasoningOutputTokens);
@@ -151,37 +154,37 @@ function TokenStrip({ usage }: { usage: TrajectoryTokenUsage | null }) {
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <Metric label="总 Token" value={formatTokens(usage.totalTokens)} />
-        <Metric label="输入" value={formatTokens(usage.inputTokens)} />
+        <Metric label={t("总 Token")} value={formatTokens(usage.totalTokens)} />
+        <Metric label={t("输入")} value={formatTokens(usage.inputTokens)} />
         <Metric
-          label="缓存读取"
+          label={t("缓存读取")}
           value={formatTokens(usage.cachedInputTokens)}
         />
-        <Metric label="输出" value={formatTokens(usage.outputTokens)} />
+        <Metric label={t("输出")} value={formatTokens(usage.outputTokens)} />
         <Metric
-          label="推理输出"
+          label={t("推理输出")}
           value={formatTokens(usage.reasoningOutputTokens)}
         />
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
         <TokenBar
-          title="输入拆分"
+          title={t("输入拆分")}
           total={usage.inputTokens}
           left={input}
           right={usage.cachedInputTokens}
-          leftLabel="未缓存"
-          rightLabel="缓存"
+          leftLabel={t("未缓存")}
+          rightLabel={t("缓存")}
           leftClass="bg-blue-500"
           rightClass="bg-teal-400"
           leftRatio={input / inputTotal}
         />
         <TokenBar
-          title="输出拆分"
+          title={t("输出拆分")}
           total={usage.outputTokens}
           left={output}
           right={usage.reasoningOutputTokens}
-          leftLabel="可见输出"
-          rightLabel="推理"
+          leftLabel={t("可见输出")}
+          rightLabel={t("推理")}
           leftClass="bg-violet-500"
           rightClass="bg-fuchsia-400"
           leftRatio={output / outputTotal}
@@ -192,6 +195,7 @@ function TokenStrip({ usage }: { usage: TrajectoryTokenUsage | null }) {
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
+  useTranslation();
   return (
     <div className="rounded-md border border-border/70 bg-background/45 px-3 py-2">
       <div className="text-[10px] text-muted-foreground">{label}</div>
@@ -223,6 +227,7 @@ function TokenBar({
   rightClass: string;
   leftRatio: number;
 }) {
+  useTranslation();
   return (
     <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2">
       <div className="flex items-center justify-between text-[10px] text-muted-foreground">
@@ -288,6 +293,7 @@ const TimingOverview = memo(function TimingOverview({
 }: {
   records: TrajectoryRecord[];
 }) {
+  const { t } = useTranslation();
   const timed = records
     .map((record) => {
       const start = new Date(
@@ -308,8 +314,7 @@ const TimingOverview = memo(function TimingOverview({
       <div className="mb-2 flex items-center justify-between text-sm font-semibold">
         <span className="flex items-center gap-1.5">
           <Clock3 className="h-4 w-4 text-primary" />
-          耗时轴
-        </span>
+          {t("耗时轴")}</span>
         <span className="font-mono text-xs font-normal text-muted-foreground">
           {formatDuration(span)}
         </span>
@@ -349,6 +354,7 @@ function RecordRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  useTranslation();
   return (
     <button
       type="button"
@@ -373,6 +379,7 @@ function RecordRow({
 }
 
 function RecordDetail({ record }: { record: TrajectoryRecord }) {
+  const { t } = useTranslation();
   return (
     <div className="border-b border-border bg-muted/20 px-4 py-3 text-xs">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-muted-foreground">
@@ -386,10 +393,10 @@ function RecordDetail({ record }: { record: TrajectoryRecord }) {
       </div>
       {(record.input || record.output) && (
         <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {record.input && <DetailBlock label="输入" value={record.input} />}
+          {record.input && <DetailBlock label={t("输入")} value={record.input} />}
           {record.output && (
             <DetailBlock
-              label="输出"
+              label={t("输出")}
               value={record.output}
               error={record.status === "error"}
             />
@@ -409,6 +416,7 @@ function DetailBlock({
   value: string;
   error?: boolean;
 }) {
+  useTranslation();
   return (
     <div
       className={`min-w-0 rounded-md border p-2 ${error ? "border-red-500/40 bg-red-500/5" : "border-border/70 bg-background/50"}`}
@@ -430,6 +438,7 @@ const TurnBlock = memo(function TurnBlock({
   turn: Trajectory["turns"][number];
   records: TrajectoryRecord[];
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const selectedRecord =
@@ -457,15 +466,15 @@ const TurnBlock = memo(function TurnBlock({
         <span className="font-semibold">Turn {turn.index}</span>
         <span className={`text-xs ${statusClass(turn.status)}`}>
           {turn.status === "complete"
-            ? "完成"
+            ? t("完成")
             : turn.status === "error"
-              ? "失败"
+              ? t("失败")
               : turn.status === "aborted"
-                ? "中止"
-                : "进行中"}
+                ? t("中止")
+                : t("进行中")}
         </span>
         <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-          {turn.model || "未知模型"} · {turn.records} 条记录 ·{" "}
+          {turn.model || t("未知模型")} · {turn.records} {t("条记录 ·")}{" "}
           {formatDuration(turn.durationMs)}
         </span>
         {turn.usage && (
@@ -505,6 +514,7 @@ const TurnBlock = memo(function TurnBlock({
 });
 
 export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
+  const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingCommitRef = useRef<PendingTrajectoryCommit | null>(null);
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
@@ -739,8 +749,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        加载轨迹中...
-      </div>
+        {t("加载轨迹中...")}</div>
     );
   if (error)
     return (
@@ -758,26 +767,24 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold">
               <Clock3 className="h-4 w-4 text-primary" />
-              轨迹摘要
-            </div>
+              {t("轨迹摘要")}</div>
             <div className="mt-1 truncate text-xs text-muted-foreground">
               {trajectory.session.title || trajectory.session.id} ·{" "}
-              {trajectory.session.model || "未知模型"}
+              {trajectory.session.model || t("未知模型")}
             </div>
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span>
               {trajectory.stats.turns} turns
-              {!trajectory.pagination.complete && "（当前片段）"}
+              {!trajectory.pagination.complete && t("（当前片段）")}
             </span>
             <span>
               {trajectory.stats.records} records
-              {!trajectory.pagination.complete && "（当前片段）"}
+              {!trajectory.pagination.complete && t("（当前片段）")}
             </span>
             <span>
               <Wrench className="mr-1 inline h-3 w-3" />
-              {trajectory.stats.toolCalls} 工具
-            </span>
+              {trajectory.stats.toolCalls} {t("工具")}</span>
             <span>{formatDuration(trajectory.stats.durationMs)}</span>
           </div>
         </div>
@@ -799,8 +806,8 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
               title={enrichmentError ?? undefined}
             >
               {enrichmentError
-                ? "全量轨迹补全失败，当前显示最近片段"
-                : "正在后台补全全局统计与早期轨迹..."}
+                ? t("全量轨迹补全失败，当前显示最近片段")
+                : t("正在后台补全全局统计与早期轨迹...")}
             </span>
           </div>
         )}
@@ -812,8 +819,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
           <section className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 p-3 text-xs text-yellow-600 dark:text-yellow-400">
             <div className="flex items-center gap-1.5 font-medium">
               <AlertTriangle className="h-3.5 w-3.5" />
-              {trajectory.warnings.length} 条解析警告
-            </div>
+              {trajectory.warnings.length} {t("条解析警告")}</div>
             <div className="mt-1 space-y-0.5 text-muted-foreground">
               {trajectory.warnings.slice(0, 5).map((warning, index) => (
                 <div key={`${warning.code}-${index}`} className="truncate">
@@ -828,12 +834,11 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="flex items-center gap-1.5 text-sm font-semibold">
                 <Cpu className="h-4 w-4 text-primary" />
-                事件账本
-              </span>
+                {t("事件账本")}</span>
               <span className="text-xs text-muted-foreground">
                 {trajectory.pagination.complete
-                  ? `已加载 ${trajectory.records.length} / ${trajectory.stats.records} 条`
-                  : `当前片段 ${trajectory.records.length} 条`}
+                  ? t("已加载 {{v0}} / {{v1}} 条", { v0: trajectory.records.length, v1: trajectory.stats.records })
+                  : t("当前片段 {{v0}} 条", { v0: trajectory.records.length })}
               </span>
             </div>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
@@ -842,7 +847,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="搜索事件、摘要或详情"
+                  placeholder={t("搜索事件、摘要或详情")}
                   className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-2 text-xs outline-none focus:border-primary"
                 />
               </label>
@@ -850,9 +855,9 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                 value={kind}
                 onChange={(event) => setKind(event.target.value)}
                 className="h-8 rounded-md border border-border bg-background px-2 text-xs outline-none focus:border-primary"
-                aria-label="筛选事件类型"
+                aria-label={t("筛选事件类型")}
               >
-                <option value="all">全部类型</option>
+                <option value="all">{t("全部类型")}</option>
                 {availableKinds.map((value) => (
                   <option key={value} value={value}>
                     {RECORD_KIND_LABELS[value] ?? value}
@@ -872,9 +877,8 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                     {loadingEarlier && (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     )}
-                    加载更早记录（剩余 {trajectory.pagination.earlierRecords}{" "}
-                    条）
-                  </button>
+                    {t("加载更早记录（剩余")}{trajectory.pagination.earlierRecords}{" "}
+                    {t("条）")}</button>
                   {pagingError && (
                     <span
                       className="min-w-0 truncate text-xs text-red-500"
@@ -889,8 +893,8 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
           {visibleTurns.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
               {trajectory.records.length === 0
-                ? "未发现可展示的轨迹事件"
-                : "没有符合筛选条件的记录"}
+                ? t("未发现可展示的轨迹事件")
+                : t("没有符合筛选条件的记录")}
             </div>
           ) : (
             visibleTurns.map((turn) => (

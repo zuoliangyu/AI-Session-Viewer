@@ -1,3 +1,5 @@
+import { t, getLanguage } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -56,7 +58,7 @@ function getGroupItemKeys(group: CleanupGroup, includeInvalidProject: boolean) {
 }
 
 function getSessionTitle(session: SessionIndexEntry) {
-  return session.alias || session.threadName || session.firstPrompt || session.sessionId || "未命名会话";
+  return session.alias || session.threadName || session.firstPrompt || session.sessionId || t("未命名会话");
 }
 
 async function mapWithConcurrencyLimit<T, R>(
@@ -101,11 +103,12 @@ function compareGroups(a: CleanupGroup, b: CleanupGroup): number {
   if (aScore !== bScore) return bScore - aScore;
   return (a.project.alias ?? a.project.shortName).localeCompare(
     b.project.alias ?? b.project.shortName,
-    "zh-CN",
+    getLanguage(),
   );
 }
 
 export function InvalidItemsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { source, loadProjects, timeZone } = useAppStore();
   const [groups, setGroups] = useState<CleanupGroup[]>([]);
@@ -127,13 +130,13 @@ export function InvalidItemsPage() {
   const reloadEpochRef = useRef(0);
   const canDeleteInvalidProjects = source !== "codex";
   const sessionDeleteHint = __IS_TAURI__
-    ? "当前为桌面端，会话删除会移入回收站。"
-    : "当前为 Web 端，会话删除为永久删除。";
+    ? t("当前为桌面端，会话删除会移入回收站。")
+    : t("当前为 Web 端，会话删除为永久删除。");
   const scanInProgress =
     scanProgress.total > 0 && scanProgress.completed < scanProgress.total;
   const scanWarning =
     !scanInProgress && scanProgress.failed > 0
-      ? `有 ${scanProgress.failed} / ${scanProgress.total} 个项目读取会话失败，当前结果不完整，仅展示已成功扫描的项目。`
+      ? t("有 {{v0}} / {{v1}} 个项目读取会话失败，当前结果不完整，仅展示已成功扫描的项目。", { v0: scanProgress.failed, v1: scanProgress.total })
       : null;
 
   /**
@@ -412,9 +415,7 @@ export function InvalidItemsPage() {
 
       if (failedProjectCount > 0 || failedSessionCount > 0) {
         setActionError(
-          `已删除 ${projectTargets.length - failedProjectCount} 个项目、${
-            selectedSessions.length - failedSessionCount
-          } 个会话，仍有 ${failedProjectCount + failedSessionCount} 项删除失败。`
+          t("已删除 {{v0}} 个项目、{{v1}} 个会话，仍有 {{v2}} 项删除失败。", { v0: projectTargets.length - failedProjectCount, v1: selectedSessions.length - failedSessionCount, v2: failedProjectCount + failedSessionCount })
         );
       } else {
         setConfirmDeleteOpen(false);
@@ -436,19 +437,16 @@ export function InvalidItemsPage() {
               onClick={() => navigate("/projects")}
               className="text-sm hover:text-foreground transition-colors"
             >
-              项目
-            </button>
+              {t("项目")}</button>
             <span>/</span>
-            <span className="text-sm text-foreground">无效项管理</span>
+            <span className="text-sm text-foreground">{t("无效项管理")}</span>
           </div>
           <div className="flex items-center gap-2">
             <FolderX className="w-6 h-6 text-amber-500" />
-            <h1 className="workspace-page-title">无效项目 / 无效会话</h1>
+            <h1 className="workspace-page-title">{t("无效项目 / 无效会话")}</h1>
           </div>
           <p className="mt-2 text-sm text-muted-foreground max-w-3xl">
-            按项目分组查看异常数据。当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0
-            或文件中部 JSONL 解析失败（损坏）。损坏会话仍可"查看详情"，坏行会被静默跳过。
-          </p>
+            {t("按项目分组查看异常数据。当前规则：无效项目 = 路径不存在；无效会话 = 消息数为 0 或文件中部 JSONL 解析失败（损坏）。损坏会话仍可\"查看详情\"，坏行会被静默跳过。")}</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -460,8 +458,7 @@ export function InvalidItemsPage() {
             <RefreshCw
               className={`w-4 h-4 ${refreshing || scanInProgress ? "animate-spin" : ""}`}
             />
-            刷新
-          </button>
+            {t("刷新")}</button>
           <button
             onClick={() =>
               setExpandedProjectIds(
@@ -472,7 +469,7 @@ export function InvalidItemsPage() {
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
           >
             {allExpanded ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {allExpanded ? "全部收起" : "全部展开"}
+            {allExpanded ? t("全部收起") : t("全部展开")}
           </button>
           <button
             onClick={toggleSelectAll}
@@ -488,8 +485,7 @@ export function InvalidItemsPage() {
             >
               ✓
             </span>
-            全选
-          </button>
+            {t("全选")}</button>
           <button
             onClick={() => setConfirmDeleteOpen(true)}
             disabled={rawSelectedCount === 0 || deleting}
@@ -500,23 +496,22 @@ export function InvalidItemsPage() {
             ) : (
               <Trash2 className="w-4 h-4" />
             )}
-            删除已选 {rawSelectedCount > 0 ? `(${rawSelectedCount})` : ""}
+            {t("删除已选")}{rawSelectedCount > 0 ? `(${rawSelectedCount})` : ""}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">涉及项目</div>
+          <div className="text-xs text-muted-foreground">{t("涉及项目")}</div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
             {summary.groupCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            含无效项目、空或损坏会话的分组
-          </div>
+            {t("含无效项目、空或损坏会话的分组")}</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">无效项目</div>
+          <div className="text-xs text-muted-foreground">{t("无效项目")}</div>
           <div className="mt-1 text-2xl font-semibold text-amber-500">
             {summary.invalidProjectCount}
           </div>
@@ -525,7 +520,7 @@ export function InvalidItemsPage() {
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">空会话</div>
+          <div className="text-xs text-muted-foreground">{t("空会话")}</div>
           <div className="mt-1 text-2xl font-semibold text-foreground">
             {summary.emptySessionCount}
           </div>
@@ -534,13 +529,12 @@ export function InvalidItemsPage() {
           </div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="text-xs text-muted-foreground">损坏会话</div>
+          <div className="text-xs text-muted-foreground">{t("损坏会话")}</div>
           <div className="mt-1 text-2xl font-semibold text-amber-500">
             {summary.corruptSessionCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            JSONL 中部解析失败
-          </div>
+            {t("JSONL 中部解析失败")}</div>
         </div>
       </div>
 
@@ -565,7 +559,7 @@ export function InvalidItemsPage() {
         <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-400">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p>会话删除说明：桌面端删除会移入回收站，Web 端删除为永久删除。</p>
+            <p>{t("会话删除说明：桌面端删除会移入回收站，Web 端删除为永久删除。")}</p>
             <p>{sessionDeleteHint}</p>
           </div>
         </div>
@@ -573,8 +567,7 @@ export function InvalidItemsPage() {
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
-              当前数据源为 `codex`，项目删除后端暂不支持。此页仅可清理无效会话，不能删除无效项目索引。
-            </span>
+              {t("当前数据源为 `codex`，项目删除后端暂不支持。此页仅可清理无效会话，不能删除无效项目索引。")}</span>
           </div>
         )}
         {scanWarning && (
@@ -593,17 +586,15 @@ export function InvalidItemsPage() {
             <span className="flex items-center gap-2 text-muted-foreground min-w-0">
               <Loader2 className="w-4 h-4 animate-spin shrink-0" />
               <span className="truncate">
-                正在扫描会话异常项（{scanProgress.completed} /{" "}
+                {t("正在扫描会话异常项（")}{scanProgress.completed} /{" "}
                 {scanProgress.total}）{scanProgress.failed > 0 && (
                   <span className="text-amber-500 ml-1">
-                    · {scanProgress.failed} 个失败
-                  </span>
+                    · {scanProgress.failed} {t("个失败")}</span>
                 )}
               </span>
             </span>
             <span className="text-xs text-muted-foreground shrink-0">
-              已发现 {groups.length} 个问题项目
-            </span>
+              {t("已发现")}{groups.length} {t("个问题项目")}</span>
           </div>
           <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
             <div
@@ -619,31 +610,29 @@ export function InvalidItemsPage() {
       {bootstrapping ? (
         <div className="rounded-xl border border-border bg-card px-6 py-16 text-center">
           <Loader2 className="w-6 h-6 animate-spin text-muted-foreground mx-auto" />
-          <p className="mt-3 text-sm text-muted-foreground">正在加载项目列表...</p>
+          <p className="mt-3 text-sm text-muted-foreground">{t("正在加载项目列表...")}</p>
         </div>
       ) : loadError ? (
         <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 px-6 py-16 text-center">
           <AlertCircle className="w-12 h-12 text-red-400/70 mx-auto" />
-          <h2 className="mt-4 text-lg font-medium text-foreground">扫描失败</h2>
+          <h2 className="mt-4 text-lg font-medium text-foreground">{t("扫描失败")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            当前无法完成无效项扫描，因此还不能判断是否存在无效项目、空会话或损坏会话。
-          </p>
+            {t("当前无法完成无效项扫描，因此还不能判断是否存在无效项目、空会话或损坏会话。")}</p>
         </div>
       ) : groups.length === 0 && !scanInProgress ? (
         <div className="rounded-xl border border-dashed border-border bg-card/60 px-6 py-16 text-center">
           <FolderOpen className="w-12 h-12 text-muted-foreground/30 mx-auto" />
           <h2 className="mt-4 text-lg font-medium text-foreground">
-            {scanProgress.failed > 0 ? "扫描部分失败" : "暂未发现无效项"}
+            {scanProgress.failed > 0 ? t("扫描部分失败") : t("暂未发现无效项")}
           </h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {scanProgress.failed > 0
-              ? "本次扫描中有项目读取失败，当前没有发现可确认的无效项，但这不代表数据源中一定不存在无效项。"
-              : "当前数据源下没有路径失效的项目，没有空会话，也没有损坏会话。"}
+              ? t("本次扫描中有项目读取失败，当前没有发现可确认的无效项，但这不代表数据源中一定不存在无效项。")
+              : t("当前数据源下没有路径失效的项目，没有空会话，也没有损坏会话。")}
           </p>
           {scanProgress.failed > 0 && (
             <p className="mt-2 text-xs text-muted-foreground">
-              请稍后刷新重试，或先处理导致会话扫描失败的项目。
-            </p>
+              {t("请稍后刷新重试，或先处理导致会话扫描失败的项目。")}</p>
           )}
         </div>
       ) : groups.length === 0 ? null : (
@@ -671,12 +660,12 @@ export function InvalidItemsPage() {
                       onChange={() => toggleGroupSelection(group)}
                       disabled={groupItemKeys.length === 0}
                       className="mt-1 rounded border-border"
-                      aria-label={`选择项目 ${group.project.alias ?? group.project.shortName}`}
+                      aria-label={t("选择项目 {{v0}}", { v0: group.project.alias ?? group.project.shortName })}
                     />
                     <button
                       onClick={() => toggleProjectExpanded(group.project.id)}
                       className="mt-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-                      aria-label={expanded ? "收起分组" : "展开分组"}
+                      aria-label={expanded ? t("收起分组") : t("展开分组")}
                     >
                       {expanded ? (
                         <ChevronDown className="w-4 h-4" />
@@ -691,8 +680,7 @@ export function InvalidItemsPage() {
                         </h2>
                         {group.invalidProject && (
                           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-500">
-                            项目路径无效
-                          </span>
+                            {t("项目路径无效")}</span>
                         )}
                         {(() => {
                           const empty = group.invalidSessions.filter(
@@ -705,12 +693,12 @@ export function InvalidItemsPage() {
                             <>
                               {empty > 0 && (
                                 <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                  空会话 {empty}
+                                  {t("空会话")}{empty}
                                 </span>
                               )}
                               {corrupt > 0 && (
                                 <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-500">
-                                  损坏会话 {corrupt}
+                                  {t("损坏会话")}{corrupt}
                                 </span>
                               )}
                             </>
@@ -718,7 +706,7 @@ export function InvalidItemsPage() {
                         })()}
                         {groupSelectedCount > 0 && (
                           <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                            已选 {groupSelectedCount}
+                            {t("已选")}{groupSelectedCount}
                           </span>
                         )}
                       </div>
@@ -726,10 +714,10 @@ export function InvalidItemsPage() {
                         {group.project.displayPath}
                       </p>
                       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        <span>项目 ID: {group.project.id}</span>
-                        <span>总会话数: {group.project.sessionCount}</span>
+                        <span>{t("项目 ID:")}{group.project.id}</span>
+                        <span>{t("总会话数:")}{group.project.sessionCount}</span>
                         {group.project.lastModified && (
-                          <span>最近更新: {formatDateTime(group.project.lastModified, timeZone, "minute")}</span>
+                          <span>{t("最近更新:")}{formatDateTime(group.project.lastModified, timeZone, "minute")}</span>
                         )}
                       </div>
                     </div>
@@ -749,13 +737,12 @@ export function InvalidItemsPage() {
                           }`}
                         >
                           {selectedKeys.has(getProjectKey(group.project.id))
-                            ? "取消选择项目"
-                            : "选择项目"}
+                            ? t("取消选择项目")
+                            : t("选择项目")}
                         </button>
                       ) : (
                         <span className="text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground/70">
-                          `codex` 下项目删除不可用
-                        </span>
+                          {t("`codex` 下项目删除不可用")}</span>
                       )
                     )}
                     <button
@@ -764,8 +751,7 @@ export function InvalidItemsPage() {
                       }
                       className="text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                     >
-                      打开项目
-                    </button>
+                      {t("打开项目")}</button>
                   </div>
                 </div>
 
@@ -790,8 +776,7 @@ export function InvalidItemsPage() {
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-medium text-foreground">
-                                无效项目目录
-                              </span>
+                                {t("无效项目目录")}</span>
                               <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-500">
                                 `pathExists === false`
                               </span>
@@ -801,8 +786,8 @@ export function InvalidItemsPage() {
                             </p>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {canDeleteInvalidProjects
-                                ? "删除后会移除该项目索引。当前页面默认使用项目删除接口的 `sessionOnly` 级别。"
-                                : "`codex` 数据源当前不支持项目删除，无法在此页移除此项目索引。"}
+                                ? t("删除后会移除该项目索引。当前页面默认使用项目删除接口的 `sessionOnly` 级别。")
+                                : t("`codex` 数据源当前不支持项目删除，无法在此页移除此项目索引。")}
                             </p>
                           </div>
                         </div>
@@ -839,8 +824,7 @@ export function InvalidItemsPage() {
                                   </span>
                                   {isCorrupt ? (
                                     <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-500">
-                                      文件损坏，部分可读
-                                    </span>
+                                      {t("文件损坏，部分可读")}</span>
                                   ) : (
                                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                                       `messageCount === 0`
@@ -848,22 +832,20 @@ export function InvalidItemsPage() {
                                   )}
                                   {session.alias && session.firstPrompt && (
                                     <span className="text-xs text-muted-foreground/70">
-                                      原标题：{session.firstPrompt}
+                                      {t("原标题：")}{session.firstPrompt}
                                     </span>
                                   )}
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                   <span>Session ID: {session.sessionId}</span>
-                                  <span>消息数: {session.messageCount}</span>
+                                  <span>{t("消息数:")}{session.messageCount}</span>
                                   {session.modified && (
-                                    <span>更新时间: {formatDateTime(session.modified, timeZone, "minute")}</span>
+                                    <span>{t("更新时间:")}{formatDateTime(session.modified, timeZone, "minute")}</span>
                                   )}
                                 </div>
                                 {isCorrupt && (
                                   <p className="mt-1 text-xs text-amber-500/80">
-                                    JSONL 中部出现解析失败的行（常见于 CC 异常退出留下的稀疏空洞）。
-                                    "查看详情"会跳过坏行展示残存内容。
-                                  </p>
+                                    {t("JSONL 中部出现解析失败的行（常见于 CC 异常退出留下的稀疏空洞）。 \"查看详情\"会跳过坏行展示残存内容。")}</p>
                                 )}
                                 <p className="mt-1 break-all text-xs text-muted-foreground/80">
                                   {session.filePath}
@@ -882,8 +864,7 @@ export function InvalidItemsPage() {
                                 }}
                                 className="text-xs px-2.5 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                               >
-                                查看详情
-                              </button>
+                                {t("查看详情")}</button>
                             </div>
                           </label>
                         );
@@ -908,22 +889,19 @@ export function InvalidItemsPage() {
           >
             <div className="flex items-center gap-2">
               <Trash2 className="w-5 h-5 text-destructive" />
-              <h2 className="text-lg font-semibold text-foreground">确认删除已选项</h2>
+              <h2 className="text-lg font-semibold text-foreground">{t("确认删除已选项")}</h2>
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
-              将删除 {selectedProjects.length} 个项目和 {selectedSessions.length} 个独立会话。
-              已选项目下的空/损坏会话会随项目一起移除，不会重复调用会话删除接口。
-            </p>
+              {t("将删除")}{selectedProjects.length} {t("个项目和")}{selectedSessions.length} {t("个独立会话。 已选项目下的空/损坏会话会随项目一起移除，不会重复调用会话删除接口。")}</p>
             <div className="mt-4 rounded-lg bg-muted/50 px-4 py-3 text-sm text-muted-foreground space-y-1">
               <div>
-                项目删除：
-                {canDeleteInvalidProjects
-                  ? "默认使用 `sessionOnly` 级别"
-                  : "`codex` 数据源不支持项目删除"}
+                {t("项目删除：")}{canDeleteInvalidProjects
+                  ? t("默认使用 `sessionOnly` 级别")
+                  : t("`codex` 数据源不支持项目删除")}
               </div>
-              <div>会话删除：桌面端会移入回收站，Web 端为永久删除</div>
-              <div>当前环境：{__IS_TAURI__ ? "桌面端" : "Web 端"}</div>
-              <div>此操作请确认后继续。</div>
+              <div>{t("会话删除：桌面端会移入回收站，Web 端为永久删除")}</div>
+              <div>{t("当前环境：")}{__IS_TAURI__ ? t("桌面端") : t("Web 端")}</div>
+              <div>{t("此操作请确认后继续。")}</div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button
@@ -931,15 +909,14 @@ export function InvalidItemsPage() {
                 disabled={deleting}
                 className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors disabled:opacity-50"
               >
-                取消
-              </button>
+                {t("取消")}</button>
               <button
                 onClick={() => void handleDeleteSelected()}
                 disabled={deleting}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50"
               >
                 {deleting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {deleting ? "删除中..." : "确认删除"}
+                {deleting ? t("删除中...") : t("确认删除")}
               </button>
             </div>
           </div>

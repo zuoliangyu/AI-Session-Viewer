@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import {
@@ -25,6 +27,7 @@ export function ModelSelector({
   onClose,
   onSelect,
 }: Props) {
+  const { t } = useTranslation();
   const pane = useChatStore((state) => state.getPaneState(paneId));
   const paneModelListState = useChatStore((state) => state.getPaneModelListState(paneId));
   const {
@@ -179,7 +182,7 @@ export function ModelSelector({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder={`搜索或输入模型 ID${modelList.length > 0 ? ` (如 ${modelList.slice(0, 2).map(m => m.id).join(", ")})` : ""}`}
+            placeholder={t("搜索或输入模型 ID{{v0}}", { v0: modelList.length > 0 ? t(" (如 {{v0}})", { v0: modelList.slice(0, 2).map(m => m.id).join(", ") }) : "" })}
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           <button
@@ -196,13 +199,12 @@ export function ModelSelector({
             onClick={() => fetchModelList(paneId)}
             disabled={modelListLoading}
             className="flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
-            title="刷新模型列表"
+            title={t("刷新模型列表")}
           >
             <RefreshCw
               className={`w-3 h-3 ${modelListLoading ? "animate-spin" : ""}`}
             />
-            刷新
-          </button>
+            {t("刷新")}</button>
           <button
             onClick={() => setShowAddInput((v) => !v)}
             className={`flex items-center gap-1 px-2 py-0.5 text-xs rounded border transition-colors ${
@@ -210,15 +212,13 @@ export function ModelSelector({
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
-            title="手动添加模型 ID"
+            title={t("手动添加模型 ID")}
           >
             <Plus className="w-3 h-3" />
-            添加
-          </button>
+            {t("添加")}</button>
           <span className="flex-1" />
           <span className="text-[10px] text-muted-foreground">
-            {modelList.length} 个模型
-          </span>
+            {modelList.length} {t("个模型")}</span>
         </div>
 
         {/* Add custom model input */}
@@ -240,7 +240,7 @@ export function ModelSelector({
                 }
                 e.stopPropagation();
               }}
-              placeholder="输入模型 ID，如 opus 或 claude-sonnet-4-6"
+              placeholder={t("输入模型 ID，如 opus 或 claude-sonnet-4-6")}
               className="flex-1 bg-muted border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             />
             <button
@@ -248,8 +248,7 @@ export function ModelSelector({
               disabled={!newModelId.trim()}
               className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              添加并选择
-            </button>
+              {t("添加并选择")}</button>
           </div>
         )}
 
@@ -258,8 +257,7 @@ export function ModelSelector({
           {modelListLoading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
-              加载模型列表...
-            </div>
+              {t("加载模型列表...")}</div>
           ) : modelListError ? (
             <div className="flex flex-col items-center gap-2 py-6 text-sm text-red-400">
               <div className="flex items-center gap-2">
@@ -270,8 +268,7 @@ export function ModelSelector({
                 onClick={() => fetchModelList(paneId)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                点击重试
-              </button>
+                {t("点击重试")}</button>
             </div>
           ) : flatList.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-6">
@@ -280,13 +277,13 @@ export function ModelSelector({
                   onClick={handleUseSearchAsCustom}
                   className="flex items-center gap-2 px-4 py-2 text-sm rounded-lg border border-primary/50 bg-primary/10 text-foreground hover:bg-primary/20 transition-colors"
                 >
-                  <span>使用</span>
+                  <span>{t("使用")}</span>
                   <code className="px-1.5 py-0.5 rounded bg-muted text-xs font-mono">{search.trim()}</code>
-                  <span>作为模型 ID</span>
+                  <span>{t("作为模型 ID")}</span>
                 </button>
               ) : (
                 <span className="text-sm text-muted-foreground">
-                  {search ? "未找到匹配模型" : "无可用模型"}
+                  {search ? t("未找到匹配模型") : t("无可用模型")}
                 </span>
               )}
             </div>
@@ -335,7 +332,7 @@ export function ModelSelector({
                             removeCustomModel(m.id, source, paneId);
                           }}
                           className="p-0.5 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
-                          title="移除自定义模型"
+                          title={t("移除自定义模型")}
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
@@ -354,22 +351,19 @@ export function ModelSelector({
             <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">
               ↑↓
             </kbd>{" "}
-            导航
-          </span>
+            {t("导航")}</span>
           <span>
             <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">
               Enter
             </kbd>{" "}
-            选择
-          </span>
+            {t("选择")}</span>
           <span>
             <kbd className="px-1 py-0.5 rounded bg-muted text-[10px]">
               Esc
             </kbd>{" "}
-            关闭
-          </span>
+            {t("关闭")}</span>
           <span className="flex-1" />
-          <span>输入任意 ID 可直接使用</span>
+          <span>{t("输入任意 ID 可直接使用")}</span>
         </div>
       </div>
     </div>

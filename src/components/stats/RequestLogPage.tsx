@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -45,6 +47,7 @@ function truncatePath(p: string, max = 32): string {
 }
 
 export function RequestLogPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -151,23 +154,22 @@ export function RequestLogPage() {
         <button
           onClick={() => navigate("/stats")}
           className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-          title="返回统计"
+          title={t("返回统计")}
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Receipt className="w-5 h-5 text-muted-foreground" />
-        <h1 className="workspace-page-title">逐请求账单</h1>
+        <h1 className="workspace-page-title">{t("逐请求账单")}</h1>
         <span className="text-xs text-muted-foreground">
           ({source === "claude" ? "Claude" : "Codex"})
         </span>
         <div className="ml-auto flex items-center gap-4 text-xs text-muted-foreground">
           <span>
-            共 <span className="font-semibold text-foreground">{requestLogTotal.toLocaleString()}</span> 条
-          </span>
+            {t("共")}<span className="font-semibold text-foreground">{requestLogTotal.toLocaleString()}</span> {t("条")}</span>
           <span>
-            累计花费{" "}
+            {t("累计花费")}{" "}
             <span className="font-semibold text-green-500">
-              {requestLogHasUnpricedUsage ? "未定价" : formatCost(requestLogTotalCost)}
+              {requestLogHasUnpricedUsage ? t("未定价") : formatCost(requestLogTotalCost)}
             </span>
           </span>
         </div>
@@ -176,13 +178,13 @@ export function RequestLogPage() {
       {/* Filter row */}
       <div className="border-b border-border bg-card px-6 py-3 flex flex-wrap items-center gap-2 text-xs">
         <label className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">项目：</span>
+          <span className="text-muted-foreground">{t("项目：")}</span>
           <select
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
             className="bg-background border border-border rounded px-2 py-1 text-foreground min-w-[12rem] max-w-[20rem]"
           >
-            <option value="">全部</option>
+            <option value="">{t("全部")}</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.alias ?? p.shortName}
@@ -191,13 +193,13 @@ export function RequestLogPage() {
           </select>
         </label>
         <label className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">模型：</span>
+          <span className="text-muted-foreground">{t("模型：")}</span>
           <select
             value={modelFilter}
             onChange={(e) => setModelFilter(e.target.value)}
             className="bg-background border border-border rounded px-2 py-1 text-foreground"
           >
-            <option value="">全部</option>
+            <option value="">{t("全部")}</option>
             {modelOptions.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -206,7 +208,7 @@ export function RequestLogPage() {
           </select>
         </label>
         <label className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">起：</span>
+          <span className="text-muted-foreground">{t("起：")}</span>
           <input
             type="date"
             value={startDate}
@@ -215,7 +217,7 @@ export function RequestLogPage() {
           />
         </label>
         <label className="flex items-center gap-1.5">
-          <span className="text-muted-foreground">止：</span>
+          <span className="text-muted-foreground">{t("止：")}</span>
           <input
             type="date"
             value={endDate}
@@ -227,19 +229,16 @@ export function RequestLogPage() {
           onClick={applyFilters}
           className="px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
         >
-          应用
-        </button>
+          {t("应用")}</button>
         <button
           onClick={resetFilters}
           className="px-3 py-1 rounded border border-border hover:bg-accent transition-colors flex items-center gap-1"
         >
-          <X className="w-3 h-3" /> 重置
-        </button>
+          <X className="w-3 h-3" /> {t("重置")}</button>
         {requestLogLoading && (
           <span className="flex items-center gap-1 text-muted-foreground">
             <Loader2 className="w-3 h-3 animate-spin" />
-            加载中...
-          </span>
+            {t("加载中...")}</span>
         )}
       </div>
 
@@ -247,16 +246,16 @@ export function RequestLogPage() {
       <div className="flex h-full min-w-[1100px] flex-col">
       {/* Table header */}
       <div className="grid grid-cols-[10rem_1fr_10rem_8rem_5rem_5rem_5rem_5rem_4.5rem_5rem] gap-2 px-6 py-2 text-[11px] font-medium text-muted-foreground bg-muted/40 border-b border-border sticky top-0 z-10">
-        <span>时间</span>
-        <span>项目</span>
-        <span>模型</span>
-        <span>会话</span>
+        <span>{t("时间")}</span>
+        <span>{t("项目")}</span>
+        <span>{t("模型")}</span>
+        <span>{t("会话")}</span>
         <span className="text-right">input</span>
-        <span className="text-right">cache 读</span>
-        <span className="text-right">cache 写</span>
+        <span className="text-right">{t("cache 读")}</span>
+        <span className="text-right">{t("cache 写")}</span>
         <span className="text-right">output</span>
-        <span className="text-right">耗时</span>
-        <span className="text-right">花费</span>
+        <span className="text-right">{t("耗时")}</span>
+        <span className="text-right">{t("花费")}</span>
       </div>
 
       {/* Virtual list body */}
@@ -264,8 +263,8 @@ export function RequestLogPage() {
         {requestLog.length === 0 && !requestLogLoading ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
             {projectId || modelFilter || startDate || endDate
-              ? "当前筛选下没有匹配的请求。"
-              : "暂无请求记录。"}
+              ? t("当前筛选下没有匹配的请求。")
+              : t("暂无请求记录。")}
           </div>
         ) : (
           <div
@@ -323,7 +322,7 @@ export function RequestLogPage() {
                     {formatDuration(record.durationMs)}
                   </span>
                   <span className="text-right font-mono text-green-500 flex items-center justify-end gap-1">
-                    {record.isPriced ? formatCost(record.costUsd) : "未定价"}
+                    {record.isPriced ? formatCost(record.costUsd) : t("未定价")}
                     <ExternalLink className="w-2.5 h-2.5 opacity-40" />
                   </span>
                 </button>

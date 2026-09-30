@@ -1,5 +1,7 @@
 # AI Session Viewer
 
+**简体中文** | [English](./README.en.md)
+
 <p align="center">
   <img src="src-tauri/icons/icon.png" width="128" height="128" alt="AI Session Viewer">
 </p>
@@ -26,7 +28,7 @@
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
-> **What's New（v2.22.0）**：桌面与 Web 均支持 Claude、Codex、Grok、Oh My Pi 四来源 Fork；项目和会话默认使用便利贴式多列卡片，四个 Agent 保持纵向排列并支持在设置中显隐。新增最近浏览，精简阅读工具栏、目录与续聊区域，并适配窄屏导航和深色主题。Grok 分叉后提供续聊命令，Claude、Codex 和 Oh My Pi 可沿用应用内续聊。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.22.1）**：新增中英文界面与双语 README，默认中文，可在「设置 → 显示设置 → 界面语言 / Language」中切换 English 并自动保存选择；相对时间随语言切换。Tauri CLI 升级至 `2.11.4`，引入 AppImage `.DirIcon` 与 `.desktop` 相对链接修复。新增国际化与打包依赖轻量检查。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
 
@@ -274,6 +276,8 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 ### 显示设置
 
+- 界面默认使用简体中文。在左下角齿轮 →「显示设置 → 界面语言 / Language」选择 **English** 可立即切换英文，选择会保存在当前浏览器/桌面 WebView 的本地存储，重启后沿用；首次启动不根据系统语言自动切换。
+- 中英文覆盖应用界面、弹窗、提示和相对时间。会话原文、项目名、自定义标签以及 CLI/服务器返回的原始诊断保留原样。语言和时区独立设置。
 - 时区默认跟随用户系统，也可在「设置 → 显示设置」中选择浏览器支持的 IANA 时区；消息、账单、搜索结果、会话列表、管理页面以及统计日期筛选统一使用该时区
 - 时区偏好保存在浏览器本地，不改变 JSONL 中的 UTC 原始时间；切换后统计数据会按新时区立即重新分日
 
@@ -415,6 +419,8 @@ npx tauri build
 
 产物位于 `target/release/bundle/`（`.msi` / `.exe` / `.dmg` / `.deb` / `.AppImage`）。
 
+Linux AppImage 打包使用锁定的 `@tauri-apps/cli` **2.11.4**。该版本包含 [Tauri #15596](https://github.com/tauri-apps/tauri/pull/15596) 的修复，将 `.DirIcon` 和根目录 `.desktop` 改为相对符号链接，避免产物离开构建机器后链接失效。请使用仓库的 `package-lock.json` 安装依赖；无需额外配置 `bundle.linux.appimage.files`。Linux 产物验证方式见 [scripts/README.md](./scripts/README.md#appimage-产物验证)。
+
 **Web 服务器：**
 
 ```bash
@@ -432,6 +438,7 @@ docker build -t ai-session-viewer-web .
 ### 代码检查
 
 ```bash
+npm run check:scripts                     # 轻量脚本与 i18n 回归检查
 cargo clippy --workspace -- -D warnings   # Rust lint
 npx tsc --noEmit                           # TypeScript 类型检查
 ```
@@ -447,6 +454,7 @@ npx tsc --noEmit                           # TypeScript 类型检查
 | 前端 | React 19 + TypeScript + Vite 6 |
 | 样式 | Tailwind CSS 3 + @tailwindcss/typography |
 | 状态管理 | Zustand 5 |
+| 国际化 | i18next + react-i18next（简体中文 / English） |
 | Markdown | react-markdown 9 + remark-gfm + react-syntax-highlighter |
 | 图表 | Recharts 2 |
 | 共享核心 | session-core（Rust crate，models/provider/search/stats） |
@@ -539,6 +547,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 ## 路线图
 
+- [x] 中英文界面切换（默认中文）与双语 README
 - [x] 四数据源支持（Claude Code + Codex CLI + Grok CLI + Oh My Pi）
 - [x] 消息详情渲染（Markdown / 代码高亮 / 工具调用 / 思考过程）
 - [x] Resume 会话（跨平台终端启动）

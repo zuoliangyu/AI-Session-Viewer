@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { memo, useMemo } from "react";
 import {
   MessageCircleQuestion,
@@ -64,7 +66,7 @@ function flattenQuestionIndex(
     items.push({
       messageId: question.messageId,
       messageIndex: question.messageIndex,
-      question: question.preview || "（用户消息）",
+      question: question.preview || t("（用户消息）"),
       timestamp: question.timestamp ? formatTime(question.timestamp, timeZone) : null,
       replyPreview: question.replyPreview,
       replyModel: question.replyModel,
@@ -93,10 +95,11 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
   onSelect,
   filePath,
 }: ThreadSummaryViewProps) {
+  const { t } = useTranslation();
   const timeZone = useAppStore((state) => state.timeZone);
   const items = useMemo(
     () => flattenQuestionIndex(questions, timeZone),
-    [questions, timeZone],
+    [questions, timeZone, t],
   );
   const isThreaded = useMemo(
     () => questions.some((question) => question.parentMessageIndex !== null),
@@ -110,8 +113,7 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
   if (items.length === 0) {
     return (
       <div className="mx-auto max-w-3xl px-6 py-10 text-center text-sm text-muted-foreground">
-        当前会话还没有用户提问可供汇总。
-      </div>
+        {t("当前会话还没有用户提问可供汇总。")}</div>
     );
   }
 
@@ -119,17 +121,16 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
     <div className="mx-auto max-w-3xl space-y-3 px-4 py-6 sm:px-6">
       <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          共 {items.length} 条提问
-          {isThreaded && "（按父子关系展示）"}
+          {t("共")}{items.length} {t("条提问")}{isThreaded && t("（按父子关系展示）")}
         </span>
         <span>
-          {canFork ? "点击提问跳转 · 从此处分叉会保留该轮完整回复" : "点击任意一条跳转"}
+          {canFork ? t("点击提问跳转 · 从此处分叉会保留该轮完整回复") : t("点击任意一条跳转")}
         </span>
       </div>
 
       {forkError && (
         <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          分叉失败：{forkError}
+          {t("分叉失败：")}{forkError}
         </div>
       )}
 
@@ -162,22 +163,21 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                     {index + 1}
                   </span>
                   <MessageCircleQuestion className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>用户提问</span>
+                  <span>{t("用户提问")}</span>
                   {item.branchCount > 1 && (
                     <span
                       className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-600 dark:text-amber-400"
-                      title="此消息后存在多个分叉"
+                      title={t("此消息后存在多个分叉")}
                     >
-                      {source === "omp" ? `${item.branchCount} 条路径` : `${item.branchCount} 条分叉`}
+                      {source === "omp" ? t("{{v0}} 条路径", { v0: item.branchCount }) : t("{{v0}} 条分叉", { v0: item.branchCount })}
                     </span>
                   )}
                   {source === "omp" && item.branchIndex > 0 && (
                     <span
                       className="rounded bg-fuchsia-500/15 px-1.5 py-0.5 font-mono text-[10px] text-fuchsia-600 dark:text-fuchsia-400"
-                      title="此问题由回退到同一父节点后创建"
+                      title={t("此问题由回退到同一父节点后创建")}
                     >
-                      回退分支
-                    </span>
+                      {t("回退分支")}</span>
                   )}
                 </div>
                 <p className="mt-1.5 line-clamp-3 whitespace-pre-wrap text-sm font-medium text-foreground">
@@ -187,7 +187,7 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                   <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <span>{assistantName} 回复</span>
+                      <span>{assistantName} {t("回复")}</span>
                       {item.replyModel && (
                         <span className="rounded bg-background px-1.5 py-0.5 font-mono">
                           {item.replyModel}
@@ -196,12 +196,11 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                       {item.replyTimestamp && <span>· {item.replyTimestamp}</span>}
                       {item.hasTool && (
                         <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
-                          含工具调用
-                        </span>
+                          {t("含工具调用")}</span>
                       )}
                     </div>
                     <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {item.replyPreview || "尚无可见回复"}
+                      {item.replyPreview || t("尚无可见回复")}
                     </p>
                   </div>
                 </div>
@@ -213,15 +212,14 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                     onClick={() => void handleFork(item.messageId)}
                     disabled={forkingMsgId !== null || /^user-\d+$/.test(item.messageId)}
                     className={`inline-flex items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:border-primary hover:text-primary disabled:opacity-60`}
-                    title="保留此轮完整回复，分叉为新会话"
+                    title={t("保留此轮完整回复，分叉为新会话")}
                   >
                     {isForking ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <GitBranch className="h-3 w-3" />
                     )}
-                    从此处分叉
-                  </button>
+                    {t("从此处分叉")}</button>
                 </div>
               )}
             </div>

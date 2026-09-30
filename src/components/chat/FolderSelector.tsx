@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { FolderOpen, ChevronDown } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
@@ -12,6 +14,7 @@ interface Props {
 }
 
 export function FolderSelector({ value, onChange, disabled }: Props) {
+  const { t } = useTranslation();
   const usesLocalTauri = __IS_TAURI__ && !isRemoteNodeActive();
   const [showDropdown, setShowDropdown] = useState(false);
   const projects = useAppStore((s) => s.projects);
@@ -42,7 +45,7 @@ export function FolderSelector({ value, onChange, disabled }: Props) {
             type="text"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="选择或输入工作目录..."
+            placeholder={t("选择或输入工作目录...")}
             disabled={disabled}
             className="w-full bg-muted border border-border rounded-lg pl-3 pr-8 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
           />
@@ -61,7 +64,7 @@ export function FolderSelector({ value, onChange, disabled }: Props) {
             onClick={handleBrowse}
             disabled={disabled}
             className="shrink-0 p-2 rounded-lg border border-border bg-muted hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            title="浏览文件夹"
+            title={t("浏览文件夹")}
           >
             <FolderOpen className="w-4 h-4" />
           </button>

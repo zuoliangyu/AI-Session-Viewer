@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 import { useEffect, useRef } from "react";
 import { useUpdateStore } from "../stores/updateStore";
 
@@ -47,13 +48,13 @@ export function useUpdateChecker() {
         const isPortable = installType === "portable";
         const shouldUpdate = await confirm(
           isPortable
-            ? `当前版本 v${currentVersion || "当前"}，检测到新版本 v${newVersion}。是否前往下载页面？`
-            : `当前版本 v${currentVersion || "当前"}，检测到新版本 v${newVersion}。是否立即更新并在完成后重启？`,
+            ? t("当前版本 v{{v0}}，检测到新版本 v{{v1}}。是否前往下载页面？", { v0: currentVersion || t("当前"), v1: newVersion })
+            : t("当前版本 v{{v0}}，检测到新版本 v{{v1}}。是否立即更新并在完成后重启？", { v0: currentVersion || t("当前"), v1: newVersion }),
           {
-            title: "发现新版本",
+            title: t("发现新版本"),
             kind: "info",
-            okLabel: isPortable ? "前往下载" : "立即更新",
-            cancelLabel: "暂不更新",
+            okLabel: isPortable ? t("前往下载") : t("立即更新"),
+            cancelLabel: t("暂不更新"),
           }
         );
 

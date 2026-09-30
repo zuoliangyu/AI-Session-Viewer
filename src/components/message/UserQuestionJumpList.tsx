@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface UserQuestionItem {
@@ -20,6 +22,7 @@ export function UserQuestionJumpList({
   collapsed,
   onToggleCollapsed,
 }: Props) {
+  const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{
     pointerId: number | null;
@@ -148,11 +151,10 @@ export function UserQuestionJumpList({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           className="flex h-12 w-12 cursor-grab items-center justify-center rounded-full border border-border bg-card text-sm font-semibold text-foreground shadow-lg transition-all hover:-translate-y-0.5 hover:bg-accent active:cursor-grabbing"
-          title={`提问定位（共 ${items.length} 条）`}
-          aria-label={`展开提问定位，共 ${items.length} 条`}
+          title={t("提问定位（共 {{v0}} 条）", { v0: items.length })}
+          aria-label={t("展开提问定位，共 {{v0}} 条", { v0: items.length })}
         >
-          问
-        </button>
+          {t("问")}</button>
       </div>
     );
   }
@@ -173,21 +175,19 @@ export function UserQuestionJumpList({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
           >
-            <p className="text-sm font-medium text-foreground">提问定位</p>
-            <p className="text-xs text-muted-foreground">只显示当前会话里的提问，点击跳转</p>
+            <p className="text-sm font-medium text-foreground">{t("提问定位")}</p>
+            <p className="text-xs text-muted-foreground">{t("只显示当前会话里的提问，点击跳转")}</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
-              {items.length} 条
-            </span>
+              {items.length} {t("条")}</span>
             <button
               type="button"
               onClick={() => onToggleCollapsed(true)}
               className="rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title="收起提问定位"
+              title={t("收起提问定位")}
             >
-              收起
-            </button>
+              {t("收起")}</button>
           </div>
         </div>
         <div className="max-h-64 space-y-1 overflow-y-auto p-2">

@@ -1,11 +1,14 @@
+import { t, getDateLocale } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { Star, Trash2, MessageSquare, FolderOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { zhCN } from "date-fns/locale";
+
 
 export function BookmarksPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { bookmarks, bookmarksLoading, loadBookmarks, removeBookmark, source } =
     useAppStore();
@@ -43,14 +46,14 @@ export function BookmarksPage() {
     <div className="workspace-page">
       <div className="flex items-center gap-2 mb-5">
         <Star className="w-5 h-5 text-yellow-500" />
-        <h1 className="workspace-page-title">收藏</h1>
+        <h1 className="workspace-page-title">{t("收藏")}</h1>
         <span className="text-sm text-muted-foreground">({filtered.length})</span>
       </div>
 
       {bookmarksLoading ? (
-        <div className="text-muted-foreground">加载收藏...</div>
+        <div className="text-muted-foreground">{t("加载收藏...")}</div>
       ) : filtered.length === 0 ? (
-        <div className="text-muted-foreground">暂无收藏。在会话列表或消息页中点击星标即可添加收藏。</div>
+        <div className="text-muted-foreground">{t("暂无收藏。在会话列表或消息页中点击星标即可添加收藏。")}</div>
       ) : (
         <div className="space-y-6">
           {grouped.map(([projectName, items]) => (
@@ -75,10 +78,9 @@ export function BookmarksPage() {
                         {b.messageId ? (
                           <span className="flex items-center gap-1">
                             <MessageSquare className="w-3 h-3" />
-                            消息收藏
-                          </span>
+                            {t("消息收藏")}</span>
                         ) : (
-                          <span>会话收藏</span>
+                          <span>{t("会话收藏")}</span>
                         )}
                         {b.sessionTitle && b.messageId && (
                           <span className="truncate">{b.sessionTitle}</span>
@@ -86,7 +88,7 @@ export function BookmarksPage() {
                         <span>
                           {formatDistanceToNow(new Date(b.createdAt), {
                             addSuffix: true,
-                            locale: zhCN,
+                            locale: getDateLocale(),
                           })}
                         </span>
                       </div>
@@ -97,7 +99,7 @@ export function BookmarksPage() {
                         removeBookmark(b.id);
                       }}
                       className="p-1.5 rounded-md text-transparent group-hover:text-muted-foreground hover:!text-destructive transition-colors shrink-0"
-                      title="取消收藏"
+                      title={t("取消收藏")}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

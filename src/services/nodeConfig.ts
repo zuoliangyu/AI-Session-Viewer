@@ -1,3 +1,4 @@
+import { t } from "../i18n/index.js";
 export const LOCAL_NODE_ID = "local";
 
 const NODES_KEY = "asv_nodes_v1";
@@ -15,13 +16,13 @@ export type NodeStatus = "checking" | "online" | "offline" | "unauthorized";
 export function normalizeNodeUrl(value: string): string {
   const url = new URL(value.trim());
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("节点地址必须使用 http:// 或 https://");
+    throw new Error(t("节点地址必须使用 http:// 或 https://"));
   }
   if (url.username || url.password) {
-    throw new Error("节点地址不能包含用户名或密码");
+    throw new Error(t("节点地址不能包含用户名或密码"));
   }
   if (url.pathname !== "/" || url.search || url.hash) {
-    throw new Error("节点地址只能填写服务器根地址");
+    throw new Error(t("节点地址只能填写服务器根地址"));
   }
   return url.origin;
 }
@@ -60,7 +61,7 @@ export function saveViewerNode(
     baseUrl: normalizeNodeUrl(value.baseUrl),
     token: value.token.trim(),
   };
-  if (!node.name) throw new Error("请输入机器名称");
+  if (!node.name) throw new Error(t("请输入机器名称"));
 
   const index = nodes.findIndex((item) => item.id === node.id);
   if (index >= 0) nodes[index] = node;

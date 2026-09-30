@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { Children, isValidElement, memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -42,6 +44,7 @@ function DeferredCodeBlock({
   code: string;
   language: string;
 }) {
+  const { t } = useTranslation();
   const deferredByDefault = shouldDeferHighlight(code);
   const [highlightEnabled, setHighlightEnabled] = useState(!deferredByDefault);
   const lineCount = useMemo(() => getLineCount(code), [code]);
@@ -58,15 +61,13 @@ function DeferredCodeBlock({
       >
         <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
           <span className="truncate">
-            {language} · {lineCount} 行 · {code.length} 字符
-          </span>
+            {language} · {lineCount} {t("行 ·")}{code.length} {t("字符")}</span>
           <button
             type="button"
             onClick={() => setHighlightEnabled(true)}
             className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
           >
-            启用高亮
-          </button>
+            {t("启用高亮")}</button>
         </div>
         <pre className="max-h-[32rem] overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-words text-foreground">
           {code}
@@ -96,6 +97,7 @@ function MarkdownCode({
   className?: string;
   children?: ReactNode;
 }) {
+  useTranslation();
   const match = /language-(\w+)/.exec(className || "");
   const codeStr = String(children).replace(/\n$/, "");
 
@@ -111,6 +113,7 @@ function MarkdownCode({
 }
 
 function MarkdownPre({ children }: { children?: ReactNode }) {
+  useTranslation();
   const childArray = Children.toArray(children);
   const onlyChild = childArray.length === 1 ? childArray[0] : null;
   const childProps = onlyChild && isValidElement(onlyChild)
@@ -159,6 +162,7 @@ const MARKDOWN_COMPONENTS = {
 };
 
 export const MarkdownContent = memo(function MarkdownContent({ content, className }: MarkdownContentProps) {
+  const { t } = useTranslation();
   const normalizedContent = useMemo(
     () => wrapAsciiArt(cleanMessageText(content)),
     [content]
@@ -179,15 +183,13 @@ export const MarkdownContent = memo(function MarkdownContent({ content, classNam
         <div className="not-prose overflow-hidden rounded-md border border-border bg-muted/20">
           <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
             <span className="truncate">
-              内容较长，默认使用纯文本预览以减少首屏卡顿
-            </span>
+              {t("内容较长，默认使用纯文本预览以减少首屏卡顿")}</span>
             <button
               type="button"
               onClick={() => setRenderMarkdown(true)}
               className="shrink-0 rounded border border-border px-2 py-1 text-[11px] text-foreground transition-colors hover:bg-accent"
             >
-              渲染 Markdown
-            </button>
+              {t("渲染 Markdown")}</button>
           </div>
           <pre className="max-h-[32rem] overflow-auto p-3 text-xs font-mono whitespace-pre-wrap break-words text-foreground">
             {normalizedContent}

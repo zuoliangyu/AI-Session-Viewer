@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useCallback, useRef, useState, type PointerEvent } from "react";
 
 interface Props {
@@ -16,6 +18,7 @@ const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
  * don't thrash the loaded window on every move.
  */
 export function SessionPositionRail({ currentPercent, onJump, disabled = false }: Props) {
+  const { t } = useTranslation();
   const trackRef = useRef<HTMLDivElement>(null);
   const pointerIdRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -79,7 +82,7 @@ export function SessionPositionRail({ currentPercent, onJump, disabled = false }
         className={`group relative h-full w-2.5 cursor-pointer rounded-full border border-border/50 bg-muted/40 transition-colors hover:bg-muted/70 ${
           dragging ? "bg-muted/70" : ""
         }`}
-        title="点击或拖动跳到会话对应位置"
+        title={t("点击或拖动跳到会话对应位置")}
       >
         {/* Filled portion up to the current position */}
         <div

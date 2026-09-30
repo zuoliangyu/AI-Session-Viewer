@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { DollarSign, X, Copy, Check, Receipt } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
@@ -33,6 +35,7 @@ function formatDuration(ms: number | null): string {
  * Markdown table — useful for sharing receipts in a team chat.
  */
 export function SessionCostBadge({ filePath }: { filePath: string }) {
+  const { t } = useTranslation();
   const summary = useAppStore((state) => state.sessionCosts[filePath] ?? null);
   const messagesLoading = useAppStore((state) => state.messagesLoading);
   const loadSessionCost = useAppStore((state) => state.loadSessionCost);
@@ -56,10 +59,10 @@ export function SessionCostBadge({ filePath }: { filePath: string }) {
       <button
         onClick={() => setOpen(true)}
         className="hidden md:flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-green-500/30 bg-green-500/5 text-green-600 dark:text-green-400 hover:bg-green-500/10 transition-colors font-mono"
-        title="点击查看本会话的逐请求账单"
+        title={t("点击查看本会话的逐请求账单")}
       >
         <DollarSign className="w-3 h-3" />
-        <span>{isFullyPriced ? formatCost(summary.costUsd) : "未定价"}</span>
+        <span>{isFullyPriced ? formatCost(summary.costUsd) : t("未定价")}</span>
         <span className="text-muted-foreground text-[10px] ml-1">
           · {summary.requestCount} req
         </span>
@@ -79,6 +82,7 @@ function SessionCostModal({
   summary: SessionCostSummary;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const timeZone = useAppStore((state) => state.timeZone);
   const isFullyPriced = summary.requests.every((request) => request.isPriced);
@@ -107,30 +111,27 @@ function SessionCostModal({
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Receipt className="w-4 h-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">本会话账单</h2>
+            <h2 className="text-sm font-semibold">{t("本会话账单")}</h2>
             <span className="text-xs text-muted-foreground">
-              · {summary.requestCount} 次请求 · 平均{" "}
+              · {summary.requestCount} {t("次请求 · 平均")}{" "}
               {isFullyPriced && summary.avgCostUsd !== null
                 ? formatCost(summary.avgCostUsd)
-                : "未定价"}/次
-            </span>
+                : t("未定价")}{t("/次")}</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
               className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
-              title="复制为 Markdown 表格"
+              title={t("复制为 Markdown 表格")}
             >
               {copied ? (
                 <>
                   <Check className="w-3 h-3 text-green-500" />
-                  已复制
-                </>
+                  {t("已复制")}</>
               ) : (
                 <>
                   <Copy className="w-3 h-3" />
-                  复制 Markdown
-                </>
+                  {t("复制 Markdown")}</>
               )}
             </button>
             <button
@@ -145,14 +146,14 @@ function SessionCostModal({
         {/* Summary row */}
         <div className="grid grid-cols-5 gap-2 px-4 py-3 border-b border-border bg-muted/30 text-xs">
           <SummaryStat
-            label="累计花费"
-            value={isFullyPriced ? formatCost(summary.costUsd) : "未定价"}
+            label={t("累计花费")}
+            value={isFullyPriced ? formatCost(summary.costUsd) : t("未定价")}
             accent="text-green-500"
           />
-          <SummaryStat label="输入" value={formatTokens(summary.inputTokens)} />
-          <SummaryStat label="缓存读" value={formatTokens(summary.cacheReadTokens)} accent="text-teal-500" />
-          <SummaryStat label="缓存写" value={formatTokens(summary.cacheCreationTokens)} accent="text-purple-500" />
-          <SummaryStat label="输出" value={formatTokens(summary.outputTokens)} accent="text-amber-500" />
+          <SummaryStat label={t("输入")} value={formatTokens(summary.inputTokens)} />
+          <SummaryStat label={t("缓存读")} value={formatTokens(summary.cacheReadTokens)} accent="text-teal-500" />
+          <SummaryStat label={t("缓存写")} value={formatTokens(summary.cacheCreationTokens)} accent="text-purple-500" />
+          <SummaryStat label={t("输出")} value={formatTokens(summary.outputTokens)} accent="text-amber-500" />
         </div>
 
         {/* Per-request rows */}
@@ -160,14 +161,14 @@ function SessionCostModal({
           <table className="w-full text-xs">
             <thead className="sticky top-0 bg-muted/40 border-b border-border">
               <tr className="text-[11px] text-muted-foreground">
-                <th className="text-left font-medium px-3 py-2">时间</th>
-                <th className="text-left font-medium px-3 py-2">模型</th>
+                <th className="text-left font-medium px-3 py-2">{t("时间")}</th>
+                <th className="text-left font-medium px-3 py-2">{t("模型")}</th>
                 <th className="text-right font-medium px-3 py-2">input</th>
-                <th className="text-right font-medium px-3 py-2">cache 读</th>
-                <th className="text-right font-medium px-3 py-2">cache 写</th>
+                <th className="text-right font-medium px-3 py-2">{t("cache 读")}</th>
+                <th className="text-right font-medium px-3 py-2">{t("cache 写")}</th>
                 <th className="text-right font-medium px-3 py-2">output</th>
-                <th className="text-right font-medium px-3 py-2">耗时</th>
-                <th className="text-right font-medium px-3 py-2">花费</th>
+                <th className="text-right font-medium px-3 py-2">{t("耗时")}</th>
+                <th className="text-right font-medium px-3 py-2">{t("花费")}</th>
               </tr>
             </thead>
             <tbody>
@@ -198,7 +199,7 @@ function SessionCostModal({
                     {formatDuration(r.durationMs)}
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono text-green-500">
-                    {r.isPriced ? formatCost(r.costUsd) : "未定价"}
+                    {r.isPriced ? formatCost(r.costUsd) : t("未定价")}
                   </td>
                 </tr>
               ))}
@@ -219,6 +220,7 @@ function SummaryStat({
   value: string;
   accent?: string;
 }) {
+  useTranslation();
   return (
     <div>
       <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
@@ -231,16 +233,16 @@ function SummaryStat({
 
 function buildMarkdownTable(summary: SessionCostSummary, timeZone: string): string {
   const header =
-    "| 时间 | 模型 | input | cache 读 | cache 写 | output | 耗时 | 花费 |\n" +
+    t("| 时间 | 模型 | input | cache 读 | cache 写 | output | 耗时 | 花费 |\n") +
     "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n";
   const rows = summary.requests
     .map((r) => buildRow(r, timeZone))
     .join("\n");
   const footer =
-    `\n\n**累计**: ${summary.requestCount} 次请求 · ${summary.requests.every((r) => r.isPriced) ? formatCost(summary.costUsd) : "未定价"}` +
+    t("\n\n**累计**: {{v0}} 次请求 · {{v1}}", { v0: summary.requestCount, v1: summary.requests.every((r) => r.isPriced) ? formatCost(summary.costUsd) : t("未定价") }) +
     ` · input ${formatTokens(summary.inputTokens)}` +
-    ` · cache 读 ${formatTokens(summary.cacheReadTokens)}` +
-    ` · cache 写 ${formatTokens(summary.cacheCreationTokens)}` +
+    t(" · cache 读 {{v0}}", { v0: formatTokens(summary.cacheReadTokens) }) +
+    t(" · cache 写 {{v0}}", { v0: formatTokens(summary.cacheCreationTokens) }) +
     ` · output ${formatTokens(summary.outputTokens)}`;
   return header + rows + footer;
 }
@@ -250,6 +252,6 @@ function buildRow(r: RequestRecord, timeZone: string): string {
     `| ${r.timestamp ? formatShortDateTime(r.timestamp, timeZone) : "—"} | \`${r.model}\` | ${formatTokens(r.inputTokens)} | ` +
     `${r.cacheReadTokens > 0 ? formatTokens(r.cacheReadTokens) : "—"} | ` +
     `${r.cacheCreationTokens > 0 ? formatTokens(r.cacheCreationTokens) : "—"} | ` +
-    `${formatTokens(r.outputTokens)} | ${formatDuration(r.durationMs)} | ${r.isPriced ? formatCost(r.costUsd) : "未定价"} |`
+    `${formatTokens(r.outputTokens)} | ${formatDuration(r.durationMs)} | ${r.isPriced ? formatCost(r.costUsd) : t("未定价")} |`
   );
 }

@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -19,6 +21,7 @@ import { SkillSection, SkillDetailModal, SkillDeleteConfirm } from "./SkillsView
  * navigating between projects doesn't trigger a plugins-tree scan every time.
  */
 export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<SkillsResult | null>(null);
@@ -97,7 +100,7 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
         <Sparkles className="w-4 h-4 text-primary" />
         <span className="font-medium">Skills</span>
         {count !== null && (
-          <span className="text-xs text-muted-foreground">（项目 + 全局 {count}）</span>
+          <span className="text-xs text-muted-foreground">{t("（项目 + 全局")}{count}）</span>
         )}
         <span
           role="link"
@@ -113,10 +116,9 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
             }
           }}
           className="ml-auto flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
-          title="在 Skills 页查看全部（含插件）"
+          title={t("在 Skills 页查看全部（含插件）")}
         >
-          查看全部
-          <ArrowUpRight className="w-3.5 h-3.5" />
+          {t("查看全部")}<ArrowUpRight className="w-3.5 h-3.5" />
         </span>
       </button>
 
@@ -125,8 +127,7 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
           {loading ? (
             <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
               <Loader2 className="w-4 h-4 animate-spin" />
-              加载中...
-            </div>
+              {t("加载中...")}</div>
           ) : error ? (
             <div className="flex items-center gap-2 py-2 text-sm text-destructive">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -136,21 +137,21 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
             <div className="pt-2">
               {projectPath && (
                 <SkillSection
-                  title="项目级"
+                  title={t("项目级")}
                   icon={<FolderOpen className="w-4 h-4 text-green-500" />}
                   skills={data.project}
                   onSelect={setActive}
                   onDelete={setDeleteTarget}
-                  emptyHint="该项目下没有 .claude/skills/"
+                  emptyHint={t("该项目下没有 .claude/skills/")}
                 />
               )}
               <SkillSection
-                title="全局"
+                title={t("全局")}
                 icon={<Globe className="w-4 h-4 text-blue-500" />}
                 skills={data.global}
                 onSelect={setActive}
                 onDelete={setDeleteTarget}
-                emptyHint="~/.claude/skills/ 下没有 Skills"
+                emptyHint={t("~/.claude/skills/ 下没有 Skills")}
               />
             </div>
           ) : null}

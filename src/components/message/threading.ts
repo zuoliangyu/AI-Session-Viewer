@@ -1,3 +1,4 @@
+import { t } from "../../i18n/index.js";
 import type { DisplayMessage } from "../../types";
 
 export interface ThreadDisplayNode {
@@ -244,13 +245,13 @@ function deriveThreadTitle(node: ThreadDisplayNode, parent: ThreadDisplayNode | 
     case "tool":
       return deriveToolTitle(node.message, parent);
     default:
-      return "消息";
+      return t("消息");
   }
 }
 
 function deriveUserTitle(message: DisplayMessage): string {
   const text = cleanMessageText(getTextBlocks(message, ["text"]));
-  return limitText(text || "（用户消息）", USER_TITLE_LIMIT);
+  return limitText(text || t("（用户消息）"), USER_TITLE_LIMIT);
 }
 
 function deriveAssistantTitle(message: DisplayMessage): string {
@@ -264,7 +265,7 @@ function deriveAssistantTitle(message: DisplayMessage): string {
     return limitText(actionTitle, TOOL_TITLE_LIMIT);
   }
 
-  return "cc回答";
+  return t("cc回答");
 }
 
 function deriveToolTitle(message: DisplayMessage, parent: ThreadDisplayNode | null): string {
@@ -278,7 +279,7 @@ function deriveToolTitle(message: DisplayMessage, parent: ThreadDisplayNode | nu
     return limitText(extractFirstSentence(toolText), TOOL_TITLE_LIMIT);
   }
 
-  return "工具输出";
+  return t("工具输出");
 }
 
 function deriveActionTitleFromBlocks(content: DisplayMessage["content"]): string {
@@ -304,10 +305,10 @@ function deriveToolUseTitle(name: string, rawInput: string): string {
     return `read ${fileName}`;
   }
   if (isWriteAction(normalized) && fileName) {
-    return `写 ${fileName}`;
+    return t("写 {{v0}}", { v0: fileName });
   }
   if (isCommandAction(normalized) && command) {
-    return `执行 ${limitText(command, 32)}`;
+    return t("执行 {{v0}}", { v0: limitText(command, 32) });
   }
   if (fileName) {
     return `${normalized} ${fileName}`;
@@ -315,7 +316,7 @@ function deriveToolUseTitle(name: string, rawInput: string): string {
   if (command) {
     return `${normalized} ${limitText(command, 32)}`;
   }
-  return normalized || "cc回答";
+  return normalized || t("cc回答");
 }
 
 function getTextBlocks(

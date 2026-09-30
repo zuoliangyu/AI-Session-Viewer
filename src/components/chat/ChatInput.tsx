@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { forwardRef, useImperativeHandle, useState, useRef, useEffect } from "react";
 import { Send, Square, ChevronDown, Bot } from "lucide-react";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
@@ -33,6 +35,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   isStreaming,
   disabled,
 }, ref) {
+  const { t } = useTranslation();
   const [text, setText] = useState("");
   const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
   const [hint, setHint] = useState<{ kind: "info" | "error"; text: string } | null>(null);
@@ -116,11 +119,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       const newAlias = trimmed.slice(7).trim();
       const pane = useChatStore.getState().getPaneState(paneId);
       if (!pane.sessionId) {
-        showHint("error", "/rename 需要先有活动的 session");
+        showHint("error", t("/rename 需要先有活动的 session"));
         return;
       }
       if (!pane.projectPath) {
-        showHint("error", "/rename 需要工作目录");
+        showHint("error", t("/rename 需要工作目录"));
         return;
       }
       const aliasArg = newAlias.length > 0 ? newAlias : null;
@@ -129,7 +132,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         .then(() => {
           showHint(
             "info",
-            aliasArg ? `已重命名为：${aliasArg}` : "已清空别名",
+            aliasArg ? t("已重命名为：{{v0}}", { v0: aliasArg }) : t("已清空别名"),
           );
           // Trigger silent refresh so sessions list reflects new alias
           void useAppStore.getState().refreshInBackground(true);
@@ -167,7 +170,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }, [text]);
 
-  const modelDisplay = model ? shortModelName(model) : "选择模型";
+  const modelDisplay = model ? shortModelName(model) : t("选择模型");
 
   return (
     <>
@@ -178,15 +181,14 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onClick={openModelSelector}
             disabled={isStreaming}
             className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border bg-muted hover:bg-accent/50 transition-colors disabled:opacity-50"
-            title={model || "选择模型 (Ctrl+K)"}
+            title={model || t("选择模型 (Ctrl+K)")}
           >
             {source === "omp" ? <OmpMark className="w-3.5 h-3.5" /> : <Bot className={`w-3 h-3 ${source === "codex" ? "text-green-500" : "text-orange-500"}`} />}
             <span className="max-w-[12rem] truncate text-foreground">{modelDisplay}</span>
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
           </button>
           <span className="text-[10px] text-muted-foreground">
-            Ctrl+K 或 /model 切换 · /rename &lt;名字&gt; 改别名
-          </span>
+            {t("Ctrl+K 或 /model 切换 · /rename &lt;名字&gt; 改别名")}</span>
           {hint && (
             <span
               className={`ml-auto text-[10px] truncate max-w-[40%] ${
@@ -209,10 +211,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             onFocus={() => setActivePane(paneId)}
             placeholder={
               isStreaming
-                ? "等待响应中..."
+                ? t("等待响应中...")
                 : disabled
-                  ? "请先选择工作目录"
-                  : "输入消息... (Enter 发送, Shift+Enter 换行)"
+                  ? t("请先选择工作目录")
+                  : t("输入消息... (Enter 发送, Shift+Enter 换行)")
             }
             disabled={isStreaming || disabled}
             rows={1}
@@ -222,7 +224,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             <button
               onClick={onCancel}
               className="shrink-0 p-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-              title="停止生成"
+              title={t("停止生成")}
             >
               <Square className="w-4 h-4" />
             </button>
@@ -231,7 +233,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
               onClick={handleSubmit}
               disabled={!text.trim() || disabled}
               className="shrink-0 p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="发送消息"
+              title={t("发送消息")}
             >
               <Send className="w-4 h-4" />
             </button>

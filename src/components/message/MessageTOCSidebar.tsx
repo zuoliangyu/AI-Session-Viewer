@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef } from "react";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
@@ -23,6 +25,7 @@ export function MessageTOCSidebar({
   collapsed,
   onToggleCollapsed,
 }: Props) {
+  const { t } = useTranslation();
   const listRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll the active question into view within the TOC viewport when it changes.
@@ -43,8 +46,8 @@ export function MessageTOCSidebar({
           type="button"
           onClick={() => onToggleCollapsed(false)}
           className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title={`展开提问目录（共 ${items.length} 条）`}
-          aria-label="展开提问目录"
+          title={t("展开提问目录（共 {{v0}} 条）", { v0: items.length })}
+          aria-label={t("展开提问目录")}
         >
           <PanelLeftOpen className="h-4 w-4" />
         </button>
@@ -59,15 +62,15 @@ export function MessageTOCSidebar({
     <div className="flex h-full w-full min-w-0 flex-col bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-foreground">提问目录</p>
-          <p className="text-[11px] text-muted-foreground">共 {items.length} 条提问</p>
+          <p className="truncate text-sm font-medium text-foreground">{t("提问目录")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("共")}{items.length} {t("条提问")}</p>
         </div>
         <button
           type="button"
           onClick={() => onToggleCollapsed(true)}
           className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          title="折叠提问目录"
-          aria-label="折叠提问目录"
+          title={t("折叠提问目录")}
+          aria-label={t("折叠提问目录")}
         >
           <PanelLeftClose className="h-4 w-4" />
         </button>

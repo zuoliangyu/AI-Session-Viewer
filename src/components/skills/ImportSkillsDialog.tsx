@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useRef, useState } from "react";
 import {
   X,
@@ -27,6 +29,7 @@ export function ImportSkillsDialog({
   /** Called after a successful import so the caller can refresh its list. */
   onImported: () => void;
 }) {
+  const { t } = useTranslation();
   const canProject = !!projectPath;
   const [scope, setScope] = useState<SkillScope>(
     defaultScope === "project" && canProject ? "project" : "global",
@@ -51,7 +54,7 @@ export function ImportSkillsDialog({
     const selected = await open({
       multiple: false,
       directory: false,
-      filters: [{ name: "Zip 压缩包", extensions: ["zip"] }],
+      filters: [{ name: t("Zip 压缩包"), extensions: ["zip"] }],
     });
     if (typeof selected === "string") {
       setPath(selected);
@@ -63,7 +66,7 @@ export function ImportSkillsDialog({
   const handleImport = async () => {
     const archive: File | string | null = __IS_TAURI__ ? path : file;
     if (!archive) {
-      setError("请先选择 .zip 压缩包");
+      setError(t("请先选择 .zip 压缩包"));
       return;
     }
     setBusy(true);
@@ -100,7 +103,7 @@ export function ImportSkillsDialog({
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
             <Upload className="w-4 h-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">导入 Skills</h2>
+            <h2 className="text-sm font-semibold text-foreground">{t("导入 Skills")}</h2>
           </div>
           <button
             onClick={onClose}
@@ -114,7 +117,7 @@ export function ImportSkillsDialog({
         <div className="p-4 space-y-4">
           {/* Scope */}
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">导入到</p>
+            <p className="text-xs text-muted-foreground mb-1.5">{t("导入到")}</p>
             <div className="flex gap-2">
               <button
                 onClick={() => setScope("global")}
@@ -124,33 +127,32 @@ export function ImportSkillsDialog({
                     : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
-                全局（~/.claude/skills）
-              </button>
+                {t("全局（~/.claude/skills）")}</button>
               <button
                 onClick={() => canProject && setScope("project")}
                 disabled={!canProject}
-                title={canProject ? undefined : "请先选择一个项目"}
+                title={canProject ? undefined : t("请先选择一个项目")}
                 className={`flex-1 px-3 py-1.5 text-xs rounded-md border transition-colors disabled:opacity-40 ${
                   scope === "project"
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground hover:text-foreground"
                 }`}
               >
-                项目{projectName ? `（${projectName}）` : ""}
+                {t("项目")}{projectName ? `（${projectName}）` : ""}
               </button>
             </div>
           </div>
 
           {/* File picker */}
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">压缩包（.zip）</p>
+            <p className="text-xs text-muted-foreground mb-1.5">{t("压缩包（.zip）")}</p>
             {__IS_TAURI__ ? (
               <button
                 onClick={pickTauriFile}
                 className="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors"
               >
                 <FileArchive className="w-4 h-4 shrink-0" />
-                <span className="truncate">{pickedName || "选择 .zip 文件…"}</span>
+                <span className="truncate">{pickedName || t("选择 .zip 文件…")}</span>
               </button>
             ) : (
               <>
@@ -159,7 +161,7 @@ export function ImportSkillsDialog({
                   className="w-full flex items-center gap-2 px-3 py-2 text-xs rounded-md border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors"
                 >
                   <FileArchive className="w-4 h-4 shrink-0" />
-                  <span className="truncate">{pickedName || "选择 .zip 文件…"}</span>
+                  <span className="truncate">{pickedName || t("选择 .zip 文件…")}</span>
                 </button>
                 <input
                   ref={fileInputRef}
@@ -175,8 +177,7 @@ export function ImportSkillsDialog({
               </>
             )}
             <p className="mt-1 text-[11px] text-muted-foreground/70">
-              支持单个 skill（含 SKILL.md）或包含多个 skill 子目录的压缩包。
-            </p>
+              {t("支持单个 skill（含 SKILL.md）或包含多个 skill 子目录的压缩包。")}</p>
           </div>
 
           {/* Overwrite */}
@@ -187,7 +188,7 @@ export function ImportSkillsDialog({
               onChange={(e) => setOverwrite(e.target.checked)}
               className="rounded border-border"
             />
-            <span className="text-xs text-foreground">覆盖同名 skill</span>
+            <span className="text-xs text-foreground">{t("覆盖同名 skill")}</span>
           </label>
 
           {/* Result / error */}
@@ -202,12 +203,12 @@ export function ImportSkillsDialog({
               {result.imported.length > 0 && (
                 <div className="flex items-start gap-1.5 text-green-500">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>已导入：{result.imported.join("、")}</span>
+                  <span>{t("已导入：")}{result.imported.join("、")}</span>
                 </div>
               )}
               {result.skipped.length > 0 && (
                 <p className="text-muted-foreground">
-                  已跳过（已存在）：{result.skipped.join("、")}
+                  {t("已跳过（已存在）：")}{result.skipped.join("、")}
                 </p>
               )}
               {result.errors.length > 0 && (
@@ -220,7 +221,7 @@ export function ImportSkillsDialog({
               {result.imported.length === 0 &&
                 result.skipped.length === 0 &&
                 result.errors.length === 0 && (
-                  <p className="text-muted-foreground">未导入任何内容。</p>
+                  <p className="text-muted-foreground">{t("未导入任何内容。")}</p>
                 )}
             </div>
           )}
@@ -232,7 +233,7 @@ export function ImportSkillsDialog({
             onClick={onClose}
             className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
           >
-            {result ? "关闭" : "取消"}
+            {result ? t("关闭") : t("取消")}
           </button>
           <button
             onClick={handleImport}
@@ -240,8 +241,7 @@ export function ImportSkillsDialog({
             className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center gap-1.5"
           >
             {busy && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            导入
-          </button>
+            {t("导入")}</button>
         </div>
       </div>
     </div>

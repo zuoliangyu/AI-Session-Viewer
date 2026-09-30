@@ -1,3 +1,5 @@
+import { t, getLanguage, setLanguage } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
@@ -95,14 +97,15 @@ function SourceNavigation({
   onChange: (source: SessionSource) => void;
   hiddenSources: SessionSource[];
 }) {
+  const { t } = useTranslation();
   return (
-    <div role="group" aria-label="会话来源" className="space-y-0.5">
+    <div role="group" aria-label={t("会话来源")} className="space-y-0.5">
       {SOURCE_OPTIONS.filter((option) => !hiddenSources.includes(option.id)).map((option) => {
         const Icon = option.icon;
         const selected = option.id === source;
         return <button key={option.id} type="button" aria-pressed={selected} onClick={() => onChange(option.id)} className={"navigation-link h-9 " + (selected ? "is-active" : "")}>
           <Icon className={"h-4 w-4 shrink-0 " + option.iconClass} /><span>{option.label}</span>
-          {selected && (loading ? <Loader2 aria-label="正在加载项目" className="ml-auto h-3.5 w-3.5 animate-spin" /> : <Check className="ml-auto h-3.5 w-3.5" />)}
+          {selected && (loading ? <Loader2 aria-label={t("正在加载项目")} className="ml-auto h-3.5 w-3.5 animate-spin" /> : <Check className="ml-auto h-3.5 w-3.5" />)}
         </button>;
       })}
     </div>
@@ -110,6 +113,7 @@ function SourceNavigation({
 }
 
 export function Sidebar() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias, recycledItems } =
@@ -192,7 +196,7 @@ export function Sidebar() {
 
   // Collapse Codex direct-chat date buckets into one pinned "直连对话" entry,
   // mirroring the main projects grid.
-  const sidebarProjects = useMemo(() => collapseDirectBuckets(projects), [projects]);
+  const sidebarProjects = useMemo(() => collapseDirectBuckets(projects), [projects, t]);
   // The aggregate entry and the date-list page are "active" together; so is any
   // drill-down into a `<codex-direct>/DATE` bucket's session list.
   const isDirectGroupActive =
@@ -227,12 +231,12 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2">
         <div className="mb-4 space-y-1">
-          {source !== "grok" && <button onClick={() => { clearChat(); navigate("/chat"); }} className="mb-3 flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"><MessageSquarePlus className="h-4 w-4" />新建对话</button>}
+          {source !== "grok" && <button onClick={() => { clearChat(); navigate("/chat"); }} className="mb-3 flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"><MessageSquarePlus className="h-4 w-4" />{t("新建对话")}</button>}
           {[
-            { path: "/projects", label: "所有项目", icon: FolderOpen },
-            { path: "/search", label: "搜索会话", icon: Search },
-            { path: "/bookmarks", label: "收藏", icon: Star },
-            ...(source === "claude" || source === "codex" ? [{ path: "/stats", label: "使用统计", icon: BarChart3 }] : []),
+            { path: "/projects", label: t("所有项目"), icon: FolderOpen },
+            { path: "/search", label: t("搜索会话"), icon: Search },
+            { path: "/bookmarks", label: t("收藏"), icon: Star },
+            ...(source === "claude" || source === "codex" ? [{ path: "/stats", label: t("使用统计"), icon: BarChart3 }] : []),
           ].map(({ path, label, icon: Icon }) => (
             <button key={path} onClick={() => navigate(path)} aria-current={isActive(path) ? "page" : undefined} className={"navigation-link " + (isActive(path) ? "is-active" : "")}><Icon className="h-4 w-4" />{label}{path === "/bookmarks" && <span className="ml-auto text-xs tabular-nums">{bookmarks.filter((b) => b.source === source).length || ""}</span>}</button>
           ))}
@@ -241,7 +245,7 @@ export function Sidebar() {
         {/* Projects list */}
         {recentSessions.some((item) => item.source === source) && (
           <div className="mb-4">
-            <h2 className="px-3 py-1 text-[11px] font-medium text-muted-foreground">最近浏览</h2>
+            <h2 className="px-3 py-1 text-[11px] font-medium text-muted-foreground">{t("最近浏览")}</h2>
             {recentSessions.filter((item) => item.source === source).slice(0, 5).map((item) => (
               <button key={item.filePath} className="navigation-link" title={item.title} onClick={() => navigate(`/projects/${encodeURIComponent(item.projectId)}/session/${encodeURIComponent(item.filePath)}`)}>
                 <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" /><span className="truncate">{item.title}</span>
@@ -251,13 +255,12 @@ export function Sidebar() {
         )}
         <div>
           <h2 className="px-3 py-1 text-[11px] font-medium text-muted-foreground">
-            项目 ({projectsLoading ? "..." : sidebarProjects.length})
+            {t("项目 (")}{projectsLoading ? "..." : sidebarProjects.length})
           </h2>
-          <input aria-label="筛选项目" value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} placeholder="查找项目…" className="mx-2 my-2 w-[calc(100%-1rem)] rounded-md border border-border/70 bg-card px-2.5 py-1.5 text-xs placeholder:text-muted-foreground" />
+          <input aria-label={t("筛选项目")} value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} placeholder={t("查找项目…")} className="mx-2 my-2 w-[calc(100%-1rem)] rounded-md border border-border/70 bg-card px-2.5 py-1.5 text-xs placeholder:text-muted-foreground" />
           {projectsLoading ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">
-              加载中...
-            </div>
+              {t("加载中...")}</div>
           ) : (
             <div className="mt-1 space-y-0.5">
               {sidebarProjects.filter((project) => !projectQuery.trim() || [project.alias, project.shortName, project.displayPath].some((value) => value?.toLowerCase().includes(projectQuery.trim().toLowerCase()))).map((project) => {
@@ -285,8 +288,8 @@ export function Sidebar() {
                     className="flex-1 flex items-center gap-2 px-3 py-1.5 min-w-0"
                     title={
                       project.isVirtual
-                        ? `${project.displayPath}（按日期归类的虚拟项目）`
-                        : project.displayPath + (project.pathExists === false ? " (路径不存在)" : "")
+                        ? t("{{v0}}（按日期归类的虚拟项目）", { v0: project.displayPath })
+                        : project.displayPath + (project.pathExists === false ? t(" (路径不存在)") : "")
                     }
                   >
                     {project.isVirtual ? (
@@ -311,7 +314,7 @@ export function Sidebar() {
                         });
                       }}
                       className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 mr-1 rounded text-muted-foreground hover:bg-accent/50 shrink-0"
-                      title="操作"
+                      title={t("操作")}
                     >
                       <MoreHorizontal className="w-3.5 h-3.5" />
                     </button>
@@ -325,13 +328,13 @@ export function Sidebar() {
       </nav>
 
       <details key={location.pathname} open={["/skills", "/cleanup", "/recyclebin", "/provider-sync"].includes(location.pathname)} className="mx-2 mb-2 border-t border-border pt-2">
-        <summary className="navigation-link cursor-pointer list-none"><Settings className="h-4 w-4" />工具与管理<ChevronDown className="ml-auto h-3.5 w-3.5" /></summary>
+        <summary className="navigation-link cursor-pointer list-none"><Settings className="h-4 w-4" />{t("工具与管理")}<ChevronDown className="ml-auto h-3.5 w-3.5" /></summary>
         <div className="mt-1 space-y-0.5 pl-2">
           {[
             { path: "/skills", label: "Skills", icon: Sparkles },
-            { path: "/cleanup", label: "无效项管理", icon: FolderX },
-            { path: "/recyclebin", label: recycledItems.length ? "回收站 · " + recycledItems.length : "回收站", icon: Trash2 },
-            ...(source === "codex" ? [{ path: "/provider-sync", label: "Provider 同步", icon: Repeat }] : []),
+            { path: "/cleanup", label: t("无效项管理"), icon: FolderX },
+            { path: "/recyclebin", label: recycledItems.length ? t("回收站 · ") + recycledItems.length : t("回收站"), icon: Trash2 },
+            ...(source === "codex" ? [{ path: "/provider-sync", label: t("Provider 同步"), icon: Repeat }] : []),
           ].map(({ path, label, icon: Icon }) => <button key={path} onClick={() => navigate(path)} aria-current={isActive(path) ? "page" : undefined} className={"navigation-link " + (isActive(path) ? "is-active" : "")}><Icon className="h-3.5 w-3.5" />{label}</button>)}
         </div>
       </details>
@@ -346,7 +349,7 @@ export function Sidebar() {
             <button
               onClick={() => setShowSettings(true)}
               className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-              title="设置"
+              title={t("设置")}
             >
               <Settings className="w-3.5 h-3.5" />
             </button>
@@ -357,7 +360,7 @@ export function Sidebar() {
               className={`p-1 rounded transition-colors ${
                 theme === "light" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
-              title="亮色模式"
+              title={t("亮色模式")}
             >
               <Sun className="w-3.5 h-3.5" />
             </button>
@@ -366,7 +369,7 @@ export function Sidebar() {
               className={`p-1 rounded transition-colors ${
                 theme === "system" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
-              title="跟随系统"
+              title={t("跟随系统")}
             >
               <Monitor className="w-3.5 h-3.5" />
             </button>
@@ -375,7 +378,7 @@ export function Sidebar() {
               className={`p-1 rounded transition-colors ${
                 theme === "dark" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
               }`}
-              title="暗色模式"
+              title={t("暗色模式")}
             >
               <Moon className="w-3.5 h-3.5" />
             </button>
@@ -395,10 +398,10 @@ export function Sidebar() {
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">设置</h2>
+              <h2 className="text-sm font-semibold text-foreground">{t("设置")}</h2>
               <button
                 onClick={() => setShowSettings(false)}
-                aria-label="关闭设置"
+                aria-label={t("关闭设置")}
                 className="p-1 rounded transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/50"
               >
                 <X className="w-4 h-4" />
@@ -414,8 +417,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                使用说明
-              </button>
+                {t("使用说明")}</button>
               <button
                 onClick={() => setSettingsTab("display")}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
@@ -424,8 +426,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                显示设置
-              </button>
+                {t("显示设置")}</button>
               <button
                 onClick={() => setSettingsTab("chat")}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
@@ -434,8 +435,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                对话设置
-              </button>
+                {t("对话设置")}</button>
               {__IS_TAURI__ && (
                 <button
                   onClick={() => setSettingsTab("update")}
@@ -445,8 +445,7 @@ export function Sidebar() {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  更新检查
-                </button>
+                  {t("更新检查")}</button>
               )}
               <button
                 onClick={() => setSettingsTab("about")}
@@ -456,8 +455,7 @@ export function Sidebar() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                关于作者
-              </button>
+                {t("关于作者")}</button>
             </div>
             {/* Body */}
             <div className="max-h-[70vh] overflow-y-auto">
@@ -472,50 +470,50 @@ export function Sidebar() {
               ) : settingsTab === "guide" ? (
                 <div className="p-4 space-y-4 text-sm text-foreground">
                   <section>
-                    <h3 className="font-medium mb-1.5">侧边栏</h3>
+                    <h3 className="font-medium mb-1.5">{t("侧边栏")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>通过侧边栏顶部的纵向列表切换 Claude / Codex / Grok / Oh My Pi</li>
-                      <li>在显示设置中选择侧栏显示哪些 Agent；工具与管理位于侧栏底部</li>
-                      <li>项目列表点击进入对应项目的会话列表</li>
-                      <li>快捷入口：全局搜索、使用统计、无效项管理、回收站</li>
+                      <li>{t("通过侧边栏顶部的纵向列表切换 Claude / Codex / Grok / Oh My Pi")}</li>
+                      <li>{t("在显示设置中选择侧栏显示哪些 Agent；工具与管理位于侧栏底部")}</li>
+                      <li>{t("项目列表点击进入对应项目的会话列表")}</li>
+                      <li>{t("快捷入口：全局搜索、使用统计、无效项管理、回收站")}</li>
                     </ul>
                   </section>
                   <section>
-                    <h3 className="font-medium mb-1.5">项目列表</h3>
+                    <h3 className="font-medium mb-1.5">{t("项目列表")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>标签 pill 可筛选项目</li>
-                      <li>点击项目卡片进入会话列表</li>
+                      <li>{t("标签 pill 可筛选项目")}</li>
+                      <li>{t("点击项目卡片进入会话列表")}</li>
                     </ul>
                   </section>
                   <section>
-                    <h3 className="font-medium mb-1.5">会话列表</h3>
+                    <h3 className="font-medium mb-1.5">{t("会话列表")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>点击卡片查看消息详情</li>
-                      <li>卡片“操作”菜单提供收藏、标签编辑、续聊命令、导出和删除</li>
-                      <li>会话页点“继续对话”展开输入框；“详情”中可打开终端或复制续聊命令</li>
-                      <li>标签筛选快速定位会话</li>
+                      <li>{t("点击卡片查看消息详情")}</li>
+                      <li>{t("卡片“操作”菜单提供收藏、标签编辑、续聊命令、导出和删除")}</li>
+                      <li>{t("会话页点“继续对话”展开输入框；“详情”中可打开终端或复制续聊命令")}</li>
+                      <li>{t("标签筛选快速定位会话")}</li>
                     </ul>
                   </section>
                   <section>
-                    <h3 className="font-medium mb-1.5">消息详情</h3>
+                    <h3 className="font-medium mb-1.5">{t("消息详情")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>向上滚动自动加载更早消息</li>
-                      <li>顶栏“显示”菜单可切换时间戳 / 模型显示</li>
-                      <li>浮动按钮快速跳转到顶部或底部</li>
+                      <li>{t("向上滚动自动加载更早消息")}</li>
+                      <li>{t("顶栏“显示”菜单可切换时间戳 / 模型显示")}</li>
+                      <li>{t("浮动按钮快速跳转到顶部或底部")}</li>
                     </ul>
                   </section>
                   <section>
-                    <h3 className="font-medium mb-1.5">全局搜索</h3>
+                    <h3 className="font-medium mb-1.5">{t("全局搜索")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>输入关键词跨项目搜索消息</li>
-                      <li>标签筛选缩小搜索范围</li>
-                      <li>点击结果直接跳转到对应消息</li>
+                      <li>{t("输入关键词跨项目搜索消息")}</li>
+                      <li>{t("标签筛选缩小搜索范围")}</li>
+                      <li>{t("点击结果直接跳转到对应消息")}</li>
                     </ul>
                   </section>
                   <section>
-                    <h3 className="font-medium mb-1.5">主题切换</h3>
+                    <h3 className="font-medium mb-1.5">{t("主题切换")}</h3>
                     <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                      <li>底部按钮组切换亮色 / 暗色 / 跟随系统</li>
+                      <li>{t("底部按钮组切换亮色 / 暗色 / 跟随系统")}</li>
                     </ul>
                   </section>
                 </div>
@@ -523,7 +521,7 @@ export function Sidebar() {
                 <div className="p-4 space-y-3">
                   <div className="flex items-center gap-2.5 text-sm text-foreground">
                     <Users className="w-4 h-4 text-muted-foreground shrink-0" />
-                    <span>作者：左岚</span>
+                    <span>{t("作者：左岚")}</span>
                   </div>
                   <button
                     onClick={() => openExternal("mailto:zuolan1102@qq.com")}
@@ -536,7 +534,7 @@ export function Sidebar() {
                     <svg className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M21.395 15.035a39.548 39.548 0 0 0-1.51-3.302c-.18-.348-.478-.81-.478-.81s.09-.604.192-1.044c.118-.502.143-.878.143-1.37 0-2.737-1.94-5.057-4.96-5.057-1.063 0-2.044.291-2.893.812-.38-.133-.78-.232-1.198-.298a10.71 10.71 0 0 0-.93-.09c-.213-.01-.432-.013-.623-.002-.39.021-.72.068-.72.068s-.29-.012-.603.063c-.26.064-.505.15-.74.266A5.422 5.422 0 0 0 4.25 9.498c0 .608.106 1.178.3 1.698a8.38 8.38 0 0 0-.353.638c-.394.811-.64 1.727-.64 2.678 0 3.456 2.727 5.94 6.262 5.94.857 0 1.67-.14 2.42-.395.324.085.67.14 1.03.162.196.01.404.006.61-.008.37-.027.68-.071.68-.071s.25.021.54-.048c.244-.058.471-.137.692-.241a5.082 5.082 0 0 0 2.804-4.623c0-.493-.074-.961-.21-1.397.275-.376.524-.776.746-1.196zm-5.905 4.238c-.522.063-1.084-.129-1.084-.129s-.254.09-.558.127a3.282 3.282 0 0 1-.467.018 2.58 2.58 0 0 1-.519-.062c-.186-.049-.37-.12-.37-.12s-.478.136-.886.096c-1.863-.181-3.26-1.467-3.26-3.292 0-.375.07-.728.194-1.052.247-.634.72-1.168 1.343-1.518.703-.395 1.622-.584 2.732-.482.32.03.628.084.918.162.442-.285.957-.464 1.51-.502.062-.004.126-.005.189-.003.063.003.127.01.193.02 1.612.234 2.754 1.578 2.754 3.173 0 1.78-1.31 3.37-2.689 3.564z" />
                     </svg>
-                    <span>QQ 群：1019721429</span>
+                    <span>{t("QQ 群：1019721429")}</span>
                   </div>
                   <button
                     onClick={() => openExternal("https://space.bilibili.com/27619688")}
@@ -545,7 +543,7 @@ export function Sidebar() {
                     <svg className="w-4 h-4 text-muted-foreground shrink-0" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17.813 4.653h.854c1.51.054 2.769.578 3.773 1.574 1.004.995 1.524 2.249 1.56 3.76v7.36c-.036 1.51-.556 2.769-1.56 3.773s-2.262 1.524-3.773 1.56H5.333c-1.51-.036-2.769-.556-3.773-1.56S.036 18.858 0 17.347v-7.36c.036-1.511.556-2.765 1.56-3.76 1.004-.996 2.262-1.52 3.773-1.574h.774l-1.174-1.12a1.234 1.234 0 0 1-.373-.906c0-.356.124-.658.373-.907l.027-.027c.267-.249.573-.373.92-.373.347 0 .653.124.92.373L9.653 4.44c.071.071.134.142.187.213h4.267a.836.836 0 0 1 .16-.213l2.853-2.747c.267-.249.573-.373.92-.373.347 0 .662.151.929.4.267.249.391.551.391.907 0 .355-.124.657-.373.906zM5.333 7.24c-.746.018-1.373.276-1.88.773-.506.498-.769 1.13-.787 1.893v7.44c.018.764.281 1.395.787 1.893.507.498 1.134.756 1.88.773h13.334c.746-.017 1.373-.275 1.88-.773.506-.498.769-1.129.787-1.893v-7.44c-.018-.764-.281-1.395-.787-1.893a2.51 2.51 0 0 0-1.88-.773zM8 11.107c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373zm8 0c.373 0 .684.124.933.373.25.249.383.569.4.96v1.173c-.017.391-.15.711-.4.96-.249.25-.56.374-.933.374s-.684-.125-.933-.374c-.25-.249-.383-.569-.4-.96V12.44c.017-.391.15-.711.4-.96.249-.249.56-.373.933-.373z" />
                     </svg>
-                    <span>哔哩哔哩</span>
+                    <span>{t("哔哩哔哩")}</span>
                     <ExternalLink className="w-3 h-3 text-muted-foreground" />
                   </button>
                   <button
@@ -582,10 +580,9 @@ export function Sidebar() {
       {renameTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
-            <h3 className="text-lg font-semibold mb-1">设置工程别名</h3>
+            <h3 className="text-lg font-semibold mb-1">{t("设置工程别名")}</h3>
             <p className="text-xs text-muted-foreground mb-3">
-              别名仅影响显示名称，不修改磁盘目录
-            </p>
+              {t("别名仅影响显示名称，不修改磁盘目录")}</p>
             <input
               type="text"
               value={renameValue}
@@ -619,8 +616,7 @@ export function Sidebar() {
                     disabled={renameLoading}
                     className="px-3 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    清除别名
-                  </button>
+                    {t("清除别名")}</button>
                 )}
               </div>
               <div className="flex gap-2">
@@ -629,8 +625,7 @@ export function Sidebar() {
                   disabled={renameLoading}
                   className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
                 >
-                  取消
-                </button>
+                  {t("取消")}</button>
                 <button
                   onClick={async () => {
                     setRenameLoading(true);
@@ -647,7 +642,7 @@ export function Sidebar() {
                   disabled={renameLoading}
                   className="px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
-                  {renameLoading ? "保存中..." : "确认"}
+                  {renameLoading ? t("保存中...") : t("确认")}
                 </button>
               </div>
             </div>
@@ -676,6 +671,7 @@ function DisplaySettingsTab({ hiddenSources, onHiddenSourcesChange }: {
   hiddenSources: SessionSource[];
   onHiddenSourcesChange: (next: SessionSource[]) => void;
 }) {
+  const { t } = useTranslation();
   const timeZone = useAppStore((state) => state.timeZone);
   const setTimeZone = useAppStore((state) => state.setTimeZone);
   const systemTimeZone = useMemo(getSystemTimeZone, []);
@@ -683,22 +679,34 @@ function DisplaySettingsTab({ hiddenSources, onHiddenSourcesChange }: {
 
   return (
     <div className="p-4 space-y-3 text-sm">
+      <label className="block space-y-1.5 border-b border-border pb-4">
+        <span className="font-medium text-foreground">{t("界面语言 / Language")}</span>
+        <select
+          value={getLanguage()}
+          onChange={(event) => void setLanguage(event.target.value === "en" ? "en" : "zh-CN")}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
+        >
+          <option value="zh-CN">简体中文</option>
+          <option value="en">English</option>
+        </select>
+        <span className="block text-xs text-muted-foreground">{t("默认使用中文，语言选择会自动保存。")}</span>
+      </label>
       <fieldset className="space-y-2 border-b border-border pb-4">
-        <legend className="mb-2 font-medium">侧栏显示的 Agent</legend>
-        <p className="text-xs text-muted-foreground">隐藏不常用的来源，至少保留一个。隐藏不会删除会话数据。</p>
+        <legend className="mb-2 font-medium">{t("侧栏显示的 Agent")}</legend>
+        <p className="text-xs text-muted-foreground">{t("隐藏不常用的来源，至少保留一个。隐藏不会删除会话数据。")}</p>
         {SOURCE_OPTIONS.map((option) => <label key={option.id} className="flex items-center justify-between gap-3 rounded px-1 py-1">
           <span>{option.label}</span>
           <input type="checkbox" className="accent-primary" checked={!hiddenSources.includes(option.id)} disabled={!hiddenSources.includes(option.id) && hiddenSources.length === SOURCE_OPTIONS.length - 1} onChange={(event) => onHiddenSourcesChange(event.target.checked ? hiddenSources.filter((id) => id !== option.id) : [...hiddenSources, option.id])} />
         </label>)}
       </fieldset>
       <label className="block space-y-1.5">
-        <span className="font-medium text-foreground">时区</span>
+        <span className="font-medium text-foreground">{t("时区")}</span>
         <select
           value={timeZone}
           onChange={(event) => setTimeZone(event.target.value)}
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-foreground"
         >
-          <option value="">跟随系统（{systemTimeZone}）</option>
+          <option value="">{t("跟随系统（{{zone}}）", { zone: systemTimeZone })}</option>
           {timeZones.map((zone) => (
             <option key={zone} value={zone}>
               {zone}
@@ -707,13 +715,14 @@ function DisplaySettingsTab({ hiddenSources, onHiddenSourcesChange }: {
         </select>
       </label>
       <div className="text-xs text-muted-foreground">
-        当前时间：{formatDateTime(new Date(), timeZone)}
+        {t("当前时间：")}{formatDateTime(new Date(), timeZone)}
       </div>
     </div>
   );
 }
 
 function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
+  const { t } = useTranslation();
   const {
     addCustomModel,
     removeCustomModel,
@@ -756,7 +765,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
       const provider = source === "codex" ? "openai" : "anthropic";
       const extras: ModelInfo[] = customIds
         .filter((id) => !resultIds.has(id))
-        .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
+        .map((id) => ({ id, name: id, provider, group: t("自定义"), created: null }));
       setModels([...extras, ...result]);
       setFetched(true);
     } catch (e) {
@@ -778,7 +787,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
     for (const id of ids) {
       if (!models.some((m) => m.id === id)) {
         addCustomModel(id, source);
-        setModels((prev) => [{ id, name: id, provider, group: "自定义", created: null }, ...prev]);
+        setModels((prev) => [{ id, name: id, provider, group: t("自定义"), created: null }, ...prev]);
         count++;
       }
     }
@@ -814,7 +823,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
           className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
-          {fetched ? "刷新模型列表" : "获取模型列表"}
+          {fetched ? t("刷新模型列表") : t("获取模型列表")}
         </button>
         <button
           onClick={() => { setShowAddInput((v) => !v); setAddedCount(null); }}
@@ -825,12 +834,10 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
           }`}
         >
           <Plus className="w-3 h-3" />
-          手动添加
-        </button>
+          {t("手动添加")}</button>
         {fetched && !loading && (
           <span className="text-[10px] text-muted-foreground ml-auto">
-            {models.length} 个模型
-            {customModelIds.size > 0 && `（${customModelIds.size} 个自定义）`}
+            {models.length} {t("个模型")}{customModelIds.size > 0 && t("（{{v0}} 个自定义）", { v0: customModelIds.size })}
           </span>
         )}
       </div>
@@ -839,8 +846,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
       {addedCount !== null && (
         <div className="flex items-center gap-1 text-xs text-green-500">
           <Check className="w-3 h-3" />
-          已添加 {addedCount} 个自定义模型
-        </div>
+          {t("已添加")}{addedCount} {t("个自定义模型")}</div>
       )}
 
       {/* Batch add textarea */}
@@ -855,8 +861,8 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
             }}
             placeholder={
               source === "codex"
-                ? "每行一个模型 ID，例如：\no4-mini\ngpt-4.1\ncustom-model-id"
-                : "每行一个模型 ID，例如：\nclaude-sonnet-4-20250514\nclaude-opus-4-20250514"
+                ? t("每行一个模型 ID，例如：\no4-mini\ngpt-4.1\ncustom-model-id")
+                : t("每行一个模型 ID，例如：\nclaude-sonnet-4-20250514\nclaude-opus-4-20250514")
             }
             rows={4}
             className="w-full bg-muted border border-border rounded px-2 py-1.5 text-xs font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none"
@@ -864,14 +870,14 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
           />
           <div className="flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground">
-              {parsedCount > 0 ? `识别到 ${parsedCount} 个 ID` : "每行一个或逗号分隔"}
+              {parsedCount > 0 ? t("识别到 {{v0}} 个 ID", { v0: parsedCount }) : t("每行一个或逗号分隔")}
             </span>
             <button
               onClick={handleBatchAdd}
               disabled={parsedCount === 0}
               className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
             >
-              添加{parsedCount > 0 ? `（${parsedCount}）` : ""}
+              {t("添加")}{parsedCount > 0 ? `（${parsedCount}）` : ""}
             </button>
           </div>
         </div>
@@ -881,8 +887,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
       {loading && (
         <div className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" />
-          正在获取...
-        </div>
+          {t("正在获取...")}</div>
       )}
       {error && (
         <div className="flex items-center gap-1.5 py-1 text-xs text-red-400">
@@ -892,7 +897,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
       )}
       {fetched && !loading && models.length === 0 && !error && (
         <p className="text-xs text-muted-foreground py-1">
-          未获取到模型。{!apiKey && "请先配置 API Key 或手动输入覆盖值。"}
+          {t("未获取到模型。")}{!apiKey && t("请先配置 API Key 或手动输入覆盖值。")}
         </p>
       )}
 
@@ -920,7 +925,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
                       <button
                         onClick={() => handleRemove(m.id)}
                         className="p-0.5 rounded text-transparent group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
-                        title="移除自定义模型"
+                        title={t("移除自定义模型")}
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -949,12 +954,12 @@ function CliConfigInfo({
   error: string | null;
   onFetch: () => void;
 }) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Loader2 className="w-3 h-3 animate-spin" />
-        检测中...
-      </div>
+        {t("检测中...")}</div>
     );
   }
   if (error) {
@@ -964,12 +969,12 @@ function CliConfigInfo({
           <AlertCircle className="w-3 h-3" />
           {error}
         </div>
-        <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">重试</button>
+        <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">{t("重试")}</button>
       </div>
     );
   }
   if (!config) {
-    return <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">检测配置</button>;
+    return <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">{t("检测配置")}</button>;
   }
 
   const isCodex = config.source === "codex";
@@ -989,10 +994,10 @@ function CliConfigInfo({
               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.authJsonHasKey ? "bg-green-500" : "bg-yellow-500"}`} />
               <span className="text-muted-foreground">API Key:</span>
               <span className="font-mono text-foreground">
-                {config.authJsonHasKey ? config.authJsonKeyMasked : "未找到"}
+                {config.authJsonHasKey ? config.authJsonKeyMasked : t("未找到")}
               </span>
               {config.authJsonHasKey && config.apiKeySource === "auth.json" && (
-                <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+                <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
               )}
             </div>
           </div>
@@ -1007,10 +1012,10 @@ function CliConfigInfo({
               <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config.configTomlUrl ? "bg-green-500" : "bg-yellow-500"}`} />
               <span className="text-muted-foreground">Base URL:</span>
               <span className="font-mono text-foreground truncate">
-                {config.configTomlUrl || "未找到（将用默认值）"}
+                {config.configTomlUrl || t("未找到（将用默认值）")}
               </span>
               {config.configTomlUrl && config.baseUrlSource === "config.toml" && (
-                <span className="ml-auto shrink-0 text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+                <span className="ml-auto shrink-0 text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
               )}
             </div>
             {config.configTomlHasKey && (
@@ -1019,14 +1024,14 @@ function CliConfigInfo({
                 <span className="text-muted-foreground">API Key:</span>
                 <span className="font-mono text-foreground">{config.configTomlKeyMasked}</span>
                 {config.apiKeySource === "config.toml" && (
-                  <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">✓ 使用中</span>
+                  <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
                 )}
               </div>
             )}
             {config.defaultModel && (
               <div className="flex items-center gap-2">
                 <span className="w-1.5 shrink-0" />
-                <span className="text-muted-foreground">默认模型:</span>
+                <span className="text-muted-foreground">{t("默认模型:")}</span>
                 <span className="font-mono text-foreground">{config.defaultModel}</span>
               </div>
             )}
@@ -1035,12 +1040,11 @@ function CliConfigInfo({
           {/* Resolved summary */}
           {!config.hasApiKey && (
             <p className="text-[11px] text-yellow-500">
-              未找到 API Key，请在 auth.json 中配置或在下方手动填入。
-            </p>
+              {t("未找到 API Key，请在 auth.json 中配置或在下方手动填入。")}</p>
           )}
           {config.baseUrlSource === "default" && (
             <p className="text-[11px] text-muted-foreground">
-              Base URL 使用默认值：{config.baseUrl}
+              {t("Base URL 使用默认值：")}{config.baseUrl}
             </p>
           )}
         </>
@@ -1050,7 +1054,7 @@ function CliConfigInfo({
           <div className="flex items-center gap-2">
             <div className={`w-1.5 h-1.5 rounded-full ${config.hasApiKey ? "bg-green-500" : "bg-red-500"}`} />
             <span className="text-muted-foreground">API Key:</span>
-            <span className="font-mono text-foreground">{config.hasApiKey ? config.apiKeyMasked : "未配置"}</span>
+            <span className="font-mono text-foreground">{config.hasApiKey ? config.apiKeyMasked : t("未配置")}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="ml-3.5 text-muted-foreground">Base URL:</span>
@@ -1058,25 +1062,25 @@ function CliConfigInfo({
           </div>
           {config.defaultModel && (
             <div className="flex items-center gap-2">
-              <span className="ml-3.5 text-muted-foreground">默认模型:</span>
+              <span className="ml-3.5 text-muted-foreground">{t("默认模型:")}</span>
               <span className="font-mono text-foreground">{config.defaultModel}</span>
             </div>
           )}
           <div className="flex items-center gap-2">
-            <span className="ml-3.5 text-muted-foreground">配置文件:</span>
+            <span className="ml-3.5 text-muted-foreground">{t("配置文件:")}</span>
             <span className="text-foreground/60 font-mono truncate text-[10px]">{config.configPath}</span>
           </div>
         </>
       )}
 
       <button onClick={onFetch} className="text-xs text-primary hover:text-primary/80">
-        重新检测
-      </button>
+        {t("重新检测")}</button>
     </div>
   );
 }
 
 function CliConfigDisplay() {
+  useTranslation();
   const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore();
   const [fetched, setFetched] = useState(false);
   const handleFetch = async () => { await fetchCliConfig(); setFetched(true); };
@@ -1085,6 +1089,7 @@ function CliConfigDisplay() {
 }
 
 function CodexCliConfigDisplay() {
+  useTranslation();
   const { codexCliConfig, codexCliConfigLoading, codexCliConfigError, fetchCodexCliConfig } = useChatStore();
   const [fetched, setFetched] = useState(false);
   const handleFetch = async () => { await fetchCodexCliConfig(); setFetched(true); };
@@ -1096,12 +1101,12 @@ type InstallMethod = "npm" | "nvm" | "bun" | "other";
 
 const INSTALL_HINTS: Record<InstallMethod, { label: string; paths: string[]; tip: string }> = {
   npm: {
-    label: "npm 全局安装",
-    paths: [
+    get label() { return t("npm 全局安装"); },
+    get paths() { return [
       "Windows: %APPDATA%\\npm\\claude.cmd",
-      "Mac/Linux: ~/.npm-global/bin/claude 或 /usr/local/bin/claude",
-    ],
-    tip: "在终端运行 `npm list -g @anthropic-ai/claude-code` 确认安装，再用 `which claude`（Mac/Linux）或 `where claude`（Windows）获取实际路径，填入下方「CLI 路径」",
+      t("Mac/Linux: ~/.npm-global/bin/claude 或 /usr/local/bin/claude"),
+    ]; },
+    get tip() { return t("在终端运行 `npm list -g @anthropic-ai/claude-code` 确认安装，再用 `which claude`（Mac/Linux）或 `where claude`（Windows）获取实际路径，填入下方「CLI 路径」"); },
   },
   nvm: {
     label: "nvm (all platforms)",
@@ -1109,24 +1114,25 @@ const INSTALL_HINTS: Record<InstallMethod, { label: string; paths: string[]; tip
       "Mac/Linux: ~/.nvm/versions/node/{version}/bin/claude",
       "Windows (nvm-windows): %APPDATA%\\nvm\\{version}\\claude.cmd",
     ],
-    tip: "由于桌面应用不继承 shell 的 nvm PATH，自动检测可能失败。请在终端执行 `nvm use` 激活版本后运行 `which claude`（Mac/Linux）或 `where claude`（Windows），将完整路径填入下方「CLI 路径」",
+    get tip() { return t("由于桌面应用不继承 shell 的 nvm PATH，自动检测可能失败。请在终端执行 `nvm use` 激活版本后运行 `which claude`（Mac/Linux）或 `where claude`（Windows），将完整路径填入下方「CLI 路径」"); },
   },
   bun: {
-    label: "bun 全局安装",
+    get label() { return t("bun 全局安装"); },
     paths: [
       "Mac/Linux: ~/.bun/bin/claude",
       "Windows: %USERPROFILE%\\.bun\\bin\\claude.exe",
     ],
-    tip: "在终端运行 `bun pm ls -g` 确认安装，再将 `~/.bun/bin/claude` 填入下方「CLI 路径」",
+    get tip() { return t("在终端运行 `bun pm ls -g` 确认安装，再将 `~/.bun/bin/claude` 填入下方「CLI 路径」"); },
   },
   other: {
-    label: "手动 / 其他",
-    paths: ["自定义路径"],
-    tip: "在终端运行 `which claude`（Mac/Linux）或 `where claude`（Windows）获取路径，填入下方「CLI 路径」",
+    get label() { return t("手动 / 其他"); },
+    get paths() { return [t("自定义路径")]; },
+    get tip() { return t("在终端运行 `which claude`（Mac/Linux）或 `where claude`（Windows）获取路径，填入下方「CLI 路径」"); },
   },
 };
 
 function CopyCommandLine({ cmd }: { cmd: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
     <div className="flex items-center gap-1.5 bg-muted/60 rounded px-2 py-1">
@@ -1138,7 +1144,7 @@ function CopyCommandLine({ cmd }: { cmd: string }) {
           setTimeout(() => setCopied(false), 1500);
         }}
         className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
-        title="复制"
+        title={t("复制")}
       >
         {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
       </button>
@@ -1147,6 +1153,7 @@ function CopyCommandLine({ cmd }: { cmd: string }) {
 }
 
 function ChatSettingsTab() {
+  const { t } = useTranslation();
   const { terminalShell, setTerminalShell } = useAppStore();
   const {
     skipPermissions,
@@ -1194,7 +1201,7 @@ function ChatSettingsTab() {
   return (
     <div className="p-4 space-y-4 text-sm">
       <section>
-        <h3 className="font-medium mb-2 text-foreground">CLI 状态</h3>
+        <h3 className="font-medium mb-2 text-foreground">{t("CLI 状态")}</h3>
         <div className="space-y-2">
           {availableClis.length > 0 ? (
             availableClis.map((cli, i) => (
@@ -1211,12 +1218,12 @@ function ChatSettingsTab() {
               </div>
             ))
           ) : (
-            <p className="text-xs text-muted-foreground">未检测到已安装的 CLI</p>
+            <p className="text-xs text-muted-foreground">{t("未检测到已安装的 CLI")}</p>
           )}
 
           {/* 安装方式选择 */}
           <div>
-            <p className="text-xs text-muted-foreground mb-1.5">安装方式</p>
+            <p className="text-xs text-muted-foreground mb-1.5">{t("安装方式")}</p>
             <div className="flex flex-wrap gap-1">
               {(["npm", "nvm", "bun", "other"] as InstallMethod[]).map((m) => (
                 <button
@@ -1240,16 +1247,15 @@ function ChatSettingsTab() {
             className="flex items-center gap-1 text-xs text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
           >
             <RefreshCw className={`w-3 h-3 ${detecting ? "animate-spin" : ""}`} />
-            {detecting ? "检测中..." : "重新检测"}
+            {detecting ? t("检测中...") : t("重新检测")}
           </button>
 
           {/* Claude 检测失败提示 */}
           {claudeNotFound && (
             <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-2.5 space-y-1.5">
               <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
-                未找到 Claude CLI
-              </p>
-              <p className="text-[11px] text-muted-foreground">通过 npm 安装：</p>
+                {t("未找到 Claude CLI")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("通过 npm 安装：")}</p>
               <CopyCommandLine cmd="npm install -g @anthropic-ai/claude-code" />
               <ul className="space-y-0.5 mt-1">
                 {hint.paths.map((p, i) => (
@@ -1264,20 +1270,18 @@ function ChatSettingsTab() {
           {codexNotFound && (
             <div className="rounded-md bg-blue-500/10 border border-blue-500/30 p-2.5 space-y-1.5">
               <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
-                未找到 Codex CLI（可选）
-              </p>
-              <p className="text-[11px] text-muted-foreground">通过 npm 安装：</p>
+                {t("未找到 Codex CLI（可选）")}</p>
+              <p className="text-[11px] text-muted-foreground">{t("通过 npm 安装：")}</p>
               <CopyCommandLine cmd="npm install -g @openai/codex" />
               <p className="text-[11px] text-muted-foreground leading-relaxed">
-                安装后点击「重新检测」。若使用 nvm，需先 <code className="font-mono">nvm use</code> 激活对应版本。
-              </p>
+                {t("安装后点击「重新检测」。若使用 nvm，需先")}<code className="font-mono">nvm use</code> {t("激活对应版本。")}</p>
             </div>
           )}
         </div>
       </section>
 
       <section>
-        <h3 className="font-medium mb-2 text-foreground">CLI 路径</h3>
+        <h3 className="font-medium mb-2 text-foreground">{t("CLI 路径")}</h3>
         <div className="flex gap-1.5">
           <input
             type="text"
@@ -1297,29 +1301,27 @@ function ChatSettingsTab() {
                 if (typeof selected === "string") setCliPath(selected);
               }}
               className="shrink-0 px-2.5 py-1.5 text-xs bg-muted border border-border rounded hover:bg-accent transition-colors"
-              title="浏览文件"
+              title={t("浏览文件")}
             >
               <FolderOpen className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
-          留空则自动检测。如自动检测失败，请手动指定 Claude CLI 可执行文件路径
-        </p>
+          {t("留空则自动检测。如自动检测失败，请手动指定 Claude CLI 可执行文件路径")}</p>
       </section>
 
       <section>
-        <h3 className="font-medium mb-2 text-foreground">默认模型</h3>
+        <h3 className="font-medium mb-2 text-foreground">{t("默认模型")}</h3>
         <input
           type="text"
           value={defaultModel}
           onChange={(e) => setDefaultModel(e.target.value)}
-          placeholder="留空使用 CLI 配置中的默认模型"
+          placeholder={t("留空使用 CLI 配置中的默认模型")}
           className="w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          新建对话时使用的默认模型（优先于 CLI 配置）
-        </p>
+          {t("新建对话时使用的默认模型（优先于 CLI 配置）")}</p>
       </section>
 
       {/* Anthropic (Claude) */}
@@ -1328,7 +1330,7 @@ function ChatSettingsTab() {
         <CliConfigDisplay />
         <div className="mt-3 space-y-2">
           <div>
-            <label className="text-xs text-muted-foreground">手动 API Key（覆盖自动检测）</label>
+            <label className="text-xs text-muted-foreground">{t("手动 API Key（覆盖自动检测）")}</label>
             <input
               type="password"
               value={claudeApiKeyOverride}
@@ -1338,7 +1340,7 @@ function ChatSettingsTab() {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">手动 Base URL（覆盖自动检测）</label>
+            <label className="text-xs text-muted-foreground">{t("手动 Base URL（覆盖自动检测）")}</label>
             <input
               type="text"
               value={claudeBaseUrlOverride}
@@ -1357,7 +1359,7 @@ function ChatSettingsTab() {
         <CodexCliConfigDisplay />
         <div className="mt-3 space-y-2">
           <div>
-            <label className="text-xs text-muted-foreground">手动 API Key（覆盖自动检测）</label>
+            <label className="text-xs text-muted-foreground">{t("手动 API Key（覆盖自动检测）")}</label>
             <input
               type="password"
               value={codexApiKeyOverride}
@@ -1367,7 +1369,7 @@ function ChatSettingsTab() {
             />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">手动 Base URL（覆盖自动检测）</label>
+            <label className="text-xs text-muted-foreground">{t("手动 Base URL（覆盖自动检测）")}</label>
             <input
               type="text"
               value={codexBaseUrlOverride}
@@ -1382,7 +1384,7 @@ function ChatSettingsTab() {
 
       {isWindows && (
         <section>
-          <h3 className="font-medium mb-2 text-foreground">终端类型</h3>
+          <h3 className="font-medium mb-2 text-foreground">{t("终端类型")}</h3>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -1408,13 +1410,12 @@ function ChatSettingsTab() {
             </label>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            恢复会话时使用的终端类型
-          </p>
+            {t("恢复会话时使用的终端类型")}</p>
         </section>
       )}
 
       <section>
-        <h3 className="font-medium mb-2 text-foreground">权限模式</h3>
+        <h3 className="font-medium mb-2 text-foreground">{t("权限模式")}</h3>
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"
@@ -1423,13 +1424,12 @@ function ChatSettingsTab() {
             className="rounded border-border"
           />
           <span className="text-xs text-foreground">
-            跳过权限确认 (--dangerously-skip-permissions)
-          </span>
+            {t("跳过权限确认 (--dangerously-skip-permissions)")}</span>
         </label>
         <p className="mt-1 text-xs text-yellow-500">
           {skipPermissions
-            ? "警告：CLI 将自动执行所有工具操作而不请求确认"
-            : "CLI 会在执行文件修改等操作前请求确认"}
+            ? t("警告：CLI 将自动执行所有工具操作而不请求确认")
+            : t("CLI 会在执行文件修改等操作前请求确认")}
         </p>
       </section>
     </div>

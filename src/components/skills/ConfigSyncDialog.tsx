@@ -1,3 +1,5 @@
+import { t } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeftRight,
@@ -27,7 +29,8 @@ const sameMcp = (left: McpServerManifest, right?: McpServerManifest) =>
   !!right && JSON.stringify(left.config) === JSON.stringify(right.config);
 
 export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
-  const nodes = useMemo(getSkillSyncNodes, []);
+  const { t } = useTranslation();
+  const nodes = useMemo(getSkillSyncNodes, [t]);
   const [tab, setTab] = useState<Tab>("mcp");
   const [sourceId, setSourceId] = useState(nodes[0]?.id ?? "");
   const [targetId, setTargetId] = useState(nodes[1]?.id ?? "");
@@ -136,10 +139,10 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
         completed += 1;
       }
       await loadPreview();
-      setResult(`已同步 ${completed} 个 MCP 声明`);
+      setResult(t("已同步 {{v0}} 个 MCP 声明", { v0: completed }));
     } catch (cause) {
       setError(
-        `${completed > 0 ? `已完成 ${completed} 个；` : ""}${
+        `${completed > 0 ? t("已完成 {{v0}} 个；", { v0: completed }) : ""}${
           cause instanceof Error ? cause.message : String(cause)
         }`,
       );
@@ -160,12 +163,12 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between border-b border-border p-4">
           <div className="flex items-center gap-2">
             <Plug className="h-4 w-4 text-muted-foreground" />
-            <h2 className="text-sm font-semibold">MCP / 插件跨机同步</h2>
+            <h2 className="text-sm font-semibold">{t("MCP / 插件跨机同步")}</h2>
           </div>
           <button
             onClick={onClose}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-            title="关闭"
+            title={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -173,8 +176,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
 
         {nodes.length < 2 ? (
           <div className="p-6 text-sm text-muted-foreground">
-            至少需要两个可访问的 session-web 节点。
-          </div>
+            {t("至少需要两个可访问的 session-web 节点。")}</div>
         ) : (
           <>
             <div className="flex items-center gap-2 border-b border-border p-4">
@@ -182,7 +184,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 value={sourceId}
                 onChange={(event) => setSourceId(event.target.value)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
-                title="源机器"
+                title={t("源机器")}
               >
                 {nodes.map((node) => (
                   <option key={node.id} value={node.id} disabled={node.id === targetId}>
@@ -196,7 +198,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                   setTargetId(sourceId);
                 }}
                 className="rounded p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                title="交换源机器和目标机器"
+                title={t("交换源机器和目标机器")}
               >
                 <ArrowLeftRight className="h-4 w-4" />
               </button>
@@ -204,7 +206,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 value={targetId}
                 onChange={(event) => setTargetId(event.target.value)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
-                title="目标机器"
+                title={t("目标机器")}
               >
                 {nodes.map((node) => (
                   <option key={node.id} value={node.id} disabled={node.id === sourceId}>
@@ -216,7 +218,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 onClick={() => void loadPreview()}
                 disabled={loading || syncing}
                 className="rounded p-2 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                title="刷新预览"
+                title={t("刷新预览")}
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               </button>
@@ -233,7 +235,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
-                  {value === "mcp" ? "MCP" : "插件声明"}
+                  {value === "mcp" ? "MCP" : t("插件声明")}
                 </button>
               ))}
             </div>
@@ -244,8 +246,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                   onClick={selectAll}
                   className="text-muted-foreground hover:text-foreground"
                 >
-                  全选 / 取消全选
-                </button>
+                  {t("全选 / 取消全选")}</button>
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -265,8 +266,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                       }
                     }}
                   />
-                  覆盖同名声明（自动备份）
-                </label>
+                  {t("覆盖同名声明（自动备份）")}</label>
               </div>
             )}
 
@@ -274,13 +274,11 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
               {loading ? (
                 <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  正在生成差异预览...
-                </div>
+                  {t("正在生成差异预览...")}</div>
               ) : tab === "mcp" ? (
                 sourceManifest.mcpServers.length === 0 ? (
                   <div className="p-6 text-sm text-muted-foreground">
-                    源机器没有 MCP 声明。
-                  </div>
+                    {t("源机器没有 MCP 声明。")}</div>
                 ) : (
                   sourceManifest.mcpServers.map((item) => {
                     const key = mcpKey(item);
@@ -301,23 +299,22 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                             <div className="text-xs text-muted-foreground">
                               {item.client === "claude" ? "Claude" : "Codex"}
                               {item.redactedFields.length > 0 &&
-                                ` · 需在目标机补充 ${item.redactedFields.length} 项敏感或机器相关值`}
+                                t(" · 需在目标机补充 {{v0}} 项敏感或机器相关值", { v0: item.redactedFields.length })}
                             </div>
                           </div>
                           <span className="text-xs text-muted-foreground">
                             {same
-                              ? "相同"
+                              ? t("相同")
                               : targetItem
                                 ? overwrite
-                                  ? "覆盖"
-                                  : "冲突"
-                                : "新增"}
+                                  ? t("覆盖")
+                                  : t("冲突")
+                                : t("新增")}
                           </span>
                         </label>
                         <details className="px-11 pb-3 text-xs">
                           <summary className="cursor-pointer text-muted-foreground">
-                            查看脱敏配置
-                          </summary>
+                            {t("查看脱敏配置")}</summary>
                           <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border border-border bg-background p-2 font-mono">
                             {JSON.stringify(item.config, null, 2)}
                           </pre>
@@ -328,8 +325,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 )
               ) : sourceManifest.plugins.length === 0 ? (
                 <div className="p-6 text-sm text-muted-foreground">
-                  源机器没有插件安装声明。
-                </div>
+                  {t("源机器没有插件安装声明。")}</div>
               ) : (
                 sourceManifest.plugins.map((item) => {
                   const targetItem = targetPlugins.get(pluginKey(item));
@@ -351,14 +347,13 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                       </div>
                       <span className="text-xs text-muted-foreground">
                         {!targetItem
-                          ? "目标缺少"
+                          ? t("目标缺少")
                           : sameDeclaration
-                            ? "已存在"
-                            : "声明不同"}
+                            ? t("已存在")
+                            : t("声明不同")}
                       </span>
                       <span className="rounded border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
-                        仅预览
-                      </span>
+                        {t("仅预览")}</span>
                     </div>
                   );
                 })
@@ -381,8 +376,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 disabled={syncing}
                 className="rounded border border-border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
               >
-                关闭
-              </button>
+                {t("关闭")}</button>
               {tab === "mcp" && (
                 <button
                   onClick={() => void syncMcp()}
@@ -394,8 +388,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                   ) : (
                     <Check className="h-3.5 w-3.5" />
                   )}
-                  开始同步
-                </button>
+                  {t("开始同步")}</button>
               )}
             </div>
           </>

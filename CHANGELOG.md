@@ -8,6 +8,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.22.1] - 2026-09-30
+
+### Added
+
+- 桌面与 Web 新增简体中文 / English 界面切换：默认中文，在「设置 → 显示设置 → 界面语言 / Language」中切换后立即生效，并在本地保存选择。
+- 新增英文 README，与中文 README 提供互相跳转入口，说明语言选择、使用方式和 AppImage 验证步骤。
+- 新增中英文词典、占位符、默认语言与持久化、相对时间及 AppImage 打包依赖的轻量回归检查，纳入 `npm run check:scripts`。
+
+### Changed
+
+- 使用 i18next 与 react-i18next 统一管理导航、页面、弹窗和应用提示；相对时间与紧凑数字跟随界面语言，时区设置独立，用户会话原文、自定义名称及 CLI / 服务器原始诊断保持原样。
+- 将 `@tauri-apps/cli` 从 `2.10.0` 升级并锁定为 `2.11.4`，同步依赖锁文件和国际化维护说明。
+
+### Fixed
+
+- 引入 [Tauri #15596](https://github.com/tauri-apps/tauri/pull/15596) 的 AppImage 打包修复，将 `.DirIcon` 和根目录 `.desktop` 符号链接改为相对路径，避免产物离开构建机器后链接失效。
+
+### Version
+
+- 将工作区版本统一提升到 `2.22.1`，同步 `package.json`、`package-lock.json`、根 `Cargo.lock`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.22.0] - 2026-09-12
 
 ### Added

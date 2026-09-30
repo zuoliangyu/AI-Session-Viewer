@@ -1,9 +1,11 @@
+import { t, getDateLocale } from "../../i18n/index.js";
+import { useTranslation } from "react-i18next";
 import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { ArrowLeft, FolderClock, Clock, Hash } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { zhCN } from "date-fns/locale";
+
 import { isDirectBucket, directBucketDate } from "../../utils/directChat";
 
 /**
@@ -12,6 +14,7 @@ import { isDirectBucket, directBucketDate } from "../../utils/directChat";
  * routes to the existing session list for that bucket.
  */
 export function DirectChatDatesPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { source, projects, loadProjects, projectsLoading } = useAppStore();
 
@@ -30,11 +33,11 @@ export function DirectChatDatesPage() {
     const m = new Map<string, string>();
     for (const p of buckets) {
       if (p.lastModified) {
-        m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: zhCN }));
+        m.set(p.id, formatDistanceToNow(new Date(p.lastModified), { addSuffix: true, locale: getDateLocale() }));
       }
     }
     return m;
-  }, [buckets]);
+  }, [buckets, t]);
 
   return (
     <div className="flex flex-col h-full">
@@ -44,22 +47,20 @@ export function DirectChatDatesPage() {
           className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
         >
           <ArrowLeft className="w-4 h-4" />
-          所有项目
-        </button>
+          {t("所有项目")}</button>
         <div className="flex flex-wrap items-center gap-2 mb-3">
           <FolderClock className="w-6 h-6 text-muted-foreground" />
-          <h1 className="workspace-page-title">Codex 直连对话</h1>
-          <span className="text-sm text-muted-foreground">（按日期归档）</span>
+          <h1 className="workspace-page-title">{t("Codex 直连对话")}</h1>
+          <span className="text-sm text-muted-foreground">{t("（按日期归档）")}</span>
         </div>
       </div>
 
       <div className="workspace-list-body">
         {projectsLoading && buckets.length === 0 ? (
-          <div className="text-sm text-muted-foreground">加载中...</div>
+          <div className="text-sm text-muted-foreground">{t("加载中...")}</div>
         ) : buckets.length === 0 ? (
           <div className="text-sm text-muted-foreground">
-            没有 Codex 直连对话。Codex Desktop 的「直接对话」会归到这里。
-          </div>
+            {t("没有 Codex 直连对话。Codex Desktop 的「直接对话」会归到这里。")}</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {buckets.map((bucket) => {
@@ -84,8 +85,7 @@ export function DirectChatDatesPage() {
                       <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <Hash className="w-3 h-3" />
-                          {bucket.sessionCount} 个会话
-                        </span>
+                          {bucket.sessionCount} {t("个会话")}</span>
                         {bucket.lastModified && (
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
