@@ -27,6 +27,7 @@ import { ScanProgressView } from "../common/ScanProgressView";
 import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 import { useShallow } from "zustand/react/shallow";
 import { EmptyState } from "../common/StateViews";
+import { PageHeader } from "../common/PageHeader";
 
 export function ProjectsPage() {
   const { t } = useTranslation();
@@ -214,14 +215,16 @@ export function ProjectsPage() {
     <>
     <div className="flex flex-col h-full">
       <div className="workspace-list-header">
-      <div className="workspace-page-header">
-        <div><h1 className="workspace-page-title">{t("所有项目")}</h1><p className="workspace-page-description">{filteredProjects.length} {t("个项目 · 选择项目查看会话")}</p></div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+      <PageHeader
+        breadcrumbs={[{ label: t("所有项目") }]}
+        title={t("所有项目")}
+        description={<>{filteredProjects.length} {t("个项目 · 选择项目查看会话")}</>}
+        actions={<>
           <select aria-label={t("项目显示方式")} className="toolbar-button" value={projectView} onChange={(event) => { setProjectView(event.target.value); localStorage.setItem("projectLayout", event.target.value); }}><option value="list">{t("列表")}</option><option value="grid">{t("网格")}</option></select>
           <button
             onClick={handleRefresh}
             disabled={refreshing || projectsLoading || selectMode}
-            className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="toolbar-button"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? "animate-spin" : ""}`} />
             {t("刷新缓存")}</button>
@@ -229,20 +232,20 @@ export function ProjectsPage() {
             (selectMode ? (
               <button
                 onClick={exitSelectMode}
-                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                className="toolbar-button"
               >
                 <X className="w-3.5 h-3.5" />
                 {t("退出选择")}</button>
             ) : (
               <button
                 onClick={() => setSelectMode(true)}
-                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5"
+                className="toolbar-button"
               >
                 <CheckSquare className="w-3.5 h-3.5" />
                 {t("选择")}</button>
             ))}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* Global tag filter bar */}
       {allGlobalTags.length > 0 && (

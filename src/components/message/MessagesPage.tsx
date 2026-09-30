@@ -14,7 +14,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useParams, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
-import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, ListTree, MessageSquare } from "lucide-react";
+import { Play, Copy, Loader2, ArrowDown, ArrowUp, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, ListTree, MessageSquare } from "lucide-react";
 import { ActionMenu } from "../common/ActionMenu";
 import { rememberSession } from "../../services/recentSessions";
 import { MessageThread } from "./MessageThread";
@@ -23,7 +23,7 @@ import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
 import { MessageTOCSidebar } from "./MessageTOCSidebar";
 import { JumpToPercentControl } from "./JumpToPercentControl";
-import { SessionPositionRail } from "./SessionPositionRail";
+import { SessionPositionRail, type RailMarker } from "./SessionPositionRail";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
@@ -39,6 +39,7 @@ import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { SessionCostBadge } from "./SessionCostBadge";
 import { EmptyState, ErrorState, LoadingState } from "../common/StateViews";
+import { Breadcrumbs } from "../common/PageHeader";
 import { TrajectoryView } from "./TrajectoryView";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
 import {
@@ -1104,6 +1105,19 @@ export function MessagesPage() {
     !matchedOnly &&
     splitFilePaths.length === 0 &&
     messagesTotal > JUMP_CONTROLS_MIN_TOTAL;
+  const railMarkers = useMemo<RailMarker[]>(
+    () =>
+      messagesTotal > 0
+        ? questionIndex.map((question, index) => ({
+            id: question.messageId,
+            // Same basis as positionPercent (absIdx / (total - 1)).
+            percent: (question.messageIndex / Math.max(1, messagesTotal - 1)) * 100,
+            preview: questionTocItems[index]?.preview ?? question.preview,
+            timestamp: questionTocItems[index]?.timestamp ?? null,
+          }))
+        : [],
+    [messagesTotal, questionIndex, questionTocItems],
+  );
   const messageThread = (
     <MessageThread
       messages={displayedMessages}
@@ -1134,14 +1148,19 @@ export function MessagesPage() {
       {/* Header */}
       <div className="shrink-0 border-b border-border bg-card px-4 py-3 flex flex-wrap items-center justify-between gap-3 sm:px-5">
         <div className="flex flex-1 items-center gap-2 min-w-0 basis-60">
-          <button
-            onClick={() => navigate(`/projects/${encodeURIComponent(projectId)}`)}
-            aria-label={t("返回会话列表")}
-            className="p-1 rounded hover:bg-accent transition-colors shrink-0"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
           <div className="min-w-0">
+            <Breadcrumbs
+              items={[
+                projectId.startsWith("<codex-direct>/")
+                  ? { label: t("Codex 直连对话"), to: "/direct-chat" }
+                  : { label: t("所有项目"), to: "/projects" },
+                {
+                  label: project?.shortName || projectId,
+                  to: `/projects/${encodeURIComponent(projectId)}`,
+                },
+                { label: resolvedSessionTitle || t("会话") },
+              ]}
+            />
             <p className="text-sm font-medium truncate">
               {resolvedSessionTitle}
             </p>
@@ -1366,6 +1385,7 @@ export function MessagesPage() {
                   viewportRef={containerRef}
                   onViewportScroll={handleScroll}
                   viewportClassName="h-full"
+                  hideTrack={showJumpControls}
                 >
                 {viewMode === "messages" && firstUserAnchor && (
                   <button
@@ -1518,37 +1538,23 @@ export function MessagesPage() {
           currentPercent={positionPercent}
           onJump={handleJumpToPercent}
           disabled={messagesLoading}
+          markers={railMarkers}
+          activeMarkerId={activeUserMsgId}
+          onMarkerClick={handleQuestionSelect}
         />
       )}
 
-      {/* Timeline navigation dots */}
-      {questionTocItems.length > 1 && viewMode === "messages" && !matchedOnly && !tocCollapsed && (
+      {/* Timeline dots for shorter sessions; long ones show ticks on the rail */}
+      {!showJumpControls && questionTocItems.length > 1 && viewMode === "messages" && !matchedOnly && !tocCollapsed && (
         <TimelineDots
           dots={questionTocItems}
           activeId={activeUserMsgId}
           onDotClick={handleQuestionSelect}
-          offsetFromEdge={showJumpControls}
         />
       )}
 
       {/* Scroll buttons */}
       <div className="absolute bottom-20 right-6 flex flex-col gap-2">
-        {messages.length > 0 && viewMode === "messages" && (
-          <button
-            onClick={() => {
-              setAllExpandedPersist(!allExpanded);
-              setExpandVersion((v) => v + 1);
-            }}
-            className="p-2.5 rounded-full bg-card border border-border text-foreground shadow-lg hover:bg-accent transition-all hover:scale-105"
-            title={allExpanded ? t("全部折叠（默认值已记住）") : t("全部展开（默认值已记住）")}
-          >
-            {allExpanded ? (
-              <ChevronsUpDown className="w-4 h-4" />
-            ) : (
-              <Rows3 className="w-4 h-4" />
-            )}
-          </button>
-        )}
         {showScrollUp && (
           <button
             onClick={scrollToTop}

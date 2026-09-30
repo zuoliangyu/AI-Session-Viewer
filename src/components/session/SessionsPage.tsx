@@ -6,7 +6,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAppStore } from "../../stores/appStore";
 import {
-  ArrowLeft,
   MessageSquare,
   Clock,
   GitBranch,
@@ -38,6 +37,7 @@ import { isRemoteNodeActive } from "../../services/nodeConfig";
 import { copyTextToClipboard } from "../message/utils";
 import { EmptyState, ErrorState } from "../common/StateViews";
 import { useShallow } from "zustand/react/shallow";
+import { PageHeader } from "../common/PageHeader";
 
 declare const __IS_TAURI__: boolean;
 // Remote-node mode routes the API to a web server, where resume_session is a
@@ -303,26 +303,16 @@ export function SessionsPage() {
     <div className="flex flex-col h-full">
       <div className="workspace-list-header">
       {/* Header */}
-      <div className="workspace-page-header">
-        <button
-          onClick={() =>
-            navigate(projectId.startsWith("<codex-direct>/") ? "/direct-chat" : "/projects")
-          }
-          className="p-1 rounded hover:bg-accent transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="min-w-0 flex-1">
-          <h1 className="workspace-page-title truncate">
-            {project?.shortName || projectId}
-          </h1>
-          {project && (
-            <p className="mt-1 truncate text-xs text-muted-foreground">
-              {project.displayPath}
-            </p>
-          )}
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+      <PageHeader
+        breadcrumbs={[
+          projectId.startsWith("<codex-direct>/")
+            ? { label: t("Codex 直连对话"), to: "/direct-chat" }
+            : { label: t("所有项目"), to: "/projects" },
+          { label: project?.shortName || projectId },
+        ]}
+        title={project?.shortName || projectId}
+        description={project?.displayPath}
+        actions={<>
           <select aria-label={t("会话显示方式")} className="toolbar-button" value={sessionView} onChange={(event) => { setSessionView(event.target.value); localStorage.setItem("sessionLayout", event.target.value); }}><option value="grid">{t("网格")}</option><option value="list">{t("列表")}</option></select>
           {emptySessions.length > 0 && (
             <button
@@ -330,7 +320,7 @@ export function SessionsPage() {
                 setCleanSelected(new Set(emptySessions.map((s) => s.filePath)));
                 setShowCleanDialog(true);
               }}
-              className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50 transition-colors flex items-center gap-1.5"
+              className="toolbar-button hover:text-destructive"
             >
               <Trash2 className="w-3.5 h-3.5" />
               {t("清理空会话 (")}{emptySessions.length})
@@ -340,21 +330,21 @@ export function SessionsPage() {
             selectMode ? (
               <button
                 onClick={exitSelectMode}
-                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1.5"
+                className="toolbar-button"
               >
                 <X className="w-3.5 h-3.5" />
                 {t("退出选择")}</button>
             ) : (
               <button
                 onClick={() => setSelectMode(true)}
-                className="text-xs px-3 py-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center gap-1.5"
+                className="toolbar-button"
               >
                 <CheckSquare className="w-3.5 h-3.5" />
                 {t("选择")}</button>
             )
           )}
-        </div>
-      </div>
+        </>}
+      />
 
       {/* 损坏会话提示：has_messages 但 JSONL 中部解析失败，正常列表会过滤掉，
           但仍可在 /cleanup 里查看残存内容或清理。 */}

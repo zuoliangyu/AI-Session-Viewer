@@ -898,5 +898,9 @@
   "此会话没有可显示的消息": "This session has no messages to display",
   "会话列表加载失败": "Failed to load sessions",
   "找不到会话所在的项目目录，无法在终端中恢复": "Can't find this session's project directory, so it can't be resumed in a terminal",
-  "...（已截断）": "... (truncated)"
+  "...（已截断）": "... (truncated)",
+  "面包屑导航": "Breadcrumb",
+  "右侧位置条标出每个提问，点击或拖动即可跳转": "The right-hand position rail marks each question; click or drag to jump",
+  "侧栏底部按钮组切换亮色 / 暗色 / 跟随系统；设置入口也在侧栏底部": "Switch light / dark / system theme with the buttons at the bottom of the sidebar; Settings is there too",
+  "打开对话设置": "Open chat settings"
 }

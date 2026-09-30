@@ -1,12 +1,25 @@
 import { t } from "../../i18n/index.js";
 import { useTranslation } from "react-i18next";
 import { useCallback, useRef, useState, type PointerEvent } from "react";
+import { getQuestionHue } from "./questionPalette";
+
+export interface RailMarker {
+  id: string;
+  /** Position of the question as a 0–100 percentage of the whole session. */
+  percent: number;
+  preview: string;
+  timestamp: string | null;
+}
 
 interface Props {
   /** Current reading position as a 0–100 percentage of the whole session. */
   currentPercent: number;
   onJump: (percent: number) => void;
   disabled?: boolean;
+  /** User-question ticks drawn on the rail (replaces the separate timeline dots). */
+  markers?: RailMarker[];
+  activeMarkerId?: string | null;
+  onMarkerClick?: (id: string) => void;
 }
 
 const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
@@ -17,8 +30,16 @@ const clampPercent = (value: number) => Math.max(0, Math.min(100, value));
  * we only show a live label and defer the actual jump to pointer-up, so we
  * don't thrash the loaded window on every move.
  */
-export function SessionPositionRail({ currentPercent, onJump, disabled = false }: Props) {
+export function SessionPositionRail({
+  currentPercent,
+  onJump,
+  disabled = false,
+  markers = [],
+  activeMarkerId = null,
+  onMarkerClick,
+}: Props) {
   const { t } = useTranslation();
+  const [hoveredMarker, setHoveredMarker] = useState<RailMarker | null>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const pointerIdRef = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -96,6 +117,42 @@ export function SessionPositionRail({ currentPercent, onJump, disabled = false }
           }`}
           style={{ top: `${displayPercent}%` }}
         />
+        {/* User-question ticks, placed at their true position in the session */}
+        {markers.map((marker, index) => {
+          const hue = getQuestionHue(index);
+          const active = marker.id === activeMarkerId;
+          return (
+            <button
+              key={marker.id}
+              type="button"
+              aria-label={marker.preview}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onMarkerClick?.(marker.id);
+              }}
+              onMouseEnter={() => setHoveredMarker(marker)}
+              onMouseLeave={() => setHoveredMarker(null)}
+              onFocus={() => setHoveredMarker(marker)}
+              onBlur={() => setHoveredMarker(null)}
+              className={`absolute left-1/2 z-10 h-1 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full ${hue.swatch} transition-opacity ${
+                active ? "opacity-100 ring-1 ring-foreground/40" : "opacity-50 hover:opacity-100"
+              }`}
+              style={{ top: `${clampPercent(marker.percent)}%` }}
+            />
+          );
+        })}
+        {hoveredMarker && !dragging && (
+          <div
+            className="pointer-events-none absolute right-full mr-3 max-w-[16rem] -translate-y-1/2 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-foreground shadow-lg"
+            style={{ top: `${clampPercent(hoveredMarker.percent)}%` }}
+          >
+            <p className="truncate">{hoveredMarker.preview}</p>
+            {hoveredMarker.timestamp && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{hoveredMarker.timestamp}</p>
+            )}
+          </div>
+        )}
         {/* Live percentage label while dragging */}
         {dragging && (
           <div

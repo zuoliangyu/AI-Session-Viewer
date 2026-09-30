@@ -1,7 +1,7 @@
 import { t } from "../../i18n/index.js";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useCallback, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { useAppStore } from "../../stores/appStore";
@@ -710,8 +710,12 @@ function EmptyState({
             </span>
           </div>
           {!cliAvailable && (
-            <p className="mt-1.5 text-xs text-red-400">
-              {t("未检测到 {{agent}} CLI。请先安装后再试。", { agent: cliLabel })}</p>
+            <p className="mt-1.5 text-xs text-destructive">
+              {t("未检测到 {{agent}} CLI。请先安装后再试。", { agent: cliLabel })}{" "}
+              <Link to="/settings?section=chat" className="underline hover:text-foreground">
+                {t("打开对话设置")}
+              </Link>
+            </p>
           )}
         </div>
 

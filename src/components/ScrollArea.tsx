@@ -18,6 +18,8 @@ type ScrollAreaProps = {
   contentClassName?: string;
   viewportRef?: Ref<HTMLDivElement>;
   onViewportScroll?: UIEventHandler<HTMLDivElement>;
+  /** Hide the custom track when the page renders its own position rail. */
+  hideTrack?: boolean;
 } & HTMLAttributes<HTMLDivElement>;
 
 function cn(...values: Array<string | undefined>) {
@@ -44,6 +46,7 @@ export function ScrollArea({
   contentClassName,
   viewportRef,
   onViewportScroll,
+  hideTrack = false,
   ...props
 }: ScrollAreaProps) {
   const internalViewportRef = useRef<HTMLDivElement>(null);
@@ -183,7 +186,7 @@ export function ScrollArea({
       </div>
 
       <div
-        className={cn("scroll-area-track", thumb.visible ? "opacity-100" : "opacity-0")}
+        className={cn("scroll-area-track", thumb.visible && !hideTrack ? "opacity-100" : "pointer-events-none opacity-0")}
         onPointerDown={handleTrackPointerDown}
         aria-hidden="true"
       >
