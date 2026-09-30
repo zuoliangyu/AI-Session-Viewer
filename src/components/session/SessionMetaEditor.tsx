@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import { useShallow } from "zustand/react/shallow";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 interface Props {
   sessionId: string;
@@ -117,11 +118,15 @@ export function SessionMetaEditor({
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold">{t("编辑会话信息")}</h3>
           <button
+            aria-label={t("关闭")}
             onClick={onClose}
             className="p-1 rounded hover:bg-accent transition-colors"
           >
@@ -152,6 +157,7 @@ export function SessionMetaEditor({
               >
                 {tag}
                 <button
+                  aria-label={t("移除标签")}
                   onClick={() => removeTag(i)}
                   className="hover:text-destructive transition-colors"
                 >

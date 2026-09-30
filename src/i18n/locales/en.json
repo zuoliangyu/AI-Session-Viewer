@@ -904,5 +904,7 @@
   "侧栏底部按钮组切换亮色 / 暗色 / 跟随系统；设置入口也在侧栏底部": "Switch light / dark / system theme with the buttons at the bottom of the sidebar; Settings is there too",
   "打开对话设置": "Open chat settings",
   "全部项目（另有 {{v0}} 个）→": "All projects ({{v0}} more) →",
-  "最近项目": "Recent projects"
+  "最近项目": "Recent projects",
+  "确定要删除此会话吗？会话将移入回收站，可在回收站中恢复。": "Delete this session? It will be moved to the recycle bin, where you can restore it.",
+  "移除标签": "Remove tag"
 }

@@ -16,6 +16,7 @@ import {
   getSkillSyncNodes,
   listNodeGlobalSkills,
 } from "../../services/skillSync";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 export function SkillSyncDialog({
   onClose,
@@ -133,7 +134,10 @@ export function SkillSyncDialog({
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div
         className="flex max-h-[85vh] w-[42rem] max-w-full flex-col rounded-lg border border-border bg-card shadow-lg"
         onClick={(event) => event.stopPropagation()}

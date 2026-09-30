@@ -20,6 +20,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { BackupSummary, ProviderSyncStatus } from "../../types/providerSync";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 export function ProviderSyncPage() {
   const { t } = useTranslation();
@@ -601,7 +602,10 @@ function RestoreModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onCancel} />
       <div
         className="bg-card border border-border rounded-lg shadow-lg w-full max-w-md p-4 space-y-3"
         onClick={(e) => e.stopPropagation()}

@@ -5,6 +5,7 @@ import { X, Copy, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { api } from "../../services/api";
 import type { SessionIndexEntry } from "../../types";
 import type { CloneResult } from "../../types/providerSync";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 interface Props {
   session: SessionIndexEntry;
@@ -73,13 +74,17 @@ export function CloneToProviderDialog({ session, onClose, onCloned }: Props) {
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold flex items-center gap-2">
             <Copy className="w-4 h-4" />
             {t("克隆到其他 Provider")}</h3>
           <button
+            aria-label={t("关闭")}
             onClick={onClose}
             className="p-1 rounded hover:bg-accent transition-colors"
           >

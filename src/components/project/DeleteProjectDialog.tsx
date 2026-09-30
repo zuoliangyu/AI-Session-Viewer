@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import type { ProjectEntry } from "../../types";
 import type { DeleteLevel } from "../../types";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 interface DeleteProjectDialogProps {
   project: ProjectEntry;
@@ -37,7 +38,8 @@ export function DeleteProjectDialog({
   const displayName = project.alias ?? project.shortName;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+      <EscapeToClose onClose={onCancel} disabled={deleting} />
       <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
         <h3 className="text-lg font-semibold mb-2">{t("确认删除工程")}</h3>
         <p className="text-sm text-muted-foreground mb-1">

@@ -15,6 +15,7 @@ import {
 import { api } from "../../services/api";
 import { MarkdownContent } from "../message/MarkdownContent";
 import type { SkillEntry } from "../../types";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 /** Strip the leading YAML frontmatter block so the rendered Markdown body
  *  doesn't start with a raw `--- name: ... ---` dump. */
@@ -158,7 +159,10 @@ export function SkillDeleteConfirm({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onCancel} />
       <div
         className="bg-card border border-border rounded-lg p-6 max-w-sm w-full shadow-lg"
         onClick={(e) => e.stopPropagation()}
@@ -252,7 +256,10 @@ export function SkillDetailModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div
         className="bg-card border border-border rounded-lg shadow-lg w-[52rem] max-w-full max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -299,6 +306,7 @@ export function SkillDetailModal({
             </button>
           </div>
           <button
+            aria-label={t("关闭")}
             onClick={onClose}
             className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
           >

@@ -5,6 +5,7 @@ import { DollarSign, X, Copy, Check, Receipt } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 import type { RequestRecord, SessionCostSummary } from "../../types";
 import { formatShortDateTime } from "../../utils/dateTime";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -102,7 +103,10 @@ function SessionCostModal({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div
         className="bg-card border border-border rounded-lg shadow-lg w-[56rem] max-w-[95vw] max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
@@ -135,6 +139,7 @@ function SessionCostModal({
               )}
             </button>
             <button
+              aria-label={t("关闭")}
               onClick={onClose}
               className="p-1 rounded transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/50"
             >

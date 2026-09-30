@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import type { ModelInfo } from "../../types/chat";
 import { useShallow } from "zustand/react/shallow";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 interface Props {
   paneId?: string;
@@ -171,7 +172,10 @@ export function ModelSelector({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh] bg-black/50"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div
         className="bg-card border border-border rounded-lg shadow-2xl w-[28rem] max-w-[90vw] max-h-[60vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -189,6 +193,7 @@ export function ModelSelector({
             className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none"
           />
           <button
+            aria-label={t("关闭")}
             onClick={onClose}
             className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
           >

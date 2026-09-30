@@ -16,6 +16,7 @@ import {
 import type { RecycledItem } from "../../types";
 import { formatDateTime } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 const REASON_LABELS: Record<string, string> = {
   get ManualDelete() { return t("手动删除"); },
@@ -308,7 +309,10 @@ export function RecyclebinPage() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
           onClick={() => setConfirmEmpty(false)}
+          role="dialog"
+          aria-modal="true"
         >
+          <EscapeToClose onClose={() => setConfirmEmpty(false)} />
           <div
             className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg"
             onClick={(e) => e.stopPropagation()}

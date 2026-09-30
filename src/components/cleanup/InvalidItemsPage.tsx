@@ -19,6 +19,7 @@ import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry, SessionIndexEntry } from "../../types";
 import { formatDateTime } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 type CleanupGroup = {
   project: ProjectEntry;
@@ -881,7 +882,10 @@ export function InvalidItemsPage() {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
           onClick={() => !deleting && setConfirmDeleteOpen(false)}
+          role="dialog"
+          aria-modal="true"
         >
+          <EscapeToClose onClose={() => setConfirmDeleteOpen(false)} disabled={deleting} />
           <div
             className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-lg"
             onClick={(event) => event.stopPropagation()}

@@ -17,6 +17,7 @@ import {
   type McpServerManifest,
   type PluginManifestItem,
 } from "../../services/skillSync";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 type Tab = "mcp" | "plugins";
 
@@ -155,7 +156,10 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
     >
+      <EscapeToClose onClose={onClose} />
       <div
         className="flex max-h-[85vh] w-[48rem] max-w-full flex-col rounded-lg border border-border bg-card shadow-lg"
         onClick={(event) => event.stopPropagation()}

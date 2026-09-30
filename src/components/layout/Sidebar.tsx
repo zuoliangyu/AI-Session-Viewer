@@ -35,6 +35,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 declare const __IS_TAURI__: boolean;
 declare const __APP_VERSION__: string;
@@ -397,7 +398,8 @@ export function Sidebar() {
 
       {/* 重命名 Modal */}
       {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <EscapeToClose onClose={() => { setRenameTarget(null); setRenameError(null); }} disabled={renameLoading} />
           <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
             <h3 className="text-lg font-semibold mb-1">{t("设置工程别名")}</h3>
             <p className="text-xs text-muted-foreground mb-3">

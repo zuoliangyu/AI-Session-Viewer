@@ -28,6 +28,7 @@ import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 import { useShallow } from "zustand/react/shallow";
 import { EmptyState } from "../common/StateViews";
 import { PageHeader } from "../common/PageHeader";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 export function ProjectsPage() {
   const { t } = useTranslation();
@@ -465,7 +466,8 @@ export function ProjectsPage() {
 
     {/* 别名重命名对话框 */}
     {renameTarget && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+        <EscapeToClose onClose={() => { setRenameTarget(null); setRenameError(null); }} disabled={renameLoading} />
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
           <h3 className="text-lg font-semibold mb-1">{t("设置工程别名")}</h3>
           <p className="text-xs text-muted-foreground mb-3">
@@ -573,7 +575,8 @@ export function ProjectsPage() {
 
     {/* 批量删除项目确认 */}
     {batchDeleteOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+        <EscapeToClose onClose={() => { setBatchDeleteOpen(false); setBatchWithCcConfig(false); }} disabled={batchBusy} />
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
           <h3 className="text-lg font-semibold mb-2">{t("批量删除工程")}</h3>
           <p className="text-sm text-muted-foreground mb-4">

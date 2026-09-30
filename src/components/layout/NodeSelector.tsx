@@ -24,6 +24,7 @@ import {
   type NodeStatus,
   type ViewerNode,
 } from "../../services/nodeConfig";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 declare const __IS_TAURI__: boolean;
 
@@ -167,7 +168,10 @@ export function NodeSelector() {
         <div
           className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
           onClick={() => setOpen(false)}
+          role="dialog"
+          aria-modal="true"
         >
+          <EscapeToClose onClose={() => setOpen(false)} />
           <div
             className="w-[36rem] max-w-full max-h-[85vh] overflow-auto rounded-lg border border-border bg-card shadow-lg"
             onClick={(event) => event.stopPropagation()}

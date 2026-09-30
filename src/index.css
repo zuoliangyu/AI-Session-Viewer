@@ -270,8 +270,12 @@ summary::-webkit-details-marker { display: none; }
 }
 @media (hover: none) {
   .workspace-shell .group .group-hover\:opacity-100 { opacity: 1; }
+  .workspace-shell .group .group-hover\:text-muted-foreground { color: hsl(var(--muted-foreground)); }
 }
 .workspace-shell .group:focus-within .group-hover\:opacity-100 { opacity: 1; }
+/* Buttons revealed by color on hover (text-transparent → muted) must also show
+   for keyboard focus, otherwise a focused delete button is invisible. */
+.workspace-shell .group:focus-within .group-hover\:text-muted-foreground { color: hsl(var(--muted-foreground)); }
 
 .session-card-grid .session-card-content { flex-direction: column; align-items: stretch; }
 .session-card-menu { align-self: flex-end; }

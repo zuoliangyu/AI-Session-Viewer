@@ -38,6 +38,7 @@ import { copyTextToClipboard } from "../message/utils";
 import { EmptyState, ErrorState } from "../common/StateViews";
 import { useShallow } from "zustand/react/shallow";
 import { PageHeader } from "../common/PageHeader";
+import { EscapeToClose } from "../common/EscapeToClose";
 
 declare const __IS_TAURI__: boolean;
 // Remote-node mode routes the API to a web server, where resume_session is a
@@ -644,11 +645,12 @@ export function SessionsPage() {
 
       {/* Delete confirmation dialog */}
       {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <EscapeToClose onClose={() => { setDeleteTarget(null); setDeleteTargetSessionId(null); }} disabled={deleting} />
           <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
             <h3 className="text-lg font-semibold mb-2">{t("确认删除")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {t("确定要删除此会话吗？此操作不可撤销。")}</p>
+              {t("确定要删除此会话吗？会话将移入回收站，可在回收站中恢复。")}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => {
@@ -695,7 +697,8 @@ export function SessionsPage() {
 
       {/* 清理空会话对话框 */}
       {showCleanDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <EscapeToClose onClose={() => setShowCleanDialog(false)} disabled={cleaning} />
           <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4 shadow-lg">
             <h3 className="text-lg font-semibold mb-1">{t("清理空会话")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
@@ -837,7 +840,8 @@ export function SessionsPage() {
 
       {/* 批量删除确认 */}
       {batchDeleteOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="dialog" aria-modal="true">
+          <EscapeToClose onClose={() => setBatchDeleteOpen(false)} disabled={batchBusy} />
           <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
             <h3 className="text-lg font-semibold mb-2">{t("批量删除会话")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
