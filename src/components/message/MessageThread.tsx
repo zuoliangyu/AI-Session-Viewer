@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import type { DisplayMessage } from "../../types";
 import { UserMessage } from "./UserMessage";
-import { AssistantMessage } from "./AssistantMessage";
+import { AssistantMessage, type ToolResultLookup } from "./AssistantMessage";
 import { ToolOutputMessage } from "./ToolOutputMessage";
 import { useAppStore } from "../../stores/appStore";
 import { Star, GitFork, Play, Loader2, ChevronDown, ChevronRight } from "lucide-react";
@@ -476,6 +476,17 @@ export const MessageThread = memo(function MessageThread({
     return map;
   }, [messages]);
   const flatNodes = useMemo(() => flattenThreadNodes(roots), [roots]);
+  const toolResults = useMemo<ToolResultLookup>(() => {
+    const map: ToolResultLookup = new Map();
+    for (const message of messages) {
+      for (const block of message.content) {
+        if (block.type === "tool_result" && block.tool_use_id) {
+          map.set(block.tool_use_id, { content: block.content, isError: block.is_error });
+        }
+      }
+    }
+    return map;
+  }, [messages]);
   const shouldDefer = flatNodes.length > DEFER_RENDER_THRESHOLD;
   const eagerNodeIds = useMemo(() => {
     if (!shouldDefer) {
@@ -586,6 +597,7 @@ export const MessageThread = memo(function MessageThread({
           <AssistantMessage
             message={msg}
             source={source}
+            toolResults={toolResults}
             showTimestamp={showTimestamp}
             showModel={showModel}
             layout={messageLayout}

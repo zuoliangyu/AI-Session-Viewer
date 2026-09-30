@@ -214,7 +214,7 @@ export const UserMessage = memo(function UserMessage({
                   <div
                     key={i}
                     className={`mt-2 text-xs rounded-md p-3 font-mono overflow-x-auto ${
-                      block.isError
+                      block.is_error
                         ? "bg-destructive/10 text-destructive border border-destructive/20"
                         : "bg-muted text-muted-foreground"
                     }`}

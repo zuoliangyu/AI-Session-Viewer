@@ -187,7 +187,7 @@ export const ToolOutputMessage = memo(function ToolOutputMessage({
           }
           if (block.type === "tool_result") {
             const cleaned = stripAnsi(block.content);
-            return <MemoizedOutputBlock key={i} content={cleaned} isError={block.isError} compact={isThreadLayout} />;
+            return <MemoizedOutputBlock key={i} content={cleaned} isError={block.is_error} compact={isThreadLayout} />;
           }
           return null;
         })}

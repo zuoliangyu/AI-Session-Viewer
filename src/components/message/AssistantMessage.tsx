@@ -10,9 +10,14 @@ import { useExpandAllControl } from "../common/ExpandAllContext";
 import { useAppStore } from "../../stores/appStore";
 import { OmpMark } from "../layout/ProviderMarks";
 
+export type ToolResultLookup = Map<string, { content: string; isError: boolean }>;
+
 interface Props {
   message: DisplayMessage;
   source: string;
+  /** tool_use id → result from the following tool message, so viewers like
+   *  Read can show the file they read instead of "无内容". */
+  toolResults?: ToolResultLookup;
   showTimestamp: boolean;
   showModel: boolean;
   threadAnchor?: string | null;
@@ -25,6 +30,7 @@ const MARKDOWN_CLASS_NAME = "prose prose-sm max-w-none p-0 text-sm leading-relax
 export const AssistantMessage = memo(function AssistantMessage({
   message,
   source,
+  toolResults,
   showTimestamp,
   showModel,
   threadAnchor,
@@ -168,6 +174,7 @@ export const AssistantMessage = memo(function AssistantMessage({
                 key={i}
                 name={block.name}
                 input={block.input}
+                result={toolResults?.get(block.id) ?? null}
               />
             );
           }

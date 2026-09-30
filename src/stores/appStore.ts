@@ -64,6 +64,21 @@ interface TracedMessageResult<T extends PaginatedMessages | RangeMessages> {
   responseAt: number;
 }
 
+type SessionSourceId = "claude" | "codex" | "grok" | "omp";
+const SOURCE_STORAGE_KEY = "asv.source";
+
+/** Restore the last active source so reloading a Codex/Grok/OMP page doesn't
+ *  fall back to Claude and look the session up in the wrong directory. */
+function readStoredSource(): SessionSourceId {
+  try {
+    const stored = localStorage.getItem(SOURCE_STORAGE_KEY);
+    if (stored === "claude" || stored === "codex" || stored === "grok" || stored === "omp") return stored;
+  } catch {
+    // storage unavailable
+  }
+  return "claude";
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return typeof error === "string" && error ? error : String(error);
@@ -156,9 +171,9 @@ function sameMessageContent(
     case "tool_result":
       return (
         right.type === "tool_result" &&
-        left.toolUseId === right.toolUseId &&
+        left.tool_use_id === right.tool_use_id &&
         left.content === right.content &&
-        left.isError === right.isError
+        left.is_error === right.is_error
       );
     case "reasoning":
       return right.type === "reasoning" && left.text === right.text;
@@ -416,8 +431,13 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  source: "claude",
+  source: readStoredSource(),
   setSource: (s) => {
+    try {
+      localStorage.setItem(SOURCE_STORAGE_KEY, s);
+    } catch {
+      // storage unavailable: the choice just won't survive a reload
+    }
     set({
       source: s,
       projects: [],
