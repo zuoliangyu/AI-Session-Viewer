@@ -231,7 +231,7 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-2">
         <div className="mb-4 space-y-1">
-          {source !== "grok" && <button onClick={() => { clearChat(); navigate("/chat"); }} className="mb-3 flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"><MessageSquarePlus className="h-4 w-4" />{t("新建对话")}</button>}
+          {(source === "claude" || source === "codex") && <button onClick={() => { clearChat(); navigate("/chat"); }} className="mb-3 flex w-full items-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"><MessageSquarePlus className="h-4 w-4" />{t("新建对话")}</button>}
           {[
             { path: "/projects", label: t("所有项目"), icon: FolderOpen },
             { path: "/search", label: t("搜索会话"), icon: Search },

@@ -138,12 +138,7 @@ pub async fn delete_session(
             if let (Some(pid), Some(sid)) = (project_id.as_ref(), session_id.as_ref()) {
                 let _ = metadata::remove_session_meta(&source, pid, sid);
             }
-            match source_kind {
-                SessionSource::Claude => claude::invalidate_cache(),
-                SessionSource::Codex => codex::invalidate_sessions_cache(),
-                SessionSource::Grok => grok::invalidate_sessions_cache(),
-                SessionSource::Omp => omp::invalidate_sessions_cache(),
-            }
+            session_core::recyclebin::invalidate_source_cache(&source);
             return Ok(Json(()));
         }
         Err(e) => return Err((StatusCode::BAD_REQUEST, e)),
@@ -265,23 +260,18 @@ pub async fn delete_session(
     }
 
     tokio::task::spawn_blocking(move || {
-        if source == "grok" {
-            let session_dir = resolved_path
-                .parent()
-                .ok_or_else(|| "Invalid Grok session path".to_string())?;
-            std::fs::remove_dir_all(session_dir)
-                .map_err(|error| format!("Failed to delete Grok session: {error}"))?;
-        } else if source == "omp" {
-            omp::permanently_delete_session(&resolved_path)?;
-        } else {
-            std::fs::remove_file(&resolved_path)
-                .map_err(|error| format!("Failed to delete session: {error}"))?;
-        }
+        // Match desktop behavior: recoverable recycle-bin move, not a hard delete.
+        session_core::recyclebin::recycle_session(
+            &source,
+            &resolved_path,
+            project_id.as_deref().unwrap_or(""),
+        )?;
 
         // Clean up metadata if identifiers provided
         if let (Some(pid), Some(sid)) = (project_id, session_id) {
             let _ = metadata::remove_session_meta(&source, &pid, &sid);
         }
+        session_core::recyclebin::invalidate_source_cache(&source);
 
         Ok(())
     })

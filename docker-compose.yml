@@ -12,6 +12,7 @@ services:
       # 没有使用 Codex CLI 可以注释掉
       - ~/.codex:/root/.codex:ro
 
-    # environment:
-      # Bearer Token 认证（取消注释启用，不设则免认证）
-      # ASV_TOKEN: my-secret
+    environment:
+      # Bearer Token 认证（容器监听 0.0.0.0，必须设置，否则服务拒绝启动）
+      # 用法：ASV_TOKEN=my-secret docker compose up -d
+      ASV_TOKEN: ${ASV_TOKEN:?请设置 ASV_TOKEN}

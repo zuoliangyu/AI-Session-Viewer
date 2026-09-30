@@ -39,6 +39,15 @@ pub fn normalize_source(source: &str) -> Result<&'static str, String> {
     }
 }
 
+/// In-app chat only drives the locally installed Claude and Codex CLIs;
+/// other sources can still be resumed in a terminal.
+pub fn normalize_chat_source(source: &str) -> Result<&'static str, String> {
+    match normalize_source(source)? {
+        source @ ("claude" | "codex") => Ok(source),
+        other => Err(format!("In-app chat does not support source: {other}")),
+    }
+}
+
 /// Find a CLI binary path by source name ("claude", "codex", or "omp").
 pub fn find_cli(cli_type: &str) -> Result<String, String> {
     match normalize_source(cli_type)? {

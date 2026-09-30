@@ -72,13 +72,10 @@
 **直接运行（推荐）：**
 
 ```bash
-# 最简启动（默认监听 0.0.0.0:3000，所有网卡可访问）
+# 最简启动（默认只监听 127.0.0.1:3000，仅本机可访问）
 ./session-web
 
-# 限制只监听本机（仅 localhost 可访问）
-./session-web --host 127.0.0.1
-
-# 完整参数（公网暴露时务必设置 --token）
+# 局域网/公网访问：监听所有网卡时必须设置 --token，否则拒绝启动
 ./session-web --host 0.0.0.0 --port 8080 --token my-secret
 
 # 环境变量
@@ -87,9 +84,13 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 
 | 参数 | 环境变量 | 默认值 | 说明 |
 |------|---------|--------|------|
-| `--host` | `ASV_HOST` | `0.0.0.0` | 监听地址（`0.0.0.0` = 所有网卡，`127.0.0.1` = 仅本机） |
+| `--host` | `ASV_HOST` | `127.0.0.1` | 监听地址（`127.0.0.1` = 仅本机，`0.0.0.0` = 所有网卡） |
 | `--port` | `ASV_PORT` | `3000` | 监听端口 |
-| `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证，不设则**免认证**（局域网/公网部署必须设置） |
+| `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证；监听非本机地址时**必须设置** |
+| `--allow-no-auth` | `ASV_ALLOW_NO_AUTH` | 关闭 | 允许非本机地址免认证启动（不安全，仅限可信内网） |
+| `--allowed-origins` | `ASV_ALLOWED_ORIGINS` | *(无)* | 额外允许跨域访问 / 建立 WebSocket 的来源，逗号分隔（如反向代理域名） |
+| `--allow-skip-permissions` | `ASV_ALLOW_SKIP_PERMISSIONS` | 关闭 | 允许续聊客户端请求跳过权限（`--dangerously-skip-permissions`） |
+| `--allow-client-credentials` | `ASV_ALLOW_CLIENT_CREDENTIALS` | 关闭 | 允许续聊客户端传入自定义 API Key / Base URL |
 
 **直接运行 vs Docker：**
 

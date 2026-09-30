@@ -16,6 +16,19 @@ fn posix_single_quote(s: &str) -> String {
     s.replace('\'', "'\\''")
 }
 
+/// Real session ids are UUIDs / thread ids; anything outside `[A-Za-z0-9._-]`
+/// could be interpreted by the shell that runs the resume command.
+fn validate_shell_safe_session_id(session_id: &str) -> Result<(), String> {
+    if session_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        Ok(())
+    } else {
+        Err(format!("invalid session_id: {session_id}"))
+    }
+}
+
 fn resume_command(source: &str, session_id: &str) -> Result<String, String> {
     match source {
         "claude" => Ok(format!("claude --resume {session_id}")),
@@ -34,11 +47,13 @@ pub fn resume_session(
     file_path: Option<String>,
     shell: Option<String>,
 ) -> Result<(), String> {
-    // The session id ends up in a shell command line (e.g. `claude --resume
-    // {id}` inside `bash -c '…'`). Reject anything that's not a single safe
-    // path component to prevent shell metacharacters (`; & | $() \``)
-    // sneaking in via a doctored session file.
+    // The session id ends up unquoted in a shell command line (e.g. `claude
+    // --resume {id}` inside `bash -c '…'`, cmd, PowerShell or AppleScript).
+    // `validate_session_id` only blocks path tricks, so additionally restrict
+    // the id to a shell-inert charset to keep a doctored session file from
+    // smuggling in metacharacters (`; & | $() \``).
     validate_session_id(&session_id)?;
+    validate_shell_safe_session_id(&session_id)?;
 
     // Try to derive the correct project path from the session file location
     let project_path = resolve_project_path(&source, &project_path, file_path.as_deref());
@@ -312,7 +327,16 @@ fn normalize_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::resume_command;
+    use super::{resume_command, validate_shell_safe_session_id};
+
+    #[test]
+    fn shell_safe_session_id_rejects_metacharacters() {
+        assert!(validate_shell_safe_session_id("019f5569-e530-7ea3-8525-9e87d451a788").is_ok());
+        assert!(validate_shell_safe_session_id("thread_abc.1").is_ok());
+        for bad in ["a;rm -rf ~", "a&calc", "a|b", "$(id)", "`id`", "a b", "a'b", "a\"b"] {
+            assert!(validate_shell_safe_session_id(bad).is_err(), "{bad}");
+        }
+    }
 
     #[test]
     fn builds_omp_resume_command() {

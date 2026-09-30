@@ -116,26 +116,8 @@ pub fn delete_session(
                         "Session id does not match the requested OMP session file".to_string()
                     );
                 }
-                recyclebin::move_omp_session_to_recyclebin(&path, &project_id, None, None)?;
-            } else {
-                // Claude/Codex sessions are one JSONL file. Grok keeps a session in
-                // a directory, so recycle the validated file's parent as one unit.
-                let recycle_path = if source == "grok" {
-                    path.parent()
-                        .ok_or_else(|| "Invalid Grok session path".to_string())?
-                } else {
-                    path.as_path()
-                };
-                recyclebin::move_to_recyclebin(
-                    recycle_path,
-                    "session",
-                    "ManualDelete",
-                    &source,
-                    &project_id,
-                    None,
-                    None,
-                )?;
             }
+            recyclebin::recycle_session(&source, &path, &project_id)?;
         }
         // The rollout file is already gone — e.g. the conversation was archived
         // or deleted in Codex desktop while it still lingered in our in-memory
@@ -150,15 +132,7 @@ pub fn delete_session(
 
     // Clean up metadata
     let _ = metadata::remove_session_meta(&source, &project_id, &session_id);
-    if source == "claude" {
-        claude::invalidate_cache();
-    } else if source == "codex" {
-        codex::invalidate_sessions_cache();
-    } else if source == "grok" {
-        grok::invalidate_sessions_cache();
-    } else if source == "omp" {
-        omp::invalidate_sessions_cache();
-    }
+    recyclebin::invalidate_source_cache(&source);
 
     Ok(())
 }

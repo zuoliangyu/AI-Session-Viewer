@@ -92,7 +92,7 @@ pub async fn start_chat(
     api_key: String,
     base_url: String,
 ) -> Result<String, String> {
-    let source = cli::normalize_source(&source)?.to_string();
+    let source = cli::normalize_chat_source(&source)?.to_string();
     let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
@@ -145,7 +145,7 @@ pub async fn continue_chat(
     api_key: String,
     base_url: String,
 ) -> Result<String, String> {
-    let source = cli::normalize_source(&source)?.to_string();
+    let source = cli::normalize_chat_source(&source)?.to_string();
     let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
     if source == "codex" {
@@ -166,13 +166,6 @@ pub async fn continue_chat(
     } else {
         cli_path
     };
-    let resume_target = if source == "omp" {
-        session_core::provider::omp::find_session_file(&project_path, &session_id)
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|| session_id.clone())
-    } else {
-        session_id.clone()
-    };
     let cmd = build_chat_command(BuildChatCommandParams {
         cli_path: &resolved_cli,
         source: &source,
@@ -180,7 +173,7 @@ pub async fn continue_chat(
         prompt: &prompt,
         model: &model,
         skip_permissions,
-        resume_session_id: Some(&resume_target),
+        resume_session_id: Some(&session_id),
         credentials: &credentials,
     })?;
 
@@ -510,99 +503,69 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
         credentials,
     } = params;
 
+    // Only Claude is spawned per turn; Codex goes through `codex app-server`.
     let mut cmd = Command::new(cli_path);
 
-    if source == "codex" {
-        // codex exec [resume <session_id>] "prompt" --json --full-auto [--model m] [--skip-git-repo-check]
-        cmd.arg("exec");
-        if let Some(sid) = resume_session_id {
-            cmd.arg("resume").arg(sid);
-        }
-        cmd.arg(prompt);
-        cmd.arg("--json");
-        cmd.arg("--full-auto");
-        if !model.is_empty() {
-            cmd.arg("--model").arg(model);
-        }
-        // Codex requires a git repo; skip the check so it works in any directory
-        cmd.arg("--skip-git-repo-check");
-    } else if source == "omp" {
-        // OMP print mode emits a JSONL event stream and persists the session.
-        if let Some(sid) = resume_session_id {
-            cmd.arg("--resume").arg(sid);
-        }
-        cmd.arg("-p").arg(prompt);
-        cmd.arg("--mode").arg("json");
-        cmd.arg("--no-pty");
-        if !model.is_empty() {
-            cmd.arg("--model").arg(model);
-        }
-        if skip_permissions {
-            cmd.arg("--auto-approve");
-        }
-    } else {
-        // Claude CLI arguments
-        if let Some(sid) = resume_session_id {
-            cmd.arg("--resume").arg(sid);
-        }
-        cmd.arg("-p").arg(prompt);
-        if !model.is_empty() {
-            // Strip "-latest" suffix — Claude CLI expects full names like
-            // "claude-sonnet-4-6", not API-style "claude-sonnet-4-6-latest"
-            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-            cmd.arg("--model").arg(cli_model);
-        }
-        cmd.arg("--output-format").arg("stream-json");
-        cmd.arg("--include-partial-messages");
-        cmd.arg("--verbose");
-        if skip_permissions {
-            cmd.arg("--dangerously-skip-permissions");
-        }
+    if let Some(sid) = resume_session_id {
+        cmd.arg("--resume").arg(sid);
     }
+    cmd.arg("-p");
+    if !model.is_empty() {
+        // Strip "-latest" suffix — Claude CLI expects full names like
+        // "claude-sonnet-4-6", not API-style "claude-sonnet-4-6-latest"
+        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+        cmd.arg("--model").arg(cli_model);
+    }
+    cmd.arg("--output-format").arg("stream-json");
+    cmd.arg("--include-partial-messages");
+    cmd.arg("--verbose");
+    if skip_permissions {
+        cmd.arg("--dangerously-skip-permissions");
+    }
+    // `--` ends option parsing so a prompt starting with `-` is never
+    // interpreted as a CLI flag.
+    cmd.arg("--").arg(prompt);
 
     eprintln!(
         "[chat] source={}, model={}, project={}",
         source, model, project_path
     );
 
-    // Claude/Codex use a whitelist to avoid inheriting conflicting session
-    // variables. OMP must retain profile, XDG and provider-specific settings.
-    if source != "omp" {
-        cmd.env_clear();
-        for key in &[
-            "PATH",
-            "PATHEXT",
-            "SYSTEMROOT",
-            "SYSTEMDRIVE",
-            "COMSPEC",
-            "TEMP",
-            "TMP",
-            "HOME",
-            "HOMEDRIVE",
-            "HOMEPATH",
-            "USERPROFILE",
-            "USERNAME",
-            "USER",
-            "SHELL",
-            "LANG",
-            "LC_ALL",
-            "LC_CTYPE",
-            "NODE_PATH",
-            "NVM_DIR",
-            "NVM_BIN",
-            "NVM_SYMLINK",
-            "APPDATA",
-            "LOCALAPPDATA",
-            "PROGRAMFILES",
-            "PROGRAMDATA",
-            "HTTP_PROXY",
-            "HTTPS_PROXY",
-            "NO_PROXY",
-            "ALL_PROXY",
-        ] {
-            if let Ok(val) = std::env::var(key) {
-                cmd.env(key, val);
-            }
+    // Use a whitelist to avoid inheriting conflicting session variables.
+    cmd.env_clear();
+    for key in &[
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "COMSPEC",
+        "TEMP",
+        "TMP",
+        "HOME",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "USERPROFILE",
+        "USERNAME",
+        "USER",
+        "SHELL",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "NODE_PATH",
+        "NVM_DIR",
+        "NVM_BIN",
+        "NVM_SYMLINK",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMDATA",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "NO_PROXY",
+        "ALL_PROXY",
+    ] {
+        if let Ok(val) = std::env::var(key) {
+            cmd.env(key, val);
         }
     }
     compose_chat_path(&mut cmd, cli_path)?;
@@ -667,9 +630,6 @@ fn apply_provider_env(
     source: &str,
     credentials: &cli_config::ResolvedCliCredentials,
 ) {
-    if source == "omp" {
-        return;
-    }
     for key in &[
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",

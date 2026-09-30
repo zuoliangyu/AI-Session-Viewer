@@ -115,7 +115,7 @@ pub fn move_to_recyclebin(
         return Err(format!("Target already exists: {:?}", target));
     }
 
-    fs::rename(original_path, &target)
+    move_path(original_path, &target)
         .map_err(|e| format!("Failed to move to recyclebin: {}", e))?;
 
     let item = RecycledItem {
@@ -138,6 +138,58 @@ pub fn move_to_recyclebin(
     save_manifest(&manifest)?;
 
     Ok(id)
+}
+
+/// Recycle an already-validated session so desktop and web deletes behave the
+/// same. Claude/Codex sessions are one JSONL file; Grok keeps a session in a
+/// directory, and OMP pairs the JSONL with an artifact directory.
+pub fn recycle_session(
+    source: &str,
+    session_path: &std::path::Path,
+    project_id: &str,
+) -> Result<(), String> {
+    match source {
+        "omp" => {
+            move_omp_session_to_recyclebin(session_path, project_id, None, None)?;
+        }
+        "grok" => {
+            let session_dir = session_path
+                .parent()
+                .ok_or_else(|| "Invalid Grok session path".to_string())?;
+            move_to_recyclebin(
+                session_dir,
+                "session",
+                "ManualDelete",
+                source,
+                project_id,
+                None,
+                None,
+            )?;
+        }
+        _ => {
+            move_to_recyclebin(
+                session_path,
+                "session",
+                "ManualDelete",
+                source,
+                project_id,
+                None,
+                None,
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Drop the in-memory session caches of one source after its files changed.
+pub fn invalidate_source_cache(source: &str) {
+    match source {
+        "claude" => crate::provider::claude::invalidate_cache(),
+        "codex" => crate::provider::codex::invalidate_sessions_cache(),
+        "grok" => crate::provider::grok::invalidate_sessions_cache(),
+        "omp" => crate::provider::omp::invalidate_sessions_cache(),
+        _ => {}
+    }
 }
 
 fn session_artifact_dir(session_path: &std::path::Path) -> Result<Option<PathBuf>, String> {
@@ -188,13 +240,13 @@ pub fn move_omp_session_to_recyclebin(
         return Err("Recyclebin target already exists".to_string());
     }
 
-    fs::rename(session_path, &stored_path)
+    move_path(session_path, &stored_path)
         .map_err(|error| format!("Failed to move OMP session to recyclebin: {error}"))?;
     if let (Some(artifact_path), Some(companion_stored_path)) =
         (artifact_path.as_ref(), companion_stored_path.as_ref())
     {
-        if let Err(error) = fs::rename(artifact_path, companion_stored_path) {
-            let rollback = fs::rename(&stored_path, session_path);
+        if let Err(error) = move_path(artifact_path, companion_stored_path) {
+            let rollback = move_path(&stored_path, session_path);
             return match rollback {
                 Ok(()) => Err(format!("Failed to move OMP session artifacts to recyclebin: {error}")),
                 Err(rollback_error) => Err(format!(
@@ -227,11 +279,11 @@ pub fn move_omp_session_to_recyclebin(
         if let (Some(artifact_path), Some(companion_stored_path)) =
             (artifact_path.as_ref(), companion_stored_path.as_ref())
         {
-            if let Err(rollback_error) = fs::rename(companion_stored_path, artifact_path) {
+            if let Err(rollback_error) = move_path(companion_stored_path, artifact_path) {
                 rollback_errors.push(rollback_error.to_string());
             }
         }
-        if let Err(rollback_error) = fs::rename(&stored_path, session_path) {
+        if let Err(rollback_error) = move_path(&stored_path, session_path) {
             rollback_errors.push(rollback_error.to_string());
         }
         if rollback_errors.is_empty() {
@@ -348,6 +400,21 @@ fn restore_path(source: &std::path::Path, destination: &std::path::Path) -> Resu
             .map_err(|error| format!("Restored, but failed to clean recyclebin entry: {error}"))?;
     }
     Ok(())
+}
+
+/// Rename, falling back to copy + remove when the recycle bin lives on another
+/// volume (e.g. session dirs bind-mounted into the web server's container).
+fn move_path(source: &std::path::Path, destination: &std::path::Path) -> std::io::Result<()> {
+    match fs::rename(source, destination) {
+        Err(error) if cross_device_error(&error) => {
+            if let Err(copy_error) = copy_path(source, destination) {
+                let _ = remove_path(destination);
+                return Err(copy_error);
+            }
+            remove_path(source)
+        }
+        result => result,
+    }
 }
 
 fn copy_path(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {

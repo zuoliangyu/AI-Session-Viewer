@@ -359,7 +359,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
 
   // Sync source from appStore into the target pane
   useEffect(() => {
-    if (appSource !== "claude" && appSource !== "codex" && appSource !== "omp") {
+    if (appSource !== "claude" && appSource !== "codex") {
       return;
     }
     setPaneSource(paneId, appSource);

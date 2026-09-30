@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
 
-use crate::{require_ws_auth, AppToken, WsTicketStore};
+use crate::{check_ws_origin, require_ws_auth, AllowedOrigins, AppToken, WsTicketStore};
 
 /// Minimum interval between sending file change events.
 /// Docker volume mounts can produce frequent inotify events,
@@ -168,9 +168,11 @@ pub async fn ws_handler(
     axum::extract::State(tx): axum::extract::State<FsChangeTx>,
     axum::extract::Extension(app_token): axum::extract::Extension<AppToken>,
     axum::extract::Extension(tickets): axum::extract::Extension<WsTicketStore>,
+    axum::extract::Extension(allowed_origins): axum::extract::Extension<AllowedOrigins>,
     headers: axum::http::HeaderMap,
     axum::extract::Query(query): axum::extract::Query<WsAuthQuery>,
 ) -> Result<Response, StatusCode> {
+    check_ws_origin(&headers, &allowed_origins)?;
     require_ws_auth(&headers, query.ticket.as_deref(), &app_token, &tickets)?;
     Ok(ws.on_upgrade(move |socket| handle_socket(socket, tx)))
 }

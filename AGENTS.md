@@ -135,7 +135,7 @@ CSS 变量定义在 `index.css`（`:root` 浅色，`.dark` 深色）。Tailwind 
 
 **端口被占用（Address in use）**
 
-`session-web` 默认绑定 **0.0.0.0**（所有网卡，可通过 `--host` 或 `ASV_HOST` 修改），默认监听 **3000** 端口（可通过 `--port` 或 `ASV_PORT` 环境变量修改）。
+`session-web` 默认绑定 **127.0.0.1**（仅本机；监听 `0.0.0.0` 等非本机地址时必须设置 `--token` / `ASV_TOKEN`，可通过 `--host` 或 `ASV_HOST` 修改），默认监听 **3000** 端口（可通过 `--port` 或 `ASV_PORT` 环境变量修改）。
 若启动报 `Failed to bind address: Os { code: 98, kind: AddrInUse }`，执行：
 
 ```bash

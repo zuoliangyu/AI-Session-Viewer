@@ -417,6 +417,8 @@ export function MessagesPage() {
     })),
   );
   const supportsCli = source === "claude" || source === "codex" || source === "omp";
+  // In-app continue only drives the local Claude / Codex CLIs.
+  const supportsInlineChat = source === "claude" || source === "codex";
   const supportsResume = supportsCli || source === "grok";
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -498,7 +500,7 @@ export function MessagesPage() {
     "";
 
   usePaneChatStream(mainPaneId, resolvedSessionId);
-  const cliAvailable = supportsCli && availableClis.some((cli) => cli.cliType === source);
+  const cliAvailable = supportsInlineChat && availableClis.some((cli) => cli.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
   // Detect CLI and set chat context on mount
@@ -509,7 +511,7 @@ export function MessagesPage() {
   // Sync source from appStore into chatStore, then refresh model list
   useEffect(() => {
     setActivePane(mainPaneId);
-    if (source === "claude" || source === "codex" || source === "omp") {
+    if (source === "claude" || source === "codex") {
       setPaneSource(mainPaneId, source);
       fetchChatModelList(mainPaneId);
     }
@@ -1718,7 +1720,7 @@ function SplitSessionPane({
   }, [loadMessages]);
 
   useEffect(() => {
-    if (source === "claude" || source === "codex" || source === "omp") {
+    if (source === "claude" || source === "codex") {
       setPaneSource(paneId, source);
     }
   }, [paneId, setPaneSource, source]);

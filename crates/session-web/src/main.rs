@@ -18,10 +18,76 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 #[derive(Clone)]
 pub(crate) struct AppToken(pub(crate) Option<String>);
+
+/// Extra browser origins (beyond same-origin, loopback and the desktop app)
+/// allowed to call the API cross-origin and open WebSockets.
+#[derive(Clone)]
+pub(crate) struct AllowedOrigins(pub(crate) Arc<Vec<String>>);
+
+/// `scheme://host[:port]` → `host[:port]`.
+fn origin_authority(origin: &str) -> Option<&str> {
+    let (_, rest) = origin.split_once("://")?;
+    Some(rest.split('/').next().unwrap_or(rest))
+}
+
+fn authority_host(authority: &str) -> &str {
+    if let Some(rest) = authority.strip_prefix('[') {
+        // IPv6 literal: "[::1]:3000"
+        return rest.split(']').next().unwrap_or(rest);
+    }
+    authority.rsplit_once(':').map_or(authority, |(host, _)| host)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+}
+
+/// Origins trusted regardless of the request's Host: loopback pages (dev
+/// servers), the Tauri desktop app (remote-node mode) and configured extras.
+fn is_trusted_origin(origin: &str, extra: &[String]) -> bool {
+    let origin = origin.trim_end_matches('/');
+    if extra
+        .iter()
+        .any(|allowed| allowed.trim_end_matches('/').eq_ignore_ascii_case(origin))
+    {
+        return true;
+    }
+    let Some(authority) = origin_authority(origin) else {
+        return false;
+    };
+    let host = authority_host(authority);
+    is_loopback_host(host) || host.eq_ignore_ascii_case("tauri.localhost")
+}
+
+/// Reject cross-site WebSocket upgrades. Browsers don't apply CORS to
+/// WebSockets, so without this any page the user visits could open
+/// `/ws/chat` against a reachable server. Non-browser clients send no Origin.
+pub(crate) fn check_ws_origin(
+    headers: &HeaderMap,
+    allowed: &AllowedOrigins,
+) -> Result<(), StatusCode> {
+    let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) else {
+        return Ok(());
+    };
+    let same_origin = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .zip(origin_authority(origin))
+        .is_some_and(|(host, authority)| host.eq_ignore_ascii_case(authority));
+    if same_origin || is_trusted_origin(origin, &allowed.0) {
+        Ok(())
+    } else {
+        tracing::warn!("Rejected WebSocket upgrade from origin {origin}");
+        Err(StatusCode::FORBIDDEN)
+    }
+}
 
 /// Time-to-live for a freshly minted WebSocket auth ticket. Long enough for
 /// a slow client to redeem, short enough that a leaked log line stops being
@@ -224,11 +290,14 @@ async fn chat_ws_auth_handler(
     ws: axum::extract::ws::WebSocketUpgrade,
     axum::extract::Extension(app_token): axum::extract::Extension<AppToken>,
     axum::extract::Extension(tickets): axum::extract::Extension<WsTicketStore>,
+    axum::extract::Extension(allowed_origins): axum::extract::Extension<AllowedOrigins>,
+    axum::extract::Extension(policy): axum::extract::Extension<chat_ws::ChatPolicy>,
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<WsAuthQuery>,
 ) -> Result<Response, StatusCode> {
+    check_ws_origin(&headers, &allowed_origins)?;
     require_ws_auth(&headers, query.ticket.as_deref(), &app_token, &tickets)?;
-    Ok(chat_ws::chat_ws_handler(ws).await)
+    Ok(chat_ws::chat_ws_handler(ws, policy).await)
 }
 
 #[derive(serde::Deserialize)]
@@ -250,6 +319,21 @@ async fn list_models_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
+/// Same-origin requests need no CORS; only trusted cross-origin callers
+/// (desktop app in remote-node mode, loopback dev servers, configured extras)
+/// may read API responses.
+fn cors_layer(extra: Arc<Vec<String>>) -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(move |origin, _| {
+            origin
+                .to_str()
+                .is_ok_and(|origin| is_trusted_origin(origin, &extra))
+        }))
+        .allow_methods(Any)
+        .allow_headers(Any)
+        .expose_headers(Any)
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -259,10 +343,25 @@ async fn main() {
 
     let config = Config::parse();
 
+    let binds_loopback = is_loopback_host(config.host.trim_matches(|c| c == '[' || c == ']'));
+    if !binds_loopback && config.token.is_none() && !config.allow_no_auth {
+        eprintln!(
+            "Refusing to listen on {} without authentication: anyone who can reach this port could read sessions and run the local CLIs.
+Set --token / ASV_TOKEN, bind to 127.0.0.1, or pass --allow-no-auth to override.",
+            config.host
+        );
+        std::process::exit(1);
+    }
+
     // Start file watcher
     let fs_tx = ws::start_file_watcher();
 
     let app_token = AppToken(config.token.clone());
+    let allowed_origins = AllowedOrigins(Arc::new(config.allowed_origins.clone()));
+    let chat_policy = chat_ws::ChatPolicy {
+        allow_skip_permissions: config.allow_skip_permissions,
+        allow_client_credentials: config.allow_client_credentials,
+    };
     let ws_tickets = WsTicketStore::new();
 
     // API routes (with auth middleware)
@@ -409,8 +508,10 @@ async fn main() {
         .merge(ws_routes)
         .merge(chat_ws_routes)
         .merge(static_routes)
-        .layer(CorsLayer::permissive())
+        .layer(cors_layer(Arc::clone(&allowed_origins.0)))
         .layer(axum::Extension(app_token))
+        .layer(axum::Extension(allowed_origins))
+        .layer(axum::Extension(chat_policy))
         .layer(axum::Extension(ws_tickets));
 
     let addr = format!("{}:{}", config.host, config.port);
@@ -421,9 +522,65 @@ async fn main() {
     tracing::info!("AI Session Viewer Web Server listening on http://{}", addr);
     if config.token.is_some() {
         tracing::info!("Authentication enabled (Bearer token required)");
+    } else if binds_loopback {
+        tracing::info!("No authentication (loopback only; set --token or ASV_TOKEN to enable)");
     } else {
-        tracing::info!("No authentication (set --token or ASV_TOKEN to enable)");
+        tracing::warn!("No authentication on a network-reachable address (--allow-no-auth)");
+    }
+    if config.allow_skip_permissions {
+        tracing::warn!("Chat clients may request --dangerously-skip-permissions");
     }
 
     axum::serve(listener, app).await.expect("Server error");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn headers(origin: Option<&str>, host: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("host", host.parse().unwrap());
+        if let Some(origin) = origin {
+            headers.insert("origin", origin.parse().unwrap());
+        }
+        headers
+    }
+
+    #[test]
+    fn ws_origin_allows_same_origin_trusted_and_originless() {
+        let allowed = AllowedOrigins(Arc::new(vec!["https://asv.example.com/".to_string()]));
+        for origin in [
+            None,
+            Some("http://192.168.1.5:3000"),
+            Some("http://localhost:1420"),
+            Some("http://127.0.0.1:5173"),
+            Some("http://[::1]:3000"),
+            Some("tauri://localhost"),
+            Some("http://tauri.localhost"),
+            Some("https://asv.example.com"),
+        ] {
+            assert!(
+                check_ws_origin(&headers(origin, "192.168.1.5:3000"), &allowed).is_ok(),
+                "{origin:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ws_origin_rejects_cross_site_pages() {
+        let allowed = AllowedOrigins(Arc::new(Vec::new()));
+        for origin in [
+            "https://evil.example",
+            "http://localhost.evil.example",
+            "http://192.168.1.6:3000",
+            "null",
+        ] {
+            assert_eq!(
+                check_ws_origin(&headers(Some(origin), "192.168.1.5:3000"), &allowed),
+                Err(StatusCode::FORBIDDEN),
+                "{origin}"
+            );
+        }
+    }
 }

@@ -29,8 +29,37 @@ struct ChatRequest {
     base_url: Option<String>,
 }
 
-pub async fn chat_ws_handler(ws: WebSocketUpgrade) -> Response {
-    ws.on_upgrade(handle_chat_socket)
+/// Server-side switches for what a chat client may request. Both are off by
+/// default so a reachable server can't be driven into running an agent without
+/// permission prompts or against an attacker-chosen API endpoint.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ChatPolicy {
+    pub allow_skip_permissions: bool,
+    pub allow_client_credentials: bool,
+}
+
+impl ChatPolicy {
+    fn check(&self, skip_permissions: bool, api_key: &str, base_url: &str) -> Result<(), String> {
+        if skip_permissions && !self.allow_skip_permissions {
+            return Err(
+                "服务器未开启跳过权限（启动时需加 --allow-skip-permissions 或 ASV_ALLOW_SKIP_PERMISSIONS=true）"
+                    .to_string(),
+            );
+        }
+        if (!api_key.trim().is_empty() || !base_url.trim().is_empty())
+            && !self.allow_client_credentials
+        {
+            return Err(
+                "服务器不接受客户端传入的 API Key / Base URL（启动时需加 --allow-client-credentials 或 ASV_ALLOW_CLIENT_CREDENTIALS=true）"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
+pub async fn chat_ws_handler(ws: WebSocketUpgrade, policy: ChatPolicy) -> Response {
+    ws.on_upgrade(move |socket| handle_chat_socket(socket, policy))
 }
 
 fn canonicalize_existing_dir(path: &str) -> Result<PathBuf, String> {
@@ -52,8 +81,6 @@ fn canonicalize_existing_dir(path: &str) -> Result<PathBuf, String> {
 fn allowed_project_roots(source: &str) -> Result<Vec<PathBuf>, String> {
     let projects = if source == "codex" {
         session_core::provider::codex::get_projects()
-    } else if source == "omp" {
-        session_core::provider::omp::get_projects()
     } else {
         session_core::provider::claude::get_projects()
     }?;
@@ -116,7 +143,7 @@ struct CodexTurnState {
 type ClaudeCancelMap = Arc<Mutex<HashMap<String, watch::Sender<bool>>>>;
 type CodexStateMap = Arc<Mutex<HashMap<String, CodexTurnState>>>;
 
-async fn handle_chat_socket(mut socket: WebSocket) {
+async fn handle_chat_socket(mut socket: WebSocket, policy: ChatPolicy) {
     // Channel for sending messages back to the client
     let (tx, mut rx) = mpsc::channel::<String>(100);
 
@@ -154,7 +181,7 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                             "start" | "continue" => {
                                 let raw_source =
                                     request.source.unwrap_or_else(|| "claude".to_string());
-                                let source = match cli::normalize_source(&raw_source) {
+                                let source = match cli::normalize_chat_source(&raw_source) {
                                     Ok(source) => source.to_string(),
                                     Err(e) => {
                                         let err_msg = serde_json::json!({
@@ -172,6 +199,15 @@ async fn handle_chat_socket(mut socket: WebSocket) {
                                 let cli_path = request.cli_path.unwrap_or_default();
                                 let api_key = request.api_key.unwrap_or_default();
                                 let base_url = request.base_url.unwrap_or_default();
+                                if let Err(e) = policy.check(skip_permissions, &api_key, &base_url) {
+                                    let err_msg = serde_json::json!({
+                                        "type": "error",
+                                        "data": e,
+                                        "sessionId": &request.session_id,
+                                    }).to_string();
+                                    let _ = socket.send(Message::Text(err_msg.into())).await;
+                                    continue;
+                                }
                                 let resume_id = if request.action == "continue" {
                                     request.session_id.clone()
                                 } else {
@@ -349,7 +385,7 @@ async fn run_cli_process(
     tx: mpsc::Sender<String>,
     cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let source = cli::normalize_source(source)?;
+    let source = cli::normalize_chat_source(source)?;
     if source == "codex" {
         return Err("Codex chat must go through run_codex_chat_via_app_server".to_string());
     }
@@ -361,41 +397,23 @@ async fn run_cli_process(
     let credentials =
         cli_config::resolve_credentials(source, Some(api_key_override), Some(base_url_override))?;
     let mut cmd = Command::new(&cli_path);
-    let resume_target = resume_session_id.map(|session_id| {
-        if source == "omp" {
-            session_core::provider::omp::find_session_file(project_path, session_id)
-                .map(|path| path.to_string_lossy().into_owned())
-                .unwrap_or_else(|| session_id.to_string())
-        } else {
-            session_id.to_string()
-        }
-    });
-    if let Some(resume_target) = resume_target.as_deref() {
-        cmd.arg("--resume").arg(resume_target);
+    if let Some(session_id) = resume_session_id {
+        cmd.arg("--resume").arg(session_id);
     }
-    cmd.arg("-p").arg(prompt);
+    cmd.arg("-p");
     if !model.is_empty() {
-        if source == "claude" {
-            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-            cmd.arg("--model").arg(cli_model);
-        } else {
-            cmd.arg("--model").arg(model);
-        }
+        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+        cmd.arg("--model").arg(cli_model);
     }
-    if source == "omp" {
-        cmd.arg("--mode").arg("json");
-        cmd.arg("--no-pty");
-        if skip_permissions {
-            cmd.arg("--auto-approve");
-        }
-    } else {
-        cmd.arg("--output-format").arg("stream-json");
-        cmd.arg("--include-partial-messages");
-        cmd.arg("--verbose");
-        if skip_permissions {
-            cmd.arg("--dangerously-skip-permissions");
-        }
+    cmd.arg("--output-format").arg("stream-json");
+    cmd.arg("--include-partial-messages");
+    cmd.arg("--verbose");
+    if skip_permissions {
+        cmd.arg("--dangerously-skip-permissions");
     }
+    // `--` ends option parsing so a prompt starting with `-` is never
+    // interpreted as a CLI flag.
+    cmd.arg("--").arg(prompt);
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
     // waiting for permission confirmation or other interactive prompts
@@ -738,9 +756,6 @@ fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
 }
 
 fn apply_provider_env(cmd: &mut Command, source: &str, credentials: &ResolvedCliCredentials) {
-    if source == "omp" {
-        return;
-    }
     for key in &[
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",

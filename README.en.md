@@ -71,14 +71,11 @@ The Linux web server is a static musl executable. It runs without WebKit or othe
 ```bash
 chmod +x ./session-web
 
-# Default: listen on all interfaces, port 3000
+# Default: loopback only (127.0.0.1:3000)
 ./session-web
 
-# Local access only
-./session-web --host 127.0.0.1
-
-# Set authentication before exposing the server
-./session-web --port 8080 --token my-secret
+# Network access: a token is required when binding to a non-loopback address
+./session-web --host 0.0.0.0 --port 8080 --token my-secret
 
 # Equivalent environment variables
 ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
@@ -86,9 +83,13 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 
 | Option | Environment variable | Default |
 |---|---|---|
-| `--host` | `ASV_HOST` | `0.0.0.0` |
+| `--host` | `ASV_HOST` | `127.0.0.1` |
 | `--port` | `ASV_PORT` | `3000` |
-| `--token` | `ASV_TOKEN` | None; authentication is disabled |
+| `--token` | `ASV_TOKEN` | None; required for non-loopback hosts |
+| `--allow-no-auth` | `ASV_ALLOW_NO_AUTH` | Off; allow a non-loopback host without a token (unsafe) |
+| `--allowed-origins` | `ASV_ALLOWED_ORIGINS` | None; extra comma-separated origins allowed for CORS / WebSockets |
+| `--allow-skip-permissions` | `ASV_ALLOW_SKIP_PERMISSIONS` | Off; let chat clients request `--dangerously-skip-permissions` |
+| `--allow-client-credentials` | `ASV_ALLOW_CLIENT_CREDENTIALS` | Off; let chat clients supply their own API key / base URL |
 
 ### Docker
 

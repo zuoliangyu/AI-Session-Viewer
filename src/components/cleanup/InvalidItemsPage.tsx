@@ -129,9 +129,6 @@ export function InvalidItemsPage() {
   /** 每次 reload 自增；in-flight 的请求结果只在 epoch 没变时才落盘。 */
   const reloadEpochRef = useRef(0);
   const canDeleteInvalidProjects = source !== "codex";
-  const sessionDeleteHint = __IS_TAURI__
-    ? t("当前为桌面端，会话删除会移入回收站。")
-    : t("当前为 Web 端，会话删除为永久删除。");
   const scanInProgress =
     scanProgress.total > 0 && scanProgress.completed < scanProgress.total;
   const scanWarning =
@@ -559,8 +556,7 @@ export function InvalidItemsPage() {
         <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-400">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p>{t("会话删除说明：桌面端删除会移入回收站，Web 端删除为永久删除。")}</p>
-            <p>{sessionDeleteHint}</p>
+            <p>{t("会话删除会移入回收站，可在回收站中恢复。")}</p>
           </div>
         </div>
         {!canDeleteInvalidProjects && (
@@ -899,8 +895,7 @@ export function InvalidItemsPage() {
                   ? t("默认使用 `sessionOnly` 级别")
                   : t("`codex` 数据源不支持项目删除")}
               </div>
-              <div>{t("会话删除：桌面端会移入回收站，Web 端为永久删除")}</div>
-              <div>{t("当前环境：")}{__IS_TAURI__ ? t("桌面端") : t("Web 端")}</div>
+              <div>{t("会话删除：移入回收站")}</div>
               <div>{t("此操作请确认后继续。")}</div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
