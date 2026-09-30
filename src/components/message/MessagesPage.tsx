@@ -363,9 +363,9 @@ export function MessagesPage() {
   const scrollToMessageId = searchParams.get("scrollTo");
   const matchedOnly = searchParams.get("matchedOnly") === "1";
 
-  // Use React Router's wildcard param (already decoded) instead of manual pathname slicing
-  const rawFilePath = params["*"] || "";
-  const filePath = rawFilePath ? decodeURIComponent(rawFilePath) : "";
+  // React Router already decodes the wildcard param. Decoding again corrupts
+  // paths that legitimately contain "%" (e.g. Grok's URL-encoded cwd dirs).
+  const filePath = params["*"] || "";
 
   const {
     source,

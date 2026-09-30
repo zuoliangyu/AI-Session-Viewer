@@ -16,7 +16,7 @@ use crate::state::file_modified_key;
 
 const CHAT_HISTORY_FILE: &str = "chat_history.jsonl";
 const UNROOTED_PROJECT: &str = "<grok-unrooted>";
-const DISK_CACHE_VERSION: u32 = 1;
+const DISK_CACHE_VERSION: u32 = 2;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -135,6 +135,21 @@ fn text_content(value: &Value) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
+/// Grok CLI stores injected context (`<user_info>`, `<system-reminder>`) as
+/// ordinary user rows and wraps the real prompt in `<user_query>`.
+fn visible_user_text(text: String) -> Option<String> {
+    if let Some((_, rest)) = text.split_once("<user_query>") {
+        let query = rest.split_once("</user_query>").map_or(rest, |(query, _)| query);
+        let query = query.trim();
+        return (!query.is_empty()).then(|| query.to_string());
+    }
+    let trimmed = text.trim_start();
+    if trimmed.starts_with("<system-reminder>") || trimmed.starts_with("<user_info>") {
+        return None;
+    }
+    Some(text)
+}
+
 fn display_message_from_row(row: &Value) -> Option<DisplayMessage> {
     let row_type = row.get("type")?.as_str()?;
     let (role, model, content) = match row_type {
@@ -148,7 +163,7 @@ fn display_message_from_row(row: &Value) -> Option<DisplayMessage> {
                 "user",
                 None,
                 DisplayContentBlock::Text {
-                    text: text_content(row.get("content")?)?,
+                    text: visible_user_text(text_content(row.get("content")?)?)?,
                 },
             )
         }
@@ -636,6 +651,15 @@ mod tests {
         assert!(page.has_more);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn hides_injected_context_and_unwraps_user_query() {
+        let row = |text: &str| serde_json::json!({"type":"user","content":[{"type":"text","text":text}]});
+        assert!(display_message_from_row(&row("<user_info>\nOS: windows\n</user_info>")).is_none());
+        assert!(display_message_from_row(&row("\n\n<system-reminder>\nctx\n</system-reminder>")).is_none());
+        let message = display_message_from_row(&row("<user_query>\n只回复 ok\n</user_query>")).unwrap();
+        assert!(matches!(&message.content[0], DisplayContentBlock::Text { text } if text == "只回复 ok"));
     }
 
     #[test]
