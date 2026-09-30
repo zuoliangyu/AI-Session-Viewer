@@ -520,8 +520,10 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
         .filter(|name| !name.is_empty())
         .unwrap_or(project_id)
         .to_string();
-    let mut sessions_deleted = 0;
-
+    // Each Grok session is its own directory; recycle the whole project as
+    // one grouped entry instead of one row per session directory.
+    let mut session_dirs = Vec::new();
+    let mut session_ids = Vec::new();
     for session in &sessions {
         let path = Path::new(&session.file_path);
         if !path.exists() {
@@ -530,19 +532,20 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
         let Some(session_dir) = path.parent() else {
             continue;
         };
-        if crate::recyclebin::move_to_recyclebin(
-            session_dir,
-            "project",
-            "ManualDelete",
+        session_dirs.push(session_dir.to_path_buf());
+        session_ids.push(session.session_id.clone());
+    }
+    let sessions_deleted = session_ids.len();
+    if sessions_deleted > 0 {
+        crate::recyclebin::move_group_to_recyclebin(
+            &session_dirs,
             "grok",
             project_id,
             None,
-            Some(project_name.clone()),
-        )
-        .is_ok()
-        {
-            sessions_deleted += 1;
-            let _ = crate::metadata::remove_session_meta("grok", project_id, &session.session_id);
+            Some(project_name),
+        )?;
+        for session_id in &session_ids {
+            let _ = crate::metadata::remove_session_meta("grok", project_id, session_id);
         }
     }
 

@@ -390,5 +390,7 @@ export interface RecycledItem {
   storedName: string;
   companionOriginalPath?: string | null;
   companionStoredName?: string | null;
+  /** Grouped project entry (OMP / Grok): every recycled path of the project. */
+  members?: { originalPath: string; storedName: string }[];
   movedAt: string;
 }

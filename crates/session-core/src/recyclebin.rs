@@ -20,7 +20,19 @@ pub struct RecycledItem {
     pub companion_original_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub companion_stored_name: Option<String>,
+    /// Grouped entries (a whole project whose sessions don't share one
+    /// directory, e.g. OMP / Grok) store every path under `stored_name/`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub members: Vec<RecycledMember>,
     pub moved_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecycledMember {
+    pub original_path: String,
+    /// Path relative to the group's directory inside `items/`.
+    pub stored_name: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -130,6 +142,7 @@ pub fn move_to_recyclebin(
         stored_name,
         companion_original_path: None,
         companion_stored_name: None,
+        members: Vec::new(),
         moved_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -192,7 +205,133 @@ pub fn invalidate_source_cache(source: &str) {
     }
 }
 
-fn session_artifact_dir(session_path: &std::path::Path) -> Result<Option<PathBuf>, String> {
+/// Move several paths (e.g. every session file and artifact directory of one
+/// project) into a single recycle-bin entry, so the project is listed, restored
+/// and deleted as one item instead of one row per session. All-or-nothing:
+/// a failed move puts the already-moved paths back.
+pub fn move_group_to_recyclebin(
+    paths: &[PathBuf],
+    source: &str,
+    project_id: &str,
+    session_title: Option<String>,
+    project_name: Option<String>,
+) -> Result<String, String> {
+    if paths.is_empty() {
+        return Err("Nothing to move to recyclebin".to_string());
+    }
+    let items_dir = get_recyclebin_items_dir()
+        .ok_or_else(|| "Cannot determine recyclebin items path".to_string())?;
+    let id = generate_id();
+    let group_dir = items_dir.join(&id);
+    if group_dir.exists() {
+        return Err(format!("Target already exists: {group_dir:?}"));
+    }
+    fs::create_dir_all(&group_dir)
+        .map_err(|e| format!("Failed to create recyclebin group dir: {e}"))?;
+
+    let mut members: Vec<RecycledMember> = Vec::with_capacity(paths.len());
+    for (index, original) in paths.iter().enumerate() {
+        let stored_name = match original.extension().and_then(|e| e.to_str()) {
+            Some(ext) if original.is_file() => format!("{index}.{ext}"),
+            _ => index.to_string(),
+        };
+        if let Err(error) = move_path(original, &group_dir.join(&stored_name)) {
+            let rollback = rollback_group(&group_dir, &members);
+            let _ = fs::remove_dir_all(&group_dir);
+            return Err(match rollback {
+                Ok(()) => format!("Failed to move {original:?} to recyclebin: {error}"),
+                Err(rollback_error) => format!(
+                    "Failed to move {original:?} to recyclebin: {error}; rollback failed: {rollback_error}"
+                ),
+            });
+        }
+        members.push(RecycledMember {
+            original_path: original.to_string_lossy().to_string(),
+            stored_name,
+        });
+    }
+
+    let item = RecycledItem {
+        id: id.clone(),
+        item_type: "project".to_string(),
+        reason: "ManualDelete".to_string(),
+        source: source.to_string(),
+        project_id: project_id.to_string(),
+        session_title,
+        project_name,
+        original_path: project_id.to_string(),
+        stored_name: id.clone(),
+        companion_original_path: None,
+        companion_stored_name: None,
+        members,
+        moved_at: chrono::Utc::now().to_rfc3339(),
+    };
+    let mut manifest = load_manifest();
+    manifest.items.push(item.clone());
+    if let Err(error) = save_manifest(&manifest) {
+        let _ = rollback_group(&group_dir, &item.members);
+        let _ = fs::remove_dir_all(&group_dir);
+        return Err(format!("Failed to record recyclebin group: {error}"));
+    }
+    Ok(id)
+}
+
+/// Put every already-moved group member back where it came from.
+fn rollback_group(group_dir: &std::path::Path, members: &[RecycledMember]) -> Result<(), String> {
+    let mut errors = Vec::new();
+    for member in members.iter().rev() {
+        if let Err(error) = move_path(
+            &group_dir.join(&member.stored_name),
+            std::path::Path::new(&member.original_path),
+        ) {
+            errors.push(format!("{}: {error}", member.original_path));
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
+    }
+}
+
+fn restore_group(item: &RecycledItem, items_dir: &std::path::Path) -> Result<(), String> {
+    let group_dir = items_dir.join(&item.stored_name);
+    for member in &item.members {
+        let stored = group_dir.join(&member.stored_name);
+        if !stored.exists() {
+            return Err(format!("Stored file not found: {stored:?}"));
+        }
+        let original = std::path::Path::new(&member.original_path);
+        if original.exists() {
+            return Err(format!("Destination already exists: {original:?}"));
+        }
+    }
+    let mut restored: Vec<&RecycledMember> = Vec::with_capacity(item.members.len());
+    for member in &item.members {
+        let original = PathBuf::from(&member.original_path);
+        let result = original
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .map_err(|error| format!("Failed to create parent dir: {error}"))
+            .and_then(|()| restore_path(&group_dir.join(&member.stored_name), &original));
+        if let Err(error) = result {
+            for done in restored.iter().rev() {
+                let _ = move_path(
+                    std::path::Path::new(&done.original_path),
+                    &group_dir.join(&done.stored_name),
+                );
+            }
+            return Err(error);
+        }
+        restored.push(member);
+    }
+    let _ = fs::remove_dir_all(&group_dir);
+    Ok(())
+}
+
+pub(crate) fn session_artifact_dir(
+    session_path: &std::path::Path,
+) -> Result<Option<PathBuf>, String> {
     let artifact_path = session_path.with_extension("");
     match fs::symlink_metadata(&artifact_path) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -270,6 +409,7 @@ pub fn move_omp_session_to_recyclebin(
             .as_ref()
             .map(|path| path.to_string_lossy().to_string()),
         companion_stored_name,
+        members: Vec::new(),
         moved_at: chrono::Utc::now().to_rfc3339(),
     };
     let mut manifest = load_manifest();
@@ -315,6 +455,15 @@ pub fn restore_item(id: &str) -> Result<(), String> {
         .position(|item| item.id == id)
         .ok_or_else(|| format!("Item not found: {id}"))?;
     let item = manifest.items[pos].clone();
+    if !item.members.is_empty() {
+        let items_dir = get_recyclebin_items_dir()
+            .ok_or_else(|| "Cannot determine recyclebin items path".to_string())?;
+        restore_group(&item, &items_dir)?;
+        manifest.items.remove(pos);
+        save_manifest(&manifest)?;
+        invalidate_source_cache(&item.source);
+        return Ok(());
+    }
     let companion = match (&item.companion_original_path, &item.companion_stored_name) {
         (None, None) => None,
         (Some(original), Some(stored)) => Some((PathBuf::from(original), stored)),
@@ -372,13 +521,7 @@ pub fn restore_item(id: &str) -> Result<(), String> {
     manifest.items.remove(pos);
     save_manifest(&manifest)?;
 
-    match item.source.as_str() {
-        "claude" => crate::provider::claude::invalidate_cache(),
-        "codex" => crate::provider::codex::invalidate_sessions_cache(),
-        "grok" => crate::provider::grok::invalidate_sessions_cache(),
-        "omp" => crate::provider::omp::invalidate_sessions_cache(),
-        _ => {}
-    }
+    invalidate_source_cache(&item.source);
     Ok(())
 }
 

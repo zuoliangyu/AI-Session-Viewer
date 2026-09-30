@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { RecycledItem } from "../../types";
 import { formatDateTime } from "../../utils/dateTime";
+import { useShallow } from "zustand/react/shallow";
 
 const REASON_LABELS: Record<string, string> = {
   get ManualDelete() { return t("手动删除"); },
@@ -80,7 +81,9 @@ export function RecyclebinPage() {
     emptyRecyclebin,
     cleanupOrphanDirs,
     timeZone,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ recycledItems: state.recycledItems, recyclebinLoading: state.recyclebinLoading, loadRecycledItems: state.loadRecycledItems, restoreItem: state.restoreItem, permanentlyDeleteItem: state.permanentlyDeleteItem, emptyRecyclebin: state.emptyRecyclebin, cleanupOrphanDirs: state.cleanupOrphanDirs, timeZone: state.timeZone })),
+  );
 
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [confirmEmpty, setConfirmEmpty] = useState(false);
@@ -267,6 +270,9 @@ export function RecyclebinPage() {
                       <span className="truncate max-w-[160px]">
                         {item.projectName}
                       </span>
+                    )}
+                    {item.members && item.members.length > 0 && (
+                      <span className="shrink-0">{t("包含 {{v0}} 项", { v0: item.members.length })}</span>
                     )}
                     <span className="shrink-0">{formatDateTime(item.movedAt, timeZone, "minute")}</span>
                   </div>
