@@ -27,7 +27,6 @@ import {
   Settings,
   MessageSquarePlus,
   Trash2,
-  Check,
   Loader2,
   Star,
   FolderX,
@@ -52,16 +51,37 @@ function SourceNavigation({
   hiddenSources: SessionSource[];
 }) {
   const { t } = useTranslation();
+  const visible = SOURCE_OPTIONS.filter((option) => !hiddenSources.includes(option.id));
+  const current = SOURCE_OPTIONS.find((option) => option.id === source);
+  // One row of icons instead of a 36px row per source: the switcher used to
+  // take ~160px of height before any navigation.
   return (
-    <div role="group" aria-label={t("会话来源")} className="space-y-0.5">
-      {SOURCE_OPTIONS.filter((option) => !hiddenSources.includes(option.id)).map((option) => {
-        const Icon = option.icon;
-        const selected = option.id === source;
-        return <button key={option.id} type="button" aria-pressed={selected} onClick={() => onChange(option.id)} className={"navigation-link h-9 " + (selected ? "is-active" : "")}>
-          <Icon className={"h-4 w-4 shrink-0 " + option.iconClass} /><span>{option.label}</span>
-          {selected && (loading ? <Loader2 aria-label={t("正在加载项目")} className="ml-auto h-3.5 w-3.5 animate-spin" /> : <Check className="ml-auto h-3.5 w-3.5" />)}
-        </button>;
-      })}
+    <div>
+      <div role="group" aria-label={t("会话来源")} className="flex gap-0.5 rounded-md bg-muted p-0.5">
+        {visible.map((option) => {
+          const Icon = option.icon;
+          const selected = option.id === source;
+          return (
+            <button
+              key={option.id}
+              type="button"
+              aria-pressed={selected}
+              aria-label={option.label}
+              title={option.label}
+              onClick={() => onChange(option.id)}
+              className={`flex h-8 flex-1 items-center justify-center rounded transition-colors ${
+                selected ? "bg-background shadow-sm" : "opacity-60 hover:bg-background/60 hover:opacity-100"
+              }`}
+            >
+              <Icon className={"h-4 w-4 shrink-0 " + option.iconClass} />
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-1.5 flex items-center gap-1.5 px-1 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">{current?.label ?? source}</span>
+        {loading && <Loader2 aria-label={t("正在加载项目")} className="h-3 w-3 animate-spin" />}
+      </div>
     </div>
   );
 }
@@ -137,6 +157,25 @@ export function Sidebar() {
   // Collapse Codex direct-chat date buckets into one pinned "直连对话" entry,
   // mirroring the main projects grid.
   const sidebarProjects = useMemo(() => collapseDirectBuckets(projects), [projects, t]);
+  // The full, manageable list lives on /projects. The sidebar shows the most
+  // recently active few (the pinned direct-chat group always stays), or every
+  // match while filtering.
+  const SIDEBAR_PROJECT_LIMIT = 8;
+  const { visibleSidebarProjects, hiddenProjectCount } = useMemo(() => {
+    const query = projectQuery.trim().toLowerCase();
+    if (query) {
+      const matches = sidebarProjects.filter((project) =>
+        [project.alias, project.shortName, project.displayPath].some((value) => value?.toLowerCase().includes(query)),
+      );
+      return { visibleSidebarProjects: matches, hiddenProjectCount: 0 };
+    }
+    const pinned = sidebarProjects.filter((project) => project.id === DIRECT_GROUP_ID);
+    const rest = sidebarProjects
+      .filter((project) => project.id !== DIRECT_GROUP_ID)
+      .sort((a, b) => (b.lastModified ?? "").localeCompare(a.lastModified ?? ""));
+    const shown = rest.slice(0, SIDEBAR_PROJECT_LIMIT);
+    return { visibleSidebarProjects: [...pinned, ...shown], hiddenProjectCount: rest.length - shown.length };
+  }, [sidebarProjects, projectQuery]);
   // The aggregate entry and the date-list page are "active" together; so is any
   // drill-down into a `<codex-direct>/DATE` bucket's session list.
   const isDirectGroupActive =
@@ -144,10 +183,16 @@ export function Sidebar() {
     location.pathname.startsWith(`/projects/${encodeURIComponent("<codex-direct>/")}`);
 
   const handleSourceChange = (s: SessionSource) => {
-    if (s !== source) {
-      setSource(s);
-      navigate("/projects");
-    }
+    if (s === source) return;
+    setSource(s);
+    // Pages that exist for every source keep their place; anything tied to a
+    // project/session of the old source goes back to the project list.
+    const path = location.pathname;
+    const keep =
+      ["/search", "/bookmarks", "/settings", "/skills", "/cleanup", "/recyclebin"].includes(path) ||
+      ((path === "/stats" || path === "/stats/requests") && (s === "claude" || s === "codex")) ||
+      (path === "/provider-sync" && s === "codex");
+    if (!keep) navigate("/projects");
   };
 
   return (
@@ -195,7 +240,7 @@ export function Sidebar() {
         )}
         <div>
           <h2 className="px-3 py-1 text-[11px] font-medium text-muted-foreground">
-            {t("项目 (")}{projectsLoading ? "..." : sidebarProjects.length})
+            {t("最近项目")}
           </h2>
           <input aria-label={t("筛选项目")} value={projectQuery} onChange={(event) => setProjectQuery(event.target.value)} placeholder={t("查找项目…")} className="mx-2 my-2 w-[calc(100%-1rem)] rounded-md border border-border/70 bg-card px-2.5 py-1.5 text-xs placeholder:text-muted-foreground" />
           {projectsLoading ? (
@@ -203,7 +248,7 @@ export function Sidebar() {
               {t("加载中...")}</div>
           ) : (
             <div className="mt-1 space-y-0.5">
-              {sidebarProjects.filter((project) => !projectQuery.trim() || [project.alias, project.shortName, project.displayPath].some((value) => value?.toLowerCase().includes(projectQuery.trim().toLowerCase()))).map((project) => {
+              {visibleSidebarProjects.map((project) => {
                 const isGroup = project.id === DIRECT_GROUP_ID;
                 const active = isGroup
                   ? isDirectGroupActive
@@ -262,6 +307,11 @@ export function Sidebar() {
                 </div>
                 );
               })}
+              {hiddenProjectCount > 0 && (
+                <button onClick={() => navigate("/projects")} className="navigation-link text-xs">
+                  {t("全部项目（另有 {{v0}} 个）→", { v0: hiddenProjectCount })}
+                </button>
+              )}
             </div>
           )}
         </div>
