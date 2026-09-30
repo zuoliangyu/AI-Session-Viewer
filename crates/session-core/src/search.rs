@@ -408,26 +408,31 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
+            // The custom title is a record inside this same file, so a title
+            // match is already a content match. Decide on the content we have
+            // before paying for the title scan and full parse (two more reads).
+            let content_has_query = content.to_lowercase().contains(query_lower);
+            drop(content);
+            let metadata_alias_has_query = metadata_alias
+                .as_ref()
+                .is_some_and(|alias| alias.to_lowercase().contains(query_lower));
+            let tags_has_query = tags
+                .as_ref()
+                .map(|t| t.iter().any(|tag| tag.to_lowercase().contains(query_lower)))
+                .unwrap_or(false);
+
+            if !content_has_query && !metadata_alias_has_query && !tags_has_query {
+                return Vec::new();
+            }
+
             let custom_title =
                 claude_parser::scan_session_file_once(file_path).and_then(|scan| scan.custom_title);
             let alias = custom_title.clone().or(metadata_alias.clone());
             let mut search_aliases = Vec::with_capacity(2);
             push_search_alias(&mut search_aliases, custom_title);
             push_search_alias(&mut search_aliases, metadata_alias);
-            let content_has_query = content.to_lowercase().contains(query_lower);
-            let alias_has_query = search_aliases
-                .iter()
-                .any(|candidate| candidate.to_lowercase().contains(query_lower));
-            let tags_has_query = tags
-                .as_ref()
-                .map(|t| t.iter().any(|tag| tag.to_lowercase().contains(query_lower)))
-                .unwrap_or(false);
 
-            if !content_has_query && !alias_has_query && !tags_has_query {
-                return Vec::new();
-            }
-
-            if let Ok(messages) = claude::parse_all_messages(file_path) {
+            if let Ok(messages) = claude_parser::parse_all_messages_for_search(file_path) {
                 let ctx = SearchSessionContext {
                     source: "claude".to_string(),
                     project_id: encoded_name.clone(),
@@ -509,6 +514,7 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
             let mut search_aliases = Vec::with_capacity(1);
             push_search_alias(&mut search_aliases, alias.clone());
             let content_has_query = content.to_lowercase().contains(query_lower);
+            drop(content);
             let alias_has_query = search_aliases
                 .iter()
                 .any(|candidate| candidate.to_lowercase().contains(query_lower));
@@ -521,7 +527,7 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
                 return Vec::new();
             }
 
-            if let Ok(messages) = codex::parse_all_messages(file_path) {
+            if let Ok(messages) = codex::parse_all_messages_for_search(file_path) {
                 let thread_name = thread_names.get(&session_id).cloned();
                 let ctx = SearchSessionContext {
                     source: "codex".to_string(),

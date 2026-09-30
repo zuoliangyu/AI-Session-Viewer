@@ -86,7 +86,7 @@ pub async fn get_invalid_sessions(
     .map_err(|error| format!("无效会话读取任务失败: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_session(
     file_path: String,
     source: String,
@@ -137,7 +137,7 @@ pub fn delete_session(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn update_session_meta(
     source: String,
     project_id: String,
@@ -173,7 +173,7 @@ pub fn update_session_meta(
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn rename_chat_session(
     source: String,
     project_path: String,
@@ -193,12 +193,12 @@ pub fn rename_chat_session(
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_all_tags(source: String, project_id: String) -> Result<Vec<String>, String> {
     Ok(metadata::get_all_tags(&source, &project_id))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_cross_project_tags(
     source: String,
 ) -> Result<std::collections::HashMap<String, Vec<String>>, String> {

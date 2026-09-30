@@ -41,7 +41,7 @@ pub async fn rebuild_projects_cache(source: String) -> Result<Vec<ProjectEntry>,
     .map_err(|error| format!("项目缓存重建任务失败: {error}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_project(
     source: String,
     project_id: String,

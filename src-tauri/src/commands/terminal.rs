@@ -39,7 +39,7 @@ fn resume_command(source: &str, session_id: &str) -> Result<String, String> {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn resume_session(
     source: String,
     session_id: String,
@@ -247,10 +247,17 @@ fn ensure_session_in_index(session_id: &str, file_path: &str, project_path: &str
         return;
     }
 
-    // Build an entry from the JSONL file metadata
-    let first_prompt = claude_parser::extract_first_prompt(session_file);
-    let metadata = claude_parser::extract_session_metadata(session_file);
-    let (_, git_branch, cwd) = metadata.unwrap_or((String::new(), None, None));
+    // Build an entry from the JSONL file metadata (one pass over the file).
+    let scan = claude_parser::scan_session_file_once(session_file);
+    let (first_prompt, git_branch, cwd, message_count) = match scan {
+        Some(scan) => (
+            scan.first_prompt,
+            scan.git_branch,
+            scan.project_path,
+            scan.message_count,
+        ),
+        None => (None, None, None, 0),
+    };
 
     let file_meta = fs::metadata(session_file).ok();
     let mtime = file_meta.as_ref().and_then(|m| {
@@ -276,8 +283,6 @@ fn ensure_session_in_index(session_id: &str, file_path: &str, project_path: &str
         })
     });
 
-    let message_count = count_user_assistant(session_file);
-
     index.entries.push(SessionsIndexFileEntry {
         session_id: session_id.to_string(),
         full_path: Some(file_path.to_string()),
@@ -298,23 +303,6 @@ fn ensure_session_in_index(session_id: &str, file_path: &str, project_path: &str
             let _ = fs::rename(&tmp_path, &index_path);
         }
     }
-}
-
-fn count_user_assistant(path: &Path) -> u32 {
-    use std::io::{BufRead, BufReader};
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return 0,
-    };
-    let reader = BufReader::new(file);
-    let mut count: u32 = 0;
-    for line in reader.lines().map_while(Result::ok) {
-        let trimmed = line.trim();
-        if trimmed.contains("\"type\":\"user\"") || trimmed.contains("\"type\":\"assistant\"") {
-            count += 1;
-        }
-    }
-    count
 }
 
 fn normalize_path(path: &str) -> String {

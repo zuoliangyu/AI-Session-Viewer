@@ -198,12 +198,26 @@ pub fn parse_messages_range(
     })
 }
 
-/// Parse all messages from a JSONL file (no pagination, for search)
+/// Parse all messages from a JSONL file and memoize them in the message cache.
 pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
     if let Ok(Some(cached)) = get_cached_full_messages(path) {
         return Ok(cached);
     }
+    let messages = parse_all_messages_uncached(path)?;
+    let _ = store_full_messages(path, &messages);
+    Ok(messages)
+}
 
+/// Full parse for search: reuse a cached parse but never populate the cache,
+/// so scanning many hits can't evict the session the user is viewing.
+pub fn parse_all_messages_for_search(path: &Path) -> Result<Vec<DisplayMessage>, String> {
+    if let Ok(Some(cached)) = get_cached_full_messages(path) {
+        return Ok(cached);
+    }
+    parse_all_messages_uncached(path)
+}
+
+fn parse_all_messages_uncached(path: &Path) -> Result<Vec<DisplayMessage>, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let mut messages: Vec<DisplayMessage> = Vec::new();
@@ -234,7 +248,6 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
         }
     }
 
-    let _ = store_full_messages(path, &messages);
     Ok(messages)
 }
 

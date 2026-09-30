@@ -2,7 +2,7 @@ use lru::LruCache;
 use parking_lot::Mutex;
 use std::num::NonZeroUsize;
 use std::path::Path;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::UNIX_EPOCH;
 
 use crate::models::message::{DisplayMessage, PaginatedMessages};
@@ -10,12 +10,15 @@ use crate::models::message::{DisplayMessage, PaginatedMessages};
 const MESSAGE_CACHE_CAPACITY: usize = 20;
 const WARM_TAIL_PAGES: usize = 4;
 
+/// Messages are shared behind an `Arc` so a cache hit (and the LRU
+/// bookkeeping in `put_cache_entry`) is a refcount bump; only the requested
+/// page/range is ever copied out.
 #[derive(Debug, Clone)]
 pub struct CachedMessages {
     modified_key: u64,
     total: usize,
     range_start: usize,
-    messages: Vec<DisplayMessage>,
+    messages: Arc<[DisplayMessage]>,
     is_complete: bool,
 }
 
@@ -27,7 +30,7 @@ pub struct PageBounds {
 }
 
 impl CachedMessages {
-    fn full(modified_key: u64, messages: Vec<DisplayMessage>) -> Self {
+    fn full(modified_key: u64, messages: Arc<[DisplayMessage]>) -> Self {
         let total = messages.len();
         Self {
             modified_key,
@@ -42,7 +45,7 @@ impl CachedMessages {
         modified_key: u64,
         total: usize,
         range_start: usize,
-        messages: Vec<DisplayMessage>,
+        messages: Arc<[DisplayMessage]>,
     ) -> Self {
         let is_complete = range_start == 0 && messages.len() == total;
         Self {
@@ -207,7 +210,8 @@ fn put_cache_entry(path: &Path, entry: CachedMessages) -> Result<(), String> {
 }
 
 pub fn get_cached_full_messages(path: &Path) -> Result<Option<Vec<DisplayMessage>>, String> {
-    Ok(get_cache_entry(path)?.and_then(|entry| entry.is_complete.then_some(entry.messages)))
+    Ok(get_cache_entry(path)?
+        .and_then(|entry| entry.is_complete.then(|| entry.messages.to_vec())))
 }
 
 /// Try to satisfy a range request `[start, end)` directly from the cache.
@@ -252,7 +256,7 @@ pub fn get_cached_page(
 
 pub fn store_full_messages(path: &Path, messages: &[DisplayMessage]) -> Result<(), String> {
     let modified_key = file_modified_key(path)?;
-    put_cache_entry(path, CachedMessages::full(modified_key, messages.to_vec()))
+    put_cache_entry(path, CachedMessages::full(modified_key, Arc::from(messages)))
 }
 
 pub fn store_partial_messages(
@@ -264,6 +268,6 @@ pub fn store_partial_messages(
     let modified_key = file_modified_key(path)?;
     put_cache_entry(
         path,
-        CachedMessages::partial(modified_key, total, range_start, messages.to_vec()),
+        CachedMessages::partial(modified_key, total, range_start, Arc::from(messages)),
     )
 }

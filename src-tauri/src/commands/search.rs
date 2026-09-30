@@ -1,6 +1,6 @@
 use session_core::search::{SearchResult, SearchScope};
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn global_search(
     source: String,
     query: String,

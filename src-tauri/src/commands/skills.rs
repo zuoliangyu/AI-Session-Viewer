@@ -1,7 +1,7 @@
 use session_core::models::skill::{ImportResult, SkillsResult};
 use session_core::skills;
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_skills(project_path: Option<String>) -> Result<SkillsResult, String> {
     skills::scan_skills(project_path)
 }
@@ -11,7 +11,7 @@ pub fn get_skill_content(path: String) -> Result<String, String> {
     skills::read_skill_content(&path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn delete_skill(
     scope: String,
     project_path: Option<String>,
@@ -20,7 +20,7 @@ pub fn delete_skill(
     skills::delete_skill(&scope, project_path.as_deref(), &slug)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_skills(
     archive_path: String,
     scope: String,

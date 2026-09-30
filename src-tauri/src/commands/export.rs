@@ -3,7 +3,7 @@ use std::path::Path;
 use session_core::export::{render_session, ExportFormat};
 
 /// 渲染单个会话为指定格式的字符串。文件名由前端决定，这里只返回内容。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_session(source: String, file_path: String, format: String) -> Result<String, String> {
     let fmt = ExportFormat::parse(&format)?;
     render_session(&source, &file_path, fmt)
@@ -13,7 +13,7 @@ pub fn export_session(source: String, file_path: String, format: String) -> Resu
 ///
 /// 轻量守卫：只允许写 `.json` / `.md` / `.html` 后缀（导出场景），且父目录必须
 /// 已存在，避免被当成任意文件写入接口。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_export_file(path: String, content: String) -> Result<(), String> {
     let p = Path::new(&path);
 
