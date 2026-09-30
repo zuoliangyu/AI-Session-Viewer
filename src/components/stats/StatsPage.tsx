@@ -526,7 +526,7 @@ export function StatsPage() {
             title={t("仅统计当前来源下现存的会话文件，已清理或不在当前机器上的会话不会纳入统计。")}
           >
             <Calendar className="w-3 h-3" />
-            {t("数据覆盖")}{dataMinDate} ~ {dataMaxDate}{t("（共")}{dataDayCount} {t("天）")}</span>
+            {t("数据覆盖")}{dataMinDate} ~ {dataMaxDate}{t("（共{{v0}} 天）", { v0: dataDayCount })}</span>
         )}
       </div>
 

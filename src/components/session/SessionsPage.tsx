@@ -354,7 +354,7 @@ export function SessionsPage() {
           <span className="flex items-center gap-2 min-w-0">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span className="truncate">
-              {t("本项目有")}{corruptSessions.length} {t("个会话因文件损坏被隐藏，未出现在下方列表中。")}</span>
+              {t("本项目有{{v0}} 个会话因文件损坏被隐藏，未出现在下方列表中。", { v0: corruptSessions.length })}</span>
           </span>
           <button
             onClick={() => navigate("/cleanup")}
@@ -845,7 +845,7 @@ export function SessionsPage() {
           <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
             <h3 className="text-lg font-semibold mb-2">{t("批量删除会话")}</h3>
             <p className="text-sm text-muted-foreground mb-4">
-              {t("将删除选中的")}{selectedSessions.length} {t("个会话（移入回收站，可在回收站还原）。")}</p>
+              {t("将删除选中的{{v0}} 个会话（移入回收站，可在回收站还原）。", { v0: selectedSessions.length })}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setBatchDeleteOpen(false)}

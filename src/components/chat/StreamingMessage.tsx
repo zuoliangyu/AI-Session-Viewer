@@ -410,7 +410,7 @@ function AssistantMsg({
                   : "",
               ].filter(Boolean).join(" · ")}
             >
-              {t("入")}{message.usage.inputTokens.toLocaleString()} {t("出")}{message.usage.outputTokens.toLocaleString()}
+              {t("入{{v0}} 出{{v1}}", { v0: message.usage.inputTokens.toLocaleString(), v1: message.usage.outputTokens.toLocaleString() })}
               {message.usage.cacheReadInputTokens > 0 && t(" 缓存{{v0}}", { v0: message.usage.cacheReadInputTokens.toLocaleString() })}
             </span>
           )}

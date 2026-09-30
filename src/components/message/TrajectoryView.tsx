@@ -486,10 +486,10 @@ const TurnBlock = memo(function TurnBlock({
       {open && (
         <div className="border-t border-border/60">
           <div className="hidden grid-cols-[3.25rem_minmax(7rem,0.8fr)_minmax(0,2fr)_4.5rem] gap-2 px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground sm:grid">
-            <span>Index</span>
-            <span>Event</span>
-            <span>Summary</span>
-            <span className="text-right">Time</span>
+            <span>{t("序号")}</span>
+            <span>{t("事件")}</span>
+            <span>{t("摘要")}</span>
+            <span className="text-right">{t("时间")}</span>
           </div>
           {records.map((record) => (
             <div key={record.index}>

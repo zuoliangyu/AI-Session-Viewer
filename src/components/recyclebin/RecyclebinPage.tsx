@@ -322,7 +322,7 @@ export function RecyclebinPage() {
               <h3 className="workspace-page-title">{t("清空回收站")}</h3>
             </div>
             <p className="text-sm text-muted-foreground mb-5">
-              {t("将永久删除回收站中的全部")}{recycledItems.length} {t("项内容，此操作无法撤销。")}</p>
+              {t("将永久删除回收站中的全部{{v0}} 项内容，此操作无法撤销。", { v0: recycledItems.length })}</p>
             <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmEmpty(false)}

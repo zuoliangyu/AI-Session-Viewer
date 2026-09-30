@@ -373,7 +373,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
       {addedCount !== null && (
         <div className="flex items-center gap-1 text-xs text-green-500">
           <Check className="w-3 h-3" />
-          {t("已添加")}{addedCount} {t("个自定义模型")}</div>
+          {t("已添加{{v0}} 个自定义模型", { v0: addedCount })}</div>
       )}
 
       {/* Batch add textarea */}

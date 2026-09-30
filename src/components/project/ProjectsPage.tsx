@@ -580,7 +580,7 @@ export function ProjectsPage() {
         <div className="bg-card border border-border rounded-lg p-6 max-w-sm w-full mx-4 shadow-lg">
           <h3 className="text-lg font-semibold mb-2">{t("批量删除工程")}</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            {t("将删除选中的")}{selectedProjects.length} {t("个工程的会话记录（移入回收站，可在回收站还原）。")}</p>
+            {t("将删除选中的{{v0}} 个工程的会话记录（移入回收站，可在回收站还原）。", { v0: selectedProjects.length })}</p>
 
           {source === "claude" && (
             <label className="flex items-start gap-2 cursor-pointer mb-4 group">

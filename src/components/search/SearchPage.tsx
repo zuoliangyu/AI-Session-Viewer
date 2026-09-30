@@ -302,8 +302,8 @@ export function SearchPage() {
         searchMode === "messages" ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              {t("找到")}{filteredResults.length} {t("条结果")}{globalTagFilter.length > 0 && searchResults.length !== filteredResults.length && (
-                <span>{t("（共")}{searchResults.length} {t("条，已按标签筛选）")}</span>
+              {t("找到{{v0}} 条结果", { v0: filteredResults.length })}{globalTagFilter.length > 0 && searchResults.length !== filteredResults.length && (
+                <span>{t("（共{{v0}} 条，已按标签筛选）", { v0: searchResults.length })}</span>
               )}
             </p>
             {filteredResults.map((result, i) => {
@@ -322,7 +322,7 @@ export function SearchPage() {
                       {getRoleLabel(result.role)}
                     </span>
                     <span className="text-xs px-2 py-0.5 bg-primary/15 text-primary rounded font-medium">
-                      {t("共")}{result.totalMessageCount} {t("条消息")}</span>
+                      {t("共{{v0}} 条消息", { v0: result.totalMessageCount })}</span>
                     {result.timestamp && (
                       <span className="text-xs text-muted-foreground ml-auto">
                         {formatDateOnly(result.timestamp, timeZone)}
@@ -384,7 +384,7 @@ export function SearchPage() {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              {t("找到")}{groupedSessions.length} {t("个会话（共")}{filteredResults.length} {t("条匹配）")}{globalTagFilter.length > 0 && searchResults.length !== filteredResults.length && (
+              {t("找到{{v0}} 个会话（共{{v1}} 条匹配）", { v0: groupedSessions.length, v1: filteredResults.length })}{globalTagFilter.length > 0 && searchResults.length !== filteredResults.length && (
                 <span>{t("（已按标签筛选）")}</span>
               )}
             </p>
@@ -411,7 +411,7 @@ export function SearchPage() {
                     <span className="text-xs px-2 py-0.5 bg-primary/15 text-primary rounded font-medium">
                       {session.matchCount} {t("条匹配")}</span>
                     <span className="text-xs px-2 py-0.5 bg-muted text-muted-foreground rounded font-medium">
-                      {t("共")}{session.totalMessageCount} {t("条消息")}</span>
+                      {t("共{{v0}} 条消息", { v0: session.totalMessageCount })}</span>
                     {session.latestTimestamp && (
                       <span className="text-xs text-muted-foreground ml-auto">
                         {formatDateOnly(session.latestTimestamp, timeZone)}
@@ -471,7 +471,7 @@ export function SearchPage() {
                     ))}
                     {session.matchCount > 3 && (
                       <p className="text-xs text-muted-foreground/70">
-                        {t("还有")}{session.matchCount - 3} {t("条匹配...")}</p>
+                        {t("还有{{v0}} 条匹配...", { v0: session.matchCount - 3 })}</p>
                     )}
                   </div>
                 </div>

@@ -259,7 +259,7 @@ function DeferredSyntaxBlock({
         <div className="overflow-hidden border-t border-border bg-muted/10">
           <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
             <span className="truncate">
-              {language} · {lineCount} {t("行 ·")}{content.length} {t("字符")}</span>
+              {language} · {t("{{v0}} 行 · {{v1}} 字符", { v0: lineCount, v1: content.length })}</span>
             <button
               type="button"
               onClick={() => setHighlightEnabled(true)}

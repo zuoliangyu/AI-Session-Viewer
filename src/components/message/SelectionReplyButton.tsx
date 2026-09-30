@@ -160,7 +160,7 @@ export function SelectionReplyButton({ scopeRef, onReply, disabled }: Props) {
       style={{ left: `${floating.x}px`, top: `${floating.y}px` }}
       title={disabled ? t("当前无法回复所选文本") : t("以所选内容为引用开始回复")}
     >
-      <span>Reply</span>
+      <span>{t("回复")}</span>
       <CornerDownLeft className="h-3.5 w-3.5" />
     </button>
   );

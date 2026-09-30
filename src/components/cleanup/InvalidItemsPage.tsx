@@ -594,7 +594,7 @@ export function InvalidItemsPage() {
               </span>
             </span>
             <span className="text-xs text-muted-foreground shrink-0">
-              {t("已发现")}{groups.length} {t("个问题项目")}</span>
+              {t("已发现{{v0}} 个问题项目", { v0: groups.length })}</span>
           </div>
           <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
             <div
@@ -895,7 +895,7 @@ export function InvalidItemsPage() {
               <h2 className="text-lg font-semibold text-foreground">{t("确认删除已选项")}</h2>
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
-              {t("将删除")}{selectedProjects.length} {t("个项目和")}{selectedSessions.length} {t("个独立会话。 已选项目下的空/损坏会话会随项目一起移除，不会重复调用会话删除接口。")}</p>
+              {t("将删除{{v0}} 个项目和{{v1}} 个独立会话。 已选项目下的空/损坏会话会随项目一起移除，不会重复调用会话删除接口。", { v0: selectedProjects.length, v1: selectedSessions.length })}</p>
             <div className="mt-4 rounded-lg bg-muted/50 px-4 py-3 text-sm text-muted-foreground space-y-1">
               <div>
                 {t("项目删除：")}{canDeleteInvalidProjects

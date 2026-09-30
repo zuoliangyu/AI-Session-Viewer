@@ -171,7 +171,7 @@ export const ToolOutputMessage = memo(function ToolOutputMessage({
         {/* 标题行 */}
         <div className={`mb-1 flex items-center ${isThreadLayout ? "gap-1.5" : "gap-2"}`}>
           {!isThreadLayout && <Terminal className="w-3 h-3 text-muted-foreground" />}
-          <span className="text-xs font-medium text-muted-foreground">Tool Output</span>
+          <span className="text-xs font-medium text-muted-foreground">{t("工具输出")}</span>
           {showTimestamp && message.timestamp && (
             <span className="text-xs text-muted-foreground">
               {formatTime(message.timestamp, timeZone)}

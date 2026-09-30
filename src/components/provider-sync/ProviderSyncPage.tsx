@@ -273,7 +273,7 @@ export function ProviderSyncPage() {
               )}
               {lastRestore && !busy && (
                 <div className="text-xs text-muted-foreground rounded-md border border-border bg-muted/40 px-3 py-2">
-                  {t("恢复完成：还原")}{lastRestore.restoredFiles} {t("个配置文件，")}{lastRestore.restoredSessions} {t("个 rollout 首行。")}</div>
+                  {t("恢复完成：还原{{v0}} 个配置文件，{{v1}} 个 rollout 首行。", { v0: lastRestore.restoredFiles, v1: lastRestore.restoredSessions })}</div>
               )}
             </section>
 
@@ -493,7 +493,7 @@ function SyncResultSummary({ result }: { result: { backupDir: string; targetProv
         {result.skippedLocked.length > 0 && (
           <details>
             <summary className="cursor-pointer text-yellow-500">
-              {t("跳过")}{result.skippedLocked.length} {t("个被锁的文件")}</summary>
+              {t("跳过{{v0}} 个被锁的文件", { v0: result.skippedLocked.length })}</summary>
             <ul className="mt-1 list-disc list-inside font-mono">
               {result.skippedLocked.map((p) => (
                 <li key={p} className="break-all">
@@ -550,7 +550,7 @@ function BackupSection({
               <div className="flex-1 min-w-0 text-xs">
                 <div className="font-mono text-foreground truncate">{b.name}</div>
                 <div className="text-muted-foreground">
-                  → {b.targetProvider} {t("· 改写")}{b.changedSessionCount} {t("个 rollout")}</div>
+                  → {b.targetProvider} {t("· 改写{{v0}} 个 rollout", { v0: b.changedSessionCount })}</div>
                 <div className="text-muted-foreground/70 text-[10px] break-all">
                   {b.path}
                 </div>

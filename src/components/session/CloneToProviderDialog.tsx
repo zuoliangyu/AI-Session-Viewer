@@ -108,21 +108,21 @@ export function CloneToProviderDialog({ session, onClose, onCloned }: Props) {
           <div className="mb-4 text-sm space-y-2">
             <div className="flex items-center gap-2 text-green-600 dark:text-green-500">
               <CheckCircle2 className="w-4 h-4" />
-              {t("已克隆")}{result.cloned} {t("个副本到「")}{result.targetProvider}」
+              {t("已克隆{{v0}} 个副本到「{{v1}}」", { v0: result.cloned, v1: result.targetProvider })}
             </div>
             {result.skipped.length > 0 && (
               <div className="text-yellow-600 dark:text-yellow-500 text-xs">
-                {t("跳过")}{result.skipped.length} {t("个（文件缺失/被占用/无 thread 记录）")}</div>
+                {t("跳过{{v0}} 个（文件缺失/被占用/无 thread 记录）", { v0: result.skipped.length })}</div>
             )}
             {result.encryptedSessionIds.length > 0 && (
               <div className="flex items-start gap-1.5 text-yellow-600 dark:text-yellow-500 text-xs">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <span>
-                  {t("其中")}{result.encryptedSessionIds.length} {t("个含加密内容 （encrypted_content），跨 Provider/账号可能可见但无法 resume/compact。")}</span>
+                  {t("其中{{v0}} 个含加密内容 （encrypted_content），跨 Provider/账号可能可见但无法 resume/compact。", { v0: result.encryptedSessionIds.length })}</span>
               </div>
             )}
             <p className="text-xs text-muted-foreground">
-              {t("原会话保留在「")}{current || t("原 Provider")}{t("」下未改动。已备份 state_5.sqlite。")}</p>
+              {t("原会话保留在「{{v0}}」下未改动。已备份 state_5.sqlite。", { v0: current || t("原 Provider") })}</p>
           </div>
         ) : (
           // ── Provider picker ──

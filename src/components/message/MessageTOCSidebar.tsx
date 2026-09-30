@@ -63,7 +63,7 @@ export function MessageTOCSidebar({
       <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">{t("提问目录")}</p>
-          <p className="text-[11px] text-muted-foreground">{t("共")}{items.length} {t("条提问")}</p>
+          <p className="text-[11px] text-muted-foreground">{t("共{{v0}} 条提问", { v0: items.length })}</p>
         </div>
         <button
           type="button"

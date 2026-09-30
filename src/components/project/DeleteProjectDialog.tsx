@@ -46,7 +46,7 @@ export function DeleteProjectDialog({
           {t("工程：")}<span className="font-medium text-foreground">{displayName}</span>
         </p>
         <p className="text-xs text-muted-foreground mb-4">
-          {t("将删除")}{project.sessionCount} {t("个会话记录")}</p>
+          {t("将删除{{v0}} 个会话记录", { v0: project.sessionCount })}</p>
 
         {/* Level 2 复选框（仅 claude 有 CC 配置） */}
         {source === "claude" && (
