@@ -31,6 +31,9 @@ jobs:
       - name: Cargo clippy (Tauri app)
         run: cargo clippy -p ai-session-viewer -- -D warnings
 
+      - name: Cargo test (Tauri app)
+        run: cargo test -p ai-session-viewer
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -77,3 +80,6 @@ jobs:
 
       - name: Cargo clippy (session-core + session-web)
         run: cargo clippy -p session-core -p session-web -- -D warnings
+
+      - name: Cargo test (session-core + session-web)
+        run: cargo test -p session-core -p session-web
