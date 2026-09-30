@@ -118,7 +118,7 @@ export function SettingsPage() {
           <ul className="list-disc list-inside space-y-1 text-muted-foreground">
             <li>{t("点击卡片查看消息详情")}</li>
             <li>{t("卡片“操作”菜单提供收藏、标签编辑、续聊命令、导出和删除")}</li>
-            <li>{t("会话页点“继续对话”展开输入框；“详情”中可打开终端或复制续聊命令")}</li>
+            <li>{t("会话页底部可直接继续对话；新建对话回复完成后会自动转到对应会话页；“详情”中可打开终端或复制续聊命令")}</li>
             <li>{t("标签筛选快速定位会话")}</li>
           </ul>
         </section>

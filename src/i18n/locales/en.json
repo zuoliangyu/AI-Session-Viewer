@@ -934,5 +934,7 @@
   "{{v0}} 行 · {{v1}} 字符": "{{v0}} lines · {{v1}} chars",
   "序号": "Index",
   "事件": "Event",
-  "摘要": "Summary"
+  "摘要": "Summary",
+  "正在打开会话页…": "Opening the session page…",
+  "会话页底部可直接继续对话；新建对话回复完成后会自动转到对应会话页；“详情”中可打开终端或复制续聊命令": "Continue a conversation from the composer at the bottom of the session page; a new chat moves to its session page once the first reply finishes; \"Details\" can open a terminal or copy the resume command"
 }

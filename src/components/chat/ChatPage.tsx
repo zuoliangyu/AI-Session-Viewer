@@ -1,7 +1,8 @@
 import { t } from "../../i18n/index.js";
 import { useTranslation } from "react-i18next";
 import { useEffect, useLayoutEffect, useMemo, useRef, useCallback, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { locateSession, sessionPagePath } from "../../services/sessionLocator";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { useAppStore } from "../../stores/appStore";
@@ -347,7 +348,9 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   const setPaneSource = useChatStore((state) => state.setPaneSource);
   const [expandVersion, setExpandVersion] = useState(0);
   const [allExpanded, setAllExpanded] = useState(true);
-  const { isActive, sessionId, projectPath, model, messages, isStreaming, error, source } = pane;
+  const { isActive, sessionId, streamId, projectPath, model, messages, isStreaming, error, source } = pane;
+  const navigate = useNavigate();
+  const [handoffPending, setHandoffPending] = useState(false);
 
   const appSource = useAppStore((s) => s.source);
   const cliLabel = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
@@ -388,6 +391,36 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   useEffect(() => {
     if (appSource !== "grok") fetchModelList();
   }, [appSource, fetchModelList]);
+
+  // /chat is only for starting a conversation. Once the first turn has
+  // finished and the CLI has written its session file, continue in the
+  // unified session page (history + docked composer) instead of this
+  // history-less view. Stays here if the session can't be located.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    const finished = wasStreamingRef.current && !isStreaming;
+    wasStreamingRef.current = isStreaming;
+    if (!finished || urlSessionId || error || !sessionId || sessionId === streamId) return;
+    let cancelled = false;
+    setHandoffPending(true);
+    void locateSession(source, sessionId, projectPath).then((location) => {
+      if (cancelled) return;
+      setHandoffPending(false);
+      if (location) navigate(sessionPagePath(location), { replace: true });
+    });
+    return () => { cancelled = true; };
+  }, [error, isStreaming, navigate, projectPath, sessionId, source, streamId, urlSessionId]);
+
+  // Legacy /chat/:sessionId links open the unified session page when the
+  // session exists on disk; otherwise this view keeps working as before.
+  useEffect(() => {
+    if (!urlSessionId || (appSource !== "claude" && appSource !== "codex")) return;
+    let cancelled = false;
+    void locateSession(appSource, urlSessionId).then((location) => {
+      if (!cancelled && location) navigate(sessionPagePath(location), { replace: true });
+    });
+    return () => { cancelled = true; };
+  }, [appSource, navigate, urlSessionId]);
 
   // Listen for stream events in the target pane. The hook falls back to the
   // URL session id only until a live turn sets the pane's own streamId.
@@ -497,6 +530,11 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
               />
             ))}
             <StreamingAndError isStreaming={isStreaming} error={error} />
+            {handoffPending && (
+              <p role="status" className="py-3 text-center text-xs text-muted-foreground">
+                {t("正在打开会话页…")}
+              </p>
+            )}
           </div>
         )}
         </ExpandAllProvider>

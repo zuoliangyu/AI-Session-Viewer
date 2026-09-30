@@ -461,8 +461,6 @@ export function MessagesPage() {
     setTocCollapsed(next);
     localStorage.setItem("messageTocCollapsed", String(next));
   }, []);
-  const [composerOpen, setComposerOpen] = useState(() => localStorage.getItem("messageComposerOpen") === "true");
-  const setComposerVisible = (open: boolean) => { setComposerOpen(open); localStorage.setItem("messageComposerOpen", String(open)); };
   const [questionIndex, setQuestionIndex] = useState<QuestionIndexEntry[]>([]);
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
   const activePaneId = useChatStore((state) => state.activePaneId);
@@ -1215,7 +1213,7 @@ export function MessagesPage() {
             {supportsResume && USE_TAURI_TRANSPORT && <button onClick={handleResume}><Play className="h-4 w-4" />{t("在终端打开")}</button>}
           </ActionMenu>
           {resolvedSessionId && cliAvailable ? (
-            <button className="toolbar-primary" onClick={() => { setViewMode("messages"); setComposerVisible(true); requestAnimationFrame(() => chatInputRef.current?.focus()); }}><MessageSquare className="h-3.5 w-3.5" />{t("继续对话")}</button>
+            <button className="toolbar-primary" onClick={() => { setViewMode("messages"); requestAnimationFrame(() => chatInputRef.current?.focus()); }}><MessageSquare className="h-3.5 w-3.5" />{t("继续对话")}</button>
           ) : supportsResume && resolvedSessionId ? (
             <button className="toolbar-primary" onClick={handleResume}>{USE_TAURI_TRANSPORT ? <Play className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{USE_TAURI_TRANSPORT ? t("终端续聊") : copied ? t("已复制") : t("复制续聊命令")}</button>
           ) : null}
@@ -1505,20 +1503,18 @@ export function MessagesPage() {
 
       {/* Chat input */}
       {resolvedSessionId && cliAvailable && viewMode === "messages" && (
+        // Always docked, aligned with the message column — the same composer
+        // a new conversation continues in after it leaves /chat.
         <div className="shrink-0 border-t border-border bg-card">
-          <div className="flex items-center justify-between gap-2 px-4 py-2 text-xs text-muted-foreground">
-            <span>{chatStreaming ? t("正在回复…") : t("在此会话中继续")}</span>
-            <button className="toolbar-button" disabled={chatStreaming} aria-expanded={composerOpen || chatStreaming} onClick={() => setComposerVisible(!composerOpen)}>{composerOpen || chatStreaming ? t("收起输入框") : t("输入消息")}</button>
-          </div>
-          <div hidden={!composerOpen && !chatStreaming}>
-          <ChatInput
-            ref={chatInputRef}
-            paneId={mainPaneId}
-            onSend={handleSendChat}
-            onCancel={() => cancelPane(mainPaneId)}
-            isStreaming={chatStreaming}
-            disabled={!chatProjectPath}
-          />
+          <div className="mx-auto w-full max-w-4xl">
+            <ChatInput
+              ref={chatInputRef}
+              paneId={mainPaneId}
+              onSend={handleSendChat}
+              onCancel={() => cancelPane(mainPaneId)}
+              isStreaming={chatStreaming}
+              disabled={!chatProjectPath}
+            />
           </div>
         </div>
       )}
@@ -1528,7 +1524,7 @@ export function MessagesPage() {
         <SelectionReplyButton
           scopeRef={containerRef}
           disabled={chatStreaming}
-          onReply={(text) => { setComposerVisible(true); requestAnimationFrame(() => chatInputRef.current?.insertQuote(text)); }}
+          onReply={(text) => { requestAnimationFrame(() => chatInputRef.current?.insertQuote(text)); }}
         />
       )}
 
