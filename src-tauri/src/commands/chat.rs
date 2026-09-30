@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use serde_json::{json, Value};
+use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
+use session_core::chat_cli;
 use session_core::cli;
 use session_core::cli_config::{self, CliConfig, ResolvedCliCredentials};
 use session_core::codex_app_server::{CodexAppServer, CodexNotification};
@@ -249,36 +249,10 @@ async fn run_codex_chat(
     };
 
     // Open the thread (start or resume) and capture metadata.
-    let (thread_id, history_turns) = if let Some(thread_id) = resume_thread_id {
-        let resp = server
-            .resume_thread(&credentials, &thread_id, &project_path, model_opt)
-            .await
-            .map_err(|e| format!("codex thread/resume failed: {}", e))?;
-        let resolved_id = resp
-            .get("thread")
-            .and_then(|t| t.get("id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or(thread_id);
-        let turns = resp
-            .get("thread")
-            .and_then(|t| t.get("turns"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        (resolved_id, turns)
-    } else {
-        let resp = server
-            .start_thread(&credentials, &project_path, model_opt)
-            .await
-            .map_err(|e| format!("codex thread/start failed: {}", e))?;
-        let id = resp
-            .get("thread")
-            .and_then(|t| t.get("id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "codex thread/start: missing thread.id".to_string())?;
-        (id, Value::Null)
-    };
+    let opened = server
+        .open_thread(&credentials, &project_path, model_opt, resume_thread_id.as_deref())
+        .await?;
+    let (thread_id, history_turns) = (opened.thread_id, opened.history_turns);
 
     // Register session for cancel routing. Both pending and real ids map to
     // the same entry so cancel can be triggered with whichever id the caller
@@ -432,19 +406,12 @@ async fn stream_codex_notifications(
         };
 
         // Capture turn_id from turn/started for cancel support.
-        if notif.method == "turn/started" {
-            if let Some(tid) = notif
-                .params
-                .get("turn")
-                .and_then(|t| t.get("id"))
-                .and_then(|v| v.as_str())
-            {
-                let state = app.state::<ChatProcessState>();
-                state
-                    .codex_turns
-                    .lock()
-                    .insert(thread_id.clone(), tid.to_string());
-            }
+        if let Some(tid) = notif.started_turn_id() {
+            let state = app.state::<ChatProcessState>();
+            state
+                .codex_turns
+                .lock()
+                .insert(thread_id.clone(), tid.to_string());
         }
 
         let payload = json!({
@@ -455,13 +422,8 @@ async fn stream_codex_notifications(
         .to_string();
         let _ = app.emit(&format!("chat-output:{}", event_id), &payload);
 
-        let terminal = notif.method == "turn/completed"
-            || notif.method == "turn/failed"
-            || notif.method == "error";
-        if notif.method == "turn/failed" || notif.method == "error" {
-            success = false;
-        }
-        if terminal {
+        if let Some(outcome) = notif.turn_outcome() {
+            success = outcome;
             break;
         }
     }
@@ -506,70 +468,19 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
     // Only Claude is spawned per turn; Codex goes through `codex app-server`.
     let mut cmd = Command::new(cli_path);
 
-    if let Some(sid) = resume_session_id {
-        cmd.arg("--resume").arg(sid);
-    }
-    cmd.arg("-p");
-    if !model.is_empty() {
-        // Strip "-latest" suffix — Claude CLI expects full names like
-        // "claude-sonnet-4-6", not API-style "claude-sonnet-4-6-latest"
-        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-        cmd.arg("--model").arg(cli_model);
-    }
-    cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--include-partial-messages");
-    cmd.arg("--verbose");
-    if skip_permissions {
-        cmd.arg("--dangerously-skip-permissions");
-    }
-    // `--` ends option parsing so a prompt starting with `-` is never
-    // interpreted as a CLI flag.
-    cmd.arg("--").arg(prompt);
+    cmd.args(chat_cli::claude_print_args(
+        prompt,
+        model,
+        skip_permissions,
+        resume_session_id,
+    ));
 
     eprintln!(
         "[chat] source={}, model={}, project={}",
         source, model, project_path
     );
 
-    // Use a whitelist to avoid inheriting conflicting session variables.
-    cmd.env_clear();
-    for key in &[
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "SYSTEMDRIVE",
-        "COMSPEC",
-        "TEMP",
-        "TMP",
-        "HOME",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "USERPROFILE",
-        "USERNAME",
-        "USER",
-        "SHELL",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "NODE_PATH",
-        "NVM_DIR",
-        "NVM_BIN",
-        "NVM_SYMLINK",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMFILES",
-        "PROGRAMDATA",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "ALL_PROXY",
-    ] {
-        if let Ok(val) = std::env::var(key) {
-            cmd.env(key, val);
-        }
-    }
-    compose_chat_path(&mut cmd, cli_path)?;
-    apply_provider_env(&mut cmd, source, credentials);
+    chat_cli::apply_cli_env(&mut cmd, source, cli_path, credentials)?;
 
     cmd.current_dir(project_path);
     cmd.stdout(Stdio::piped());
@@ -585,82 +496,6 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
     Ok(cmd)
 }
 
-fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
-    let mut paths: Vec<PathBuf> = Vec::new();
-
-    if let Some(cli_dir) = Path::new(cli_path)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
-        paths.push(cli_dir.to_path_buf());
-    }
-
-    if let Some(node_path) = cli::find_node() {
-        if let Some(node_dir) = Path::new(&node_path)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-        {
-            let node_dir_buf = node_dir.to_path_buf();
-            if !paths.iter().any(|p| p == &node_dir_buf) {
-                paths.push(node_dir_buf);
-            }
-        }
-    }
-
-    if let Some(existing_path) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&existing_path) {
-            if !paths.iter().any(|existing| existing == &p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    if paths.is_empty() {
-        return Ok(());
-    }
-
-    let joined = std::env::join_paths(paths)
-        .map_err(|e| format!("Failed to compose PATH for chat CLI: {}", e))?;
-    cmd.env("PATH", joined);
-    Ok(())
-}
-
-fn apply_provider_env(
-    cmd: &mut Command,
-    source: &str,
-    credentials: &cli_config::ResolvedCliCredentials,
-) {
-    for key in &[
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "CODEX_API_KEY",
-        "OPENAI_API_KEY",
-        "CODEX_BASE_URL",
-        "OPENAI_BASE_URL",
-    ] {
-        cmd.env_remove(key);
-    }
-
-    if source == "codex" {
-        if !credentials.api_key.is_empty() {
-            cmd.env("CODEX_API_KEY", &credentials.api_key);
-            cmd.env("OPENAI_API_KEY", &credentials.api_key);
-        }
-        if !credentials.base_url.is_empty() {
-            cmd.env("CODEX_BASE_URL", &credentials.base_url);
-            cmd.env("OPENAI_BASE_URL", &credentials.base_url);
-        }
-    } else if source == "claude" {
-        if !credentials.api_key.is_empty() {
-            cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
-            cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);
-        }
-        if !credentials.base_url.is_empty() {
-            cmd.env("ANTHROPIC_BASE_URL", &credentials.base_url);
-        }
-    }
-}
 fn spawn_and_stream(
     app: AppHandle,
     mut cmd: Command,

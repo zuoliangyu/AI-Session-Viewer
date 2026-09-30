@@ -24,23 +24,6 @@ pub struct SessionsQuery {
     pub project_id: String,
 }
 
-fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
-    let meta = metadata::load_metadata(source, project_id);
-    for session in sessions {
-        if let Some(sm) = meta.sessions.get(&session.session_id) {
-            if source == "claude" {
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            } else {
-                session.alias = sm.alias.clone();
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            }
-        }
-    }
-}
 
 pub async fn get_sessions(
     Query(params): Query<SessionsQuery>,
@@ -62,7 +45,7 @@ pub async fn get_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        merge_session_metadata(&source, &project_id, &mut sessions);
+        metadata::merge_into_sessions(&source, &project_id, &mut sessions);
 
         Ok(sessions)
     })
@@ -93,7 +76,7 @@ pub async fn get_invalid_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        merge_session_metadata(&source, &project_id, &mut sessions);
+        metadata::merge_into_sessions(&source, &project_id, &mut sessions);
 
         Ok(sessions)
     })

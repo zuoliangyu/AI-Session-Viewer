@@ -1,5 +1,16 @@
+use std::path::Path;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
+
+/// Whether a watcher event path is a session file change worth a refresh.
+/// Our own `.session-viewer-meta.json` writes are excluded so saving an alias
+/// or tag doesn't trigger a reload of the list it was saved from.
+pub fn is_session_file_change(path: &Path) -> bool {
+    if path.file_name().is_some_and(|name| name == ".session-viewer-meta.json") {
+        return false;
+    }
+    path.extension().is_some_and(|ext| ext == "jsonl" || ext == "json")
+}
 
 /// Collect events until no new event arrives for a full `quiet_period`.
 ///
@@ -33,6 +44,14 @@ where
 mod tests {
     use super::*;
     use std::sync::mpsc;
+
+    #[test]
+    fn session_change_filter_skips_own_metadata() {
+        assert!(is_session_file_change(Path::new("/p/a.jsonl")));
+        assert!(is_session_file_change(Path::new("/p/summary.json")));
+        assert!(!is_session_file_change(Path::new("/p/.session-viewer-meta.json")));
+        assert!(!is_session_file_change(Path::new("/p/notes.txt")));
+    }
 
     #[test]
     fn debounce_batch_keeps_every_queued_event() {

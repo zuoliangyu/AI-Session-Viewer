@@ -7,7 +7,7 @@ use tauri::{AppHandle, Emitter};
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::{claude, codex, grok, omp};
-use session_core::watcher_batch::collect_until_quiet;
+use session_core::watcher_batch::{collect_until_quiet, is_session_file_change};
 
 /// Minimum interval between emitting fs-change events to the frontend.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
@@ -81,17 +81,12 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
             for event in events {
                 match event {
                     Ok(event) => {
-                        changed.extend(event.paths.into_iter().filter(|path| {
-                            let is_meta = path
-                                .file_name()
-                                .map(|name| name == ".session-viewer-meta.json")
-                                .unwrap_or(false);
-                            !is_meta
-                                && path
-                                    .extension()
-                                    .map(|ext| ext == "jsonl" || ext == "json")
-                                    .unwrap_or(false)
-                        }));
+                        changed.extend(
+                            event
+                                .paths
+                                .into_iter()
+                                .filter(|path| is_session_file_change(path)),
+                        );
                     }
                     Err(error) => eprintln!("Watch error: {error}"),
                 }

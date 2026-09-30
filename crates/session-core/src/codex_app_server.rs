@@ -18,7 +18,6 @@
 
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -52,6 +51,32 @@ const MAX_RUNTIMES: usize = 4;
 pub struct CodexNotification {
     pub method: String,
     pub params: Value,
+}
+
+impl CodexNotification {
+    /// Turn id carried by a `turn/started` notification (needed for cancel).
+    pub fn started_turn_id(&self) -> Option<&str> {
+        if self.method != "turn/started" {
+            return None;
+        }
+        self.params.get("turn")?.get("id")?.as_str()
+    }
+
+    /// `Some(success)` when this notification ends the turn.
+    pub fn turn_outcome(&self) -> Option<bool> {
+        match self.method.as_str() {
+            "turn/completed" => Some(true),
+            "turn/failed" | "error" => Some(false),
+            _ => None,
+        }
+    }
+}
+
+/// Result of opening a thread for one chat turn.
+pub struct OpenedThread {
+    pub thread_id: String,
+    /// Prior turns returned by `thread/resume`; `Value::Null` for a new thread.
+    pub history_turns: Value,
 }
 
 type RpcResultSender = oneshot::Sender<Result<Value, String>>;
@@ -103,6 +128,46 @@ impl Default for CodexAppServer {
 }
 
 impl CodexAppServer {
+    /// `thread/resume` when `resume_thread_id` is given, else `thread/start`.
+    pub async fn open_thread(
+        &self,
+        creds: &ResolvedCliCredentials,
+        cwd: &str,
+        model: Option<&str>,
+        resume_thread_id: Option<&str>,
+    ) -> Result<OpenedThread, String> {
+        let thread_id_of = |resp: &Value| {
+            resp.get("thread")
+                .and_then(|t| t.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        if let Some(thread_id) = resume_thread_id {
+            let resp = self
+                .resume_thread(creds, thread_id, cwd, model)
+                .await
+                .map_err(|e| format!("codex thread/resume failed: {e}"))?;
+            Ok(OpenedThread {
+                thread_id: thread_id_of(&resp).unwrap_or_else(|| thread_id.to_string()),
+                history_turns: resp
+                    .get("thread")
+                    .and_then(|t| t.get("turns"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            })
+        } else {
+            let resp = self
+                .start_thread(creds, cwd, model)
+                .await
+                .map_err(|e| format!("codex thread/start failed: {e}"))?;
+            Ok(OpenedThread {
+                thread_id: thread_id_of(&resp)
+                    .ok_or_else(|| "codex thread/start: missing thread.id".to_string())?,
+                history_turns: Value::Null,
+            })
+        }
+    }
+
     pub fn new() -> Self {
         Self {
             inner: AsyncMutex::new(LruCache::new(
@@ -341,7 +406,7 @@ async fn spawn_runtime(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    apply_path_and_env(&mut cmd, cli_path, creds);
+    crate::chat_cli::apply_cli_env(&mut cmd, "codex", cli_path, creds)?;
 
     #[cfg(windows)]
     {
@@ -565,93 +630,25 @@ fn dispatch_and_prune(
     });
 }
 
-fn apply_path_and_env(cmd: &mut Command, cli_path: &str, creds: &ResolvedCliCredentials) {
-    cmd.env_clear();
-    for key in &[
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "SYSTEMDRIVE",
-        "COMSPEC",
-        "TEMP",
-        "TMP",
-        "HOME",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "USERPROFILE",
-        "USERNAME",
-        "USER",
-        "SHELL",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "NODE_PATH",
-        "NVM_DIR",
-        "NVM_BIN",
-        "NVM_SYMLINK",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMFILES",
-        "PROGRAMDATA",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "ALL_PROXY",
-        "CODEX_HOME",
-    ] {
-        if let Ok(val) = std::env::var(key) {
-            cmd.env(key, val);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn notif(method: &str, params: Value) -> CodexNotification {
+        CodexNotification {
+            method: method.to_string(),
+            params,
         }
     }
 
-    // PATH: prepend the codex CLI dir + node dir so #!/usr/bin/env node works.
-    let mut paths: Vec<PathBuf> = Vec::new();
-    if let Some(cli_dir) = Path::new(cli_path)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
-        paths.push(cli_dir.to_path_buf());
-    }
-    if let Some(node_path) = cli::find_node() {
-        if let Some(node_dir) = Path::new(&node_path)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-        {
-            let dir = node_dir.to_path_buf();
-            if !paths.iter().any(|p| p == &dir) {
-                paths.push(dir);
-            }
-        }
-    }
-    if let Some(existing) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&existing) {
-            if !paths.iter().any(|x| x == &p) {
-                paths.push(p);
-            }
-        }
-    }
-    if !paths.is_empty() {
-        if let Ok(joined) = std::env::join_paths(paths) {
-            cmd.env("PATH", joined);
-        }
-    }
-
-    // Provider creds — codex reads OPENAI_API_KEY / CODEX_API_KEY,
-    // OPENAI_BASE_URL / CODEX_BASE_URL.
-    for k in &[
-        "OPENAI_API_KEY",
-        "CODEX_API_KEY",
-        "OPENAI_BASE_URL",
-        "CODEX_BASE_URL",
-    ] {
-        cmd.env_remove(k);
-    }
-    if !creds.api_key.is_empty() {
-        cmd.env("CODEX_API_KEY", &creds.api_key);
-        cmd.env("OPENAI_API_KEY", &creds.api_key);
-    }
-    if !creds.base_url.is_empty() {
-        cmd.env("CODEX_BASE_URL", &creds.base_url);
-        cmd.env("OPENAI_BASE_URL", &creds.base_url);
+    #[test]
+    fn notification_helpers_read_turn_lifecycle() {
+        let started = notif("turn/started", json!({ "turn": { "id": "t1" } }));
+        assert_eq!(started.started_turn_id(), Some("t1"));
+        assert_eq!(started.turn_outcome(), None);
+        assert_eq!(notif("item/started", json!({ "turn": { "id": "t1" } })).started_turn_id(), None);
+        assert_eq!(notif("turn/completed", Value::Null).turn_outcome(), Some(true));
+        assert_eq!(notif("turn/failed", Value::Null).turn_outcome(), Some(false));
+        assert_eq!(notif("error", Value::Null).turn_outcome(), Some(false));
     }
 }

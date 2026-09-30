@@ -5,23 +5,6 @@ use session_core::paths::validate_session_file;
 use session_core::provider::{claude, codex, grok, omp};
 use session_core::recyclebin;
 
-fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
-    let meta = metadata::load_metadata(source, project_id);
-    for session in sessions {
-        if let Some(sm) = meta.sessions.get(&session.session_id) {
-            if source == "claude" {
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            } else {
-                session.alias = sm.alias.clone();
-                if !sm.tags.is_empty() {
-                    session.tags = Some(sm.tags.clone());
-                }
-            }
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn get_sessions(
@@ -37,7 +20,7 @@ pub async fn get_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        merge_session_metadata(&source, &project_id, &mut sessions);
+        metadata::merge_into_sessions(&source, &project_id, &mut sessions);
         Ok(sessions)
     })
     .await
@@ -58,7 +41,7 @@ pub async fn refresh_sessions_cache(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        merge_session_metadata(&source, &project_id, &mut sessions);
+        metadata::merge_into_sessions(&source, &project_id, &mut sessions);
         Ok(sessions)
     })
     .await
@@ -79,7 +62,7 @@ pub async fn get_invalid_sessions(
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
-        merge_session_metadata(&source, &project_id, &mut sessions);
+        metadata::merge_into_sessions(&source, &project_id, &mut sessions);
         Ok(sessions)
     })
     .await

@@ -18,7 +18,7 @@ const MAX_BATCH_DURATION: Duration = Duration::from_secs(2);
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::{claude, codex, grok, omp};
-use session_core::watcher_batch::collect_until_quiet;
+use session_core::watcher_batch::{collect_until_quiet, is_session_file_change};
 
 /// Shared broadcast sender for file change events
 pub type FsChangeTx = Arc<broadcast::Sender<Vec<String>>>;
@@ -97,9 +97,7 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
             match event {
                 Ok(event) => {
                     changed.extend(event.paths.into_iter().filter(|path| {
-                        path.extension()
-                            .map(|ext| ext == "jsonl" || ext == "json")
-                            .unwrap_or(false)
+                        is_session_file_change(path)
                     }));
                 }
                 Err(error) => tracing::warn!("Watch error: {error}"),

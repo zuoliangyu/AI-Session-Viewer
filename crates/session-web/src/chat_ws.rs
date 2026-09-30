@@ -1,7 +1,6 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use serde::Deserialize;
-use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -10,6 +9,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, watch, Mutex};
 
+use session_core::chat_cli;
 use session_core::cli;
 use session_core::cli_config::{self, ResolvedCliCredentials};
 use session_core::codex_app_server::CodexAppServer;
@@ -397,31 +397,21 @@ async fn run_cli_process(
     let credentials =
         cli_config::resolve_credentials(source, Some(api_key_override), Some(base_url_override))?;
     let mut cmd = Command::new(&cli_path);
-    if let Some(session_id) = resume_session_id {
-        cmd.arg("--resume").arg(session_id);
-    }
-    cmd.arg("-p");
-    if !model.is_empty() {
-        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-        cmd.arg("--model").arg(cli_model);
-    }
-    cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--include-partial-messages");
-    cmd.arg("--verbose");
-    if skip_permissions {
-        cmd.arg("--dangerously-skip-permissions");
-    }
-    // `--` ends option parsing so a prompt starting with `-` is never
-    // interpreted as a CLI flag.
-    cmd.arg("--").arg(prompt);
+    cmd.args(chat_cli::claude_print_args(
+        prompt,
+        model,
+        skip_permissions,
+        resume_session_id,
+    ));
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
     // waiting for permission confirmation or other interactive prompts
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
-    compose_chat_path(&mut cmd, &cli_path)?;
-    apply_provider_env(&mut cmd, source, &credentials);
+    // Same whitelist as the desktop app (the web copy used to inherit the
+    // whole server environment).
+    chat_cli::apply_cli_env(&mut cmd, source, &cli_path, &credentials)?;
     cmd.current_dir(project_dir);
 
     let mut child = cmd
@@ -525,36 +515,10 @@ async fn run_codex_chat_via_app_server(
     let model_opt = if model.is_empty() { None } else { Some(model) };
 
     // Open the thread.
-    let (thread_id, history_turns) = if let Some(sid) = resume_session_id.as_deref() {
-        let resp = server
-            .resume_thread(&credentials, sid, &project_dir_str, model_opt)
-            .await
-            .map_err(|e| format!("codex thread/resume failed: {}", e))?;
-        let id = resp
-            .get("thread")
-            .and_then(|t| t.get("id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| sid.to_string());
-        let turns = resp
-            .get("thread")
-            .and_then(|t| t.get("turns"))
-            .cloned()
-            .unwrap_or(Value::Null);
-        (id, turns)
-    } else {
-        let resp = server
-            .start_thread(&credentials, &project_dir_str, model_opt)
-            .await
-            .map_err(|e| format!("codex thread/start failed: {}", e))?;
-        let id = resp
-            .get("thread")
-            .and_then(|t| t.get("id"))
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "codex thread/start: missing thread.id".to_string())?;
-        (id, Value::Null)
-    };
+    let opened = server
+        .open_thread(&credentials, &project_dir_str, model_opt, resume_session_id.as_deref())
+        .await?;
+    let (thread_id, history_turns) = (opened.thread_id, opened.history_turns);
 
     // Register per-session state for cancel routing.
     {
@@ -653,17 +617,10 @@ async fn run_codex_chat_via_app_server(
             }
         };
 
-        if notif.method == "turn/started" {
-            if let Some(tid) = notif
-                .params
-                .get("turn")
-                .and_then(|t| t.get("id"))
-                .and_then(|v| v.as_str())
-            {
-                let mut map = states.lock().await;
-                if let Some(entry) = map.get_mut(&routing_id) {
-                    entry.turn_id = Some(tid.to_string());
-                }
+        if let Some(tid) = notif.started_turn_id() {
+            let mut map = states.lock().await;
+            if let Some(entry) = map.get_mut(&routing_id) {
+                entry.turn_id = Some(tid.to_string());
             }
         }
 
@@ -681,13 +638,8 @@ async fn run_codex_chat_via_app_server(
             break;
         }
 
-        let terminal = notif.method == "turn/completed"
-            || notif.method == "turn/failed"
-            || notif.method == "error";
-        if notif.method == "turn/failed" || notif.method == "error" {
-            success = false;
-        }
-        if terminal {
+        if let Some(outcome) = notif.turn_outcome() {
+            success = outcome;
             break;
         }
     }
@@ -709,81 +661,4 @@ async fn run_codex_chat_via_app_server(
     let _ = tx.send(complete).await;
 
     Ok(())
-}
-
-/// Compose PATH for the spawned CLI: prepend the CLI's own directory (so it
-/// can find sibling scripts) AND node's directory. The latter matters under
-/// minimal PATH environments (systemd, daemons) where `#!/usr/bin/env node`
-/// in the CLI entry script would otherwise fail with `node: No such file`.
-fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
-    let mut paths: Vec<PathBuf> = Vec::new();
-
-    if let Some(cli_dir) = Path::new(cli_path)
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-    {
-        paths.push(cli_dir.to_path_buf());
-    }
-
-    if let Some(node_path) = cli::find_node() {
-        if let Some(node_dir) = Path::new(&node_path)
-            .parent()
-            .filter(|p| !p.as_os_str().is_empty())
-        {
-            let node_dir_buf = node_dir.to_path_buf();
-            if !paths.iter().any(|p| p == &node_dir_buf) {
-                paths.push(node_dir_buf);
-            }
-        }
-    }
-
-    if let Some(existing_path) = std::env::var_os("PATH") {
-        for p in std::env::split_paths(&existing_path) {
-            if !paths.iter().any(|existing| existing == &p) {
-                paths.push(p);
-            }
-        }
-    }
-
-    if paths.is_empty() {
-        return Ok(());
-    }
-
-    let joined = std::env::join_paths(paths)
-        .map_err(|e| format!("Failed to compose PATH for chat CLI: {}", e))?;
-    cmd.env("PATH", joined);
-    Ok(())
-}
-
-fn apply_provider_env(cmd: &mut Command, source: &str, credentials: &ResolvedCliCredentials) {
-    for key in &[
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_AUTH_TOKEN",
-        "ANTHROPIC_BASE_URL",
-        "CODEX_API_KEY",
-        "OPENAI_API_KEY",
-        "CODEX_BASE_URL",
-        "OPENAI_BASE_URL",
-    ] {
-        cmd.env_remove(key);
-    }
-
-    if source == "codex" {
-        if !credentials.api_key.is_empty() {
-            cmd.env("CODEX_API_KEY", &credentials.api_key);
-            cmd.env("OPENAI_API_KEY", &credentials.api_key);
-        }
-        if !credentials.base_url.is_empty() {
-            cmd.env("CODEX_BASE_URL", &credentials.base_url);
-            cmd.env("OPENAI_BASE_URL", &credentials.base_url);
-        }
-    } else if source == "claude" {
-        if !credentials.api_key.is_empty() {
-            cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
-            cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);
-        }
-        if !credentials.base_url.is_empty() {
-            cmd.env("ANTHROPIC_BASE_URL", &credentials.base_url);
-        }
-    }
 }

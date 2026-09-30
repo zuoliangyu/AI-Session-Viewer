@@ -1,5 +1,6 @@
 pub mod app_dir;
 pub mod bookmarks;
+pub mod chat_cli;
 pub mod cli;
 pub mod cli_config;
 pub mod codex_app_server;
