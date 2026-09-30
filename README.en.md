@@ -16,30 +16,104 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/zuoliangyu/AI-Session-Viewer?style=flat-square" alt="License"></a>
 </p>
 
-Browse, search, export, organize, and resume local AI coding conversations in one interface. All four sources support session browsing, search, export, tags, aliases, deletion, and resume commands. Claude, Codex, and Oh My Pi also support chatting inside the app.
+Browse, search, export, organize, and resume local AI coding conversations in one interface. All four sources support session browsing, search, export, tags, aliases, deletion, forking, and resume commands. Claude and Codex also support chatting inside the app through the locally installed CLI.
 
 The viewer reads local session files. Browsing does not upload them to a cloud service. Editing metadata, deleting sessions, connecting to remote nodes, syncing configuration, or starting a CLI conversation are explicit user actions.
 
-**Interface language:** Chinese is the default on every system. To use English, click the gear in the lower-left corner, open **显示设置 (Display)**, and select **English** under **界面语言 / Language**. The change takes effect immediately and is remembered after restarting. Session content and custom names are not translated.
+**Interface language:** Chinese is the default on every system. To use English, click **设置 (Settings)** in the lower-left corner, open **显示设置 (Display)**, and select **English** under **界面语言 / Language**. The change takes effect immediately and is remembered after restarting. Session content and custom names are not translated.
 
-**What's new in v2.22.1:** Chinese and English interfaces with a saved language preference (Chinese by default), localized relative times, and bilingual READMEs. Tauri CLI is upgraded to `2.11.4`, including the fix for relative `.DirIcon` and `.desktop` links in AppImages. Lightweight checks now cover localization and the packaging dependency. See [CHANGELOG.md](./CHANGELOG.md) for release history.
+**What's new in v3.0.0:** a reworked layout — breadcrumb page headers, a dedicated Settings page, a compact source switcher with a "recent projects" sidebar, and question ticks on the long-session position rail. A new chat moves to its session page once the first reply finishes, and the session page keeps its composer docked. The web server is hardened: loopback by default, a token is required for network binds, and WebSocket origins are checked. In-app chat now focuses on Claude and Codex, and web deletion goes to the recycle bin. Streaming and search are noticeably faster.
+
+> ⚠️ **Upgrading from 2.x:** this release contains breaking changes (web bind address, token requirement, chat scope). See [CHANGELOG.md](./CHANGELOG.md#300---2026-09-30).
 
 ## Screenshots
 
-The screenshots below show the Chinese interface. English is available in Display settings.
+The screenshots use fictional demo data served by the web build in Docker; the desktop app looks the same. They show the Chinese interface — English is available in Settings → Display.
+
+**Projects and sessions**
 
 <table>
   <tr>
-    <td><img src="./img/1.png" width="400" alt="Project list"></td>
-    <td><img src="./img/2.png" width="400" alt="Session list"></td>
+    <td><img src="./img/projects.png" width="400" alt="Project list with tags and the recent-projects sidebar"></td>
+    <td><img src="./img/sessions.png" width="400" alt="Session list with aliases, tags, and resume commands"></td>
   </tr>
   <tr>
-    <td><img src="./img/3.png" width="400" alt="Message details"></td>
-    <td><img src="./img/4.png" width="400" alt="Global search"></td>
+    <td align="center">Projects</td>
+    <td align="center">Sessions</td>
+  </tr>
+</table>
+
+**Reading sessions**
+
+<table>
+  <tr>
+    <td><img src="./img/messages.png" width="400" alt="Message view with breadcrumb and question ticks on the position rail"></td>
+    <td><img src="./img/messages-toc.png" width="400" alt="Question index"></td>
   </tr>
   <tr>
-    <td><img src="./img/5.png" width="400" alt="Token statistics"></td>
-    <td><img src="./img/6.png" width="400" alt="Dark theme"></td>
+    <td align="center">Messages and position rail</td>
+    <td align="center">Question index</td>
+  </tr>
+  <tr>
+    <td><img src="./img/tool-viewers.png" width="400" alt="Tool call viewers"></td>
+    <td><img src="./img/thread-summary.png" width="400" alt="Question summary"></td>
+  </tr>
+  <tr>
+    <td align="center">Tool call viewers</td>
+    <td align="center">Question summary</td>
+  </tr>
+  <tr>
+    <td><img src="./img/codex-session.png" width="400" alt="Codex session"></td>
+    <td><img src="./img/messages-dark.png" width="400" alt="Dark theme"></td>
+  </tr>
+  <tr>
+    <td align="center">Codex session</td>
+    <td align="center">Dark theme</td>
+  </tr>
+</table>
+
+**Search, statistics, and settings**
+
+<table>
+  <tr>
+    <td><img src="./img/search.png" width="400" alt="Global search"></td>
+    <td><img src="./img/stats.png" width="400" alt="Token statistics"></td>
+  </tr>
+  <tr>
+    <td align="center">Search</td>
+    <td align="center">Token and cost statistics</td>
+  </tr>
+  <tr>
+    <td><img src="./img/request-log.png" width="400" alt="Per-request costs"></td>
+    <td><img src="./img/settings.png" width="400" alt="Settings page"></td>
+  </tr>
+  <tr>
+    <td align="center">Per-request costs</td>
+    <td align="center">Settings</td>
+  </tr>
+  <tr>
+    <td><img src="./img/bookmarks.png" width="400" alt="Bookmarks"></td>
+    <td><img src="./img/settings-chat.png" width="400" alt="Chat settings"></td>
+  </tr>
+  <tr>
+    <td align="center">Bookmarks</td>
+    <td align="center">Chat settings</td>
+  </tr>
+</table>
+
+**Multiple sources and dark theme**
+
+<table>
+  <tr>
+    <td><img src="./img/codex-projects.png" width="400" alt="Codex projects"></td>
+    <td><img src="./img/projects-dark.png" width="400" alt="Projects in dark theme"></td>
+  </tr>
+  <tr>
+    <td align="center">Switched to Codex</td>
+    <td align="center">Dark theme · projects</td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="./img/sessions-dark.png" width="400" alt="Sessions in dark theme"><br>Dark theme · sessions</td>
   </tr>
 </table>
 
@@ -97,7 +171,7 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 docker compose up -d
 ```
 
-Configure mounts, ports, and `ASV_TOKEN` in [docker-compose.yml](./docker-compose.yml).
+Configure mounts and ports in [docker-compose.yml](./docker-compose.yml). The container binds `0.0.0.0`, so a token is **required**: `ASV_TOKEN=my-secret docker compose up -d`.
 
 | | Native web executable | Docker |
 |---|---|---|
@@ -106,18 +180,19 @@ Configure mounts, ports, and `ASV_TOKEN` in [docker-compose.yml](./docker-compos
 | Runtime requirement | Static Linux executable | Docker |
 | Typical use | Personal server with CLI access | Shared history browser |
 
-**Access protection:** session histories may contain source code, credentials, and private conversations. For local use, bind to `127.0.0.1`. For LAN access, configure a token and restrict the port with a firewall. For public access, also use an HTTPS reverse proxy such as Nginx or Caddy. The server itself does not provide HTTPS; tokens sent over plain HTTP are not encrypted.
+**Access protection:** session histories may contain source code, credentials, and private conversations. Local use needs nothing extra — the default bind is `127.0.0.1`. For LAN access, configure a token and restrict the port with a firewall. For public access, also use an HTTPS reverse proxy such as Nginx or Caddy. The server itself does not provide HTTPS; tokens sent over plain HTTP are not encrypted.
 
 ### Desktop and web differences
 
 | Feature | Desktop | Web |
 |---|---|---|
 | Resume | Open a system terminal | Copy a resume command |
+| Delete session | Move to recycle bin | Move to recycle bin |
 | Fork | Create a session and open its terminal | Create and navigate to the new session |
 | In-app chat | Local CLI process | Server CLI through WebSocket |
 | Updates | In-app updater / release link | Manual deployment |
 | File changes | Tauri events | WebSocket events |
-| Authentication | None for local IPC | Optional bearer token |
+| Authentication | None for local IPC | Optional on loopback; bearer token required for network binds |
 
 ### Multiple machines
 
@@ -133,9 +208,12 @@ Register `session-web` root URLs in the sidebar's machine selector. Each node ha
 
 ### Navigation and display
 
-- Switch between Claude, Codex, Grok, and Oh My Pi in the sidebar. Hide unused agents in **Settings → Display**, keeping at least one visible.
-- Main navigation provides projects, search, bookmarks, and statistics. Skills, invalid items, the recycle bin, and provider sync are under **Tools & management**.
-- Project filtering and the five most recently viewed sessions are saved locally and separated by machine and source.
+- Switch between Claude, Codex, Grok, and Oh My Pi with the row of source icons at the top of the sidebar. Hide unused agents in **Settings → Display**, keeping at least one visible. Source-agnostic pages (search, bookmarks, settings, tools) stay put when you switch; other pages return to the project list. The active source is remembered across reloads.
+- Main navigation provides projects, search, bookmarks, and statistics. Skills, invalid items, the recycle bin, and provider sync are under **Tools & management**; Settings is its own page, linked at the bottom left.
+- The sidebar lists the five most recently viewed sessions (per machine and source) and the eight most recently active projects, with a link to all projects; typing in the filter searches every project.
+- Page headers use a **source › project › session** breadcrumb.
+- Long sessions show a position rail with a tick for every question — hover to preview, click or drag to jump.
+- Load failures show the reason and a Retry button; every dialog closes with Escape.
 - Projects and sessions use card grids by default. List/grid preferences are saved independently, with virtualized rows for large collections.
 - Below 1024px, navigation becomes a drawer. Below 1280px, the question index overlays the reader and can be dismissed with Escape.
 - Select Chinese or English in **Settings → Display → Language**. The default is Chinese regardless of system locale; language preference is saved per browser or desktop WebView. UI labels, dialogs, application hints, and relative times follow this choice. Raw session text and CLI/server diagnostics remain unchanged.
@@ -153,8 +231,8 @@ Session cards show the first prompt or alias, message count, branch, and creatio
 - Export one or many sessions as JSON, Markdown, or HTML. Desktop uses a file dialog; web mode downloads through the browser.
 - Add aliases and tags, filter by tags, and bookmark entire sessions or individual messages.
 - Claude aliases synchronize with Claude Code's `/rename`.
-- Review empty or corrupt sessions in the invalid-items page before deleting them. Its desktop deletion moves sessions to the recycle bin; its web deletion is permanent.
-- The recycle bin supports restoring original paths, removing orphan directories, and permanent deletion after confirmation.
+- Review empty or corrupt sessions in the invalid-items page before deleting them. Deletion moves sessions to the recycle bin on both desktop and web.
+- The recycle bin supports restoring original paths, removing orphan directories, and permanent deletion after confirmation. Deleting a whole Oh My Pi or Grok project creates a single recycle-bin entry.
 
 ### Reading conversations
 
@@ -166,7 +244,7 @@ The Codex trace view includes turns, approximate steps, tool duration and failur
 
 ### Resume and fork
 
-Resume a session through its CLI or continue Claude, Codex, and Oh My Pi conversations inside the app. Grok provides a terminal command.
+Resume a session through its CLI or continue Claude and Codex conversations from the composer at the bottom of the session page. Grok and Oh My Pi provide a terminal command.
 
 Fork buttons appear below user questions and in the question summary. Forking creates an independent session containing earlier history and the selected turn's full reply, including tool calls and results. Later turns are excluded and the original is preserved.
 
@@ -188,7 +266,9 @@ Per-request costs support project, model, and date filters; a row opens the corr
 
 ### In-app chat
 
-Choose **New chat**, select a working directory, and use an installed Claude, Codex, or Oh My Pi CLI. Replies stream with Markdown and tool viewers for Read, Edit, Write, Bash, Grep, and Glob. Long conversations use virtual scrolling.
+Choose **New chat**, select a working directory, and chat through the installed Claude or Codex CLI (on this machine, or on the machine running the web server). Once the first reply finishes, the conversation moves to its session page, where the composer stays docked at the bottom. Replies stream with Markdown and tool viewers for Read, Edit, Write, Bash, Grep, and Glob. Long conversations use virtual scrolling. If the CLI isn't detected, the page links straight to Settings → Chat.
+
+By default the web server rejects client requests to skip permissions or to supply their own API key / base URL; enable them explicitly with `--allow-skip-permissions` / `--allow-client-credentials`.
 
 The app remembers model choices, supports custom model IDs, and attempts to match the historical model when resuming. Use `/model` or Ctrl+K to switch models. Chat settings include CLI paths, API/base-URL overrides, Windows terminal choice, and permission mode.
 

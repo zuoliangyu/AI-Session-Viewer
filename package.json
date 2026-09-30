@@ -1,7 +1,7 @@
 {
   "name": "ai-session-viewer",
   "private": true,
-  "version": "2.22.1",
+  "version": "3.0.0",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"

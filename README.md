@@ -24,28 +24,102 @@
 
 ---
 
-**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex)、Grok CLI 和 [Oh My Pi](https://github.com/can1357/oh-my-pi) 的本地会话。四种来源均支持浏览、搜索、导出、标签/别名、删除与一键恢复（Resume）；Claude、Codex 和 Oh My Pi 还支持在应用内继续对话。
+**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex)、Grok CLI 和 [Oh My Pi](https://github.com/can1357/oh-my-pi) 的本地会话。四种来源均支持浏览、搜索、导出、标签/别名、删除、分叉与一键恢复（Resume）；Claude 与 Codex 还支持在应用内继续对话（调用本机安装的 CLI）。
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
-> **What's New（v2.22.1）**：新增中英文界面与双语 README，默认中文，可在「设置 → 显示设置 → 界面语言 / Language」中切换 English 并自动保存选择；相对时间随语言切换。Tauri CLI 升级至 `2.11.4`，引入 AppImage `.DirIcon` 与 `.desktop` 相对链接修复。新增国际化与打包依赖轻量检查。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v3.0.0）**：界面重排——统一面包屑页头、独立设置页、紧凑的来源切换与「最近项目」侧栏，长会话右侧位置条标出每个提问；新建对话完成后自动转入会话页，会话页输入框常驻。Web 服务加固：默认只监听本机、非本机监听必须设置令牌、WebSocket 校验来源。应用内续聊聚焦 Claude 与 Codex；Web 端删除改为进回收站。流式输出与搜索明显更快。
 >
-> v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
+> ⚠️ **从 2.x 升级**：包含不兼容变更（Web 默认监听地址、令牌、续聊范围），详见 [CHANGELOG.md](./CHANGELOG.md#300---2026-09-30)。
 
 ## 截图
 
+> 截图使用虚构的演示数据，在 Docker 中运行 Web 版生成；桌面版界面一致。
+
+**项目与会话**
+
 <table>
   <tr>
-    <td><img src="./img/1.png" width="400" alt="项目列表"></td>
-    <td><img src="./img/2.png" width="400" alt="会话列表"></td>
+    <td><img src="./img/projects.png" width="400" alt="项目列表：卡片网格、标签、最近项目侧栏"></td>
+    <td><img src="./img/sessions.png" width="400" alt="会话列表：别名、标签与续聊命令"></td>
   </tr>
   <tr>
-    <td><img src="./img/3.png" width="400" alt="消息详情"></td>
-    <td><img src="./img/4.png" width="400" alt="全局搜索"></td>
+    <td align="center">项目列表</td>
+    <td align="center">会话列表</td>
+  </tr>
+</table>
+
+**阅读会话**
+
+<table>
+  <tr>
+    <td><img src="./img/messages.png" width="400" alt="消息详情：面包屑、位置条上的提问刻度"></td>
+    <td><img src="./img/messages-toc.png" width="400" alt="提问目录"></td>
   </tr>
   <tr>
-    <td><img src="./img/5.png" width="400" alt="Token 统计"></td>
-    <td><img src="./img/6.png" width="400" alt="暗色主题"></td>
+    <td align="center">消息详情与位置条</td>
+    <td align="center">提问目录</td>
+  </tr>
+  <tr>
+    <td><img src="./img/tool-viewers.png" width="400" alt="工具调用查看器"></td>
+    <td><img src="./img/thread-summary.png" width="400" alt="提问汇总"></td>
+  </tr>
+  <tr>
+    <td align="center">工具调用查看器</td>
+    <td align="center">提问汇总</td>
+  </tr>
+  <tr>
+    <td><img src="./img/codex-session.png" width="400" alt="Codex 会话"></td>
+    <td><img src="./img/messages-dark.png" width="400" alt="暗色主题"></td>
+  </tr>
+  <tr>
+    <td align="center">Codex 会话</td>
+    <td align="center">暗色主题</td>
+  </tr>
+</table>
+
+**搜索、统计与设置**
+
+<table>
+  <tr>
+    <td><img src="./img/search.png" width="400" alt="全局搜索"></td>
+    <td><img src="./img/stats.png" width="400" alt="Token 统计"></td>
+  </tr>
+  <tr>
+    <td align="center">全局搜索</td>
+    <td align="center">Token 与花费统计</td>
+  </tr>
+  <tr>
+    <td><img src="./img/request-log.png" width="400" alt="逐请求账单"></td>
+    <td><img src="./img/settings.png" width="400" alt="设置页"></td>
+  </tr>
+  <tr>
+    <td align="center">逐请求账单</td>
+    <td align="center">设置</td>
+  </tr>
+  <tr>
+    <td><img src="./img/bookmarks.png" width="400" alt="收藏"></td>
+    <td><img src="./img/settings-chat.png" width="400" alt="对话设置"></td>
+  </tr>
+  <tr>
+    <td align="center">收藏</td>
+    <td align="center">对话设置</td>
+  </tr>
+</table>
+
+**多来源与暗色主题**
+
+<table>
+  <tr>
+    <td><img src="./img/codex-projects.png" width="400" alt="Codex 项目"></td>
+    <td><img src="./img/projects-dark.png" width="400" alt="暗色主题项目列表"></td>
+  </tr>
+  <tr>
+    <td align="center">切换到 Codex</td>
+    <td align="center">暗色主题 · 项目列表</td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="./img/sessions-dark.png" width="400" alt="暗色主题会话列表"><br>暗色主题 · 会话列表</td>
   </tr>
 </table>
 
@@ -108,11 +182,10 @@ docker compose up        # 前台
 docker compose up -d     # 后台
 ```
 
-挂载路径、端口、Token 等在 [`docker-compose.yml`](docker-compose.yml) 配置；公网部署时取消 `ASV_TOKEN` 注释并设置密钥：
+挂载路径、端口等在 [`docker-compose.yml`](docker-compose.yml) 配置。容器监听 `0.0.0.0`，因此**必须设置令牌**：
 
-```yaml
-environment:
-  ASV_TOKEN: my-secret
+```bash
+ASV_TOKEN=my-secret docker compose up -d
 ```
 
 > ⚠️ **安全警告**
@@ -121,7 +194,7 @@ environment:
 >
 > | 场景 | 建议措施 |
 > |------|---------|
-> | **仅本机使用** | `--host 127.0.0.1`，仅 localhost 可达 |
+> | **仅本机使用** | 默认即 `127.0.0.1`，仅 localhost 可达 |
 > | **局域网共享** | 设置 `ASV_TOKEN`，防火墙限制端口仅内网可达 |
 > | **公网暴露** | 设置 `ASV_TOKEN` + 前置 Nginx/Caddy 反向代理 + 启用 HTTPS/TLS |
 >
@@ -132,11 +205,12 @@ environment:
 | 功能 | 桌面应用 | Web 服务器 |
 |------|---------|-----------|
 | 恢复会话 | 打开系统终端 | 复制命令到剪贴板 |
+| 删除会话 | 移入回收站 | 移入回收站 |
 | 会话分叉 | 四来源创建新会话 + 终端打开 | 四来源创建新会话 + 跳转浏览/续聊 |
 | CLI 对话 | 本地 spawn CLI 进程 | WebSocket 转发 |
 | 自动更新 | 应用内更新 | 不适用 |
 | 文件监听 | Tauri 事件 | WebSocket 推送 |
-| 认证 | 不需要 | 可选 Bearer Token |
+| 认证 | 不需要 | 仅本机监听时可选；非本机监听必须设置 Bearer Token |
 
 ### 多机节点
 
@@ -163,13 +237,15 @@ environment:
 
 ### 界面与导航
 
-- 侧栏保留 Claude、Codex、Grok、Oh My Pi 四个纵向入口；在「设置 → 显示设置 → 侧栏显示的 Agent」中选择显示哪些来源，至少保留一个。隐藏当前来源时会切换到其他可见来源，不删除任何数据。
-- 主要导航为所有项目、搜索会话、收藏与使用统计；Skills、无效项管理、回收站、Provider 同步集中到侧栏底部的「工具与管理」。节点选择仍在来源下方。
-- 侧栏提供项目筛选和最近浏览。最近浏览保存在当前浏览器/桌面 WebView 的本地存储，按机器节点隔离，并仅显示当前来源最近的 5 条记录。
-- 项目和会话默认使用便利贴式卡片网格，一排展示多个条目；可切换为列表并分别记住选择。项目、会话和搜索页的标签筛选按需展开。统计页优先展示会话数、请求数、费用与总 Token，其余 Token 与缓存数字在明细中展开。
+- 侧栏顶部是一行来源图标（Claude / Codex / Grok / Oh My Pi），下方显示当前来源；在「设置 → 显示设置 → 侧栏显示的 Agent」中选择显示哪些来源，至少保留一个。切换来源时，搜索、收藏、设置等通用页面保持不动，其他页面回到项目列表。
+- 主要导航为所有项目、搜索会话、收藏与使用统计；Skills、无效项管理、回收站、Provider 同步集中在侧栏底部的「工具与管理」，设置入口在左下角。
+- 侧栏显示最近浏览（当前来源最近 5 条，按机器节点隔离）和最近活跃的 8 个项目，末尾可进入全部项目；在筛选框输入时会在全部项目中查找。
+- 各页页头统一为「来源 › 项目 › 会话」面包屑，点击即可返回上一级。
+- 项目和会话默认使用卡片网格，可切换为列表并分别记住选择。项目、会话和搜索页的标签筛选按需展开。
 - 会话顶部通过「消息 / 提问汇总 / 轨迹」切换阅读方式（轨迹仅 Codex）。「显示」管理时间、模型、展开/折叠和分屏；「详情」提供费用、标签、别名与终端续聊命令。
-- 提问目录默认收起，点击「目录 · 数量」展开，记住开关偏好；Fork 在提问下方常显。浏览历史时输入框默认收起，点击「继续对话」或「输入消息」展开，收起保留当前草稿；正在生成回复时保持输入区可见。
-- 桌面与 Web 共用布局：宽度小于 1024px 时主导航改为抽屉；小于 1280px 时提问目录叠加在正文上，可点遮罩或按 Escape 关闭。逐请求账单使用独立横向滚动区域。
+- 长会话右侧的位置条按真实位置标出每个提问，悬停查看提问内容，点击或拖动跳转；提问目录默认收起，点击「目录 · 数量」展开。
+- 加载失败时显示错误原因与「重试」按钮；所有弹窗可按 Esc 关闭。
+- 桌面与 Web 共用布局：宽度小于 1024px 时主导航改为抽屉；小于 1280px 时提问目录叠加在正文上，可点遮罩或按 Escape 关闭。
 
 ### 项目列表
 
@@ -244,7 +320,7 @@ environment:
 
 桌面本地模式创建分叉后打开系统终端，同时跳转到新会话。如果终端打开失败，已创建的新会话仍然保留，页面提示使用“恢复”按钮重试，无需再次分叉。
 
-Web 模式和桌面连接远程节点时，分叉在会话所在服务器创建，成功后直接打开新会话。Claude、Codex 和 OMP 可通过现有应用内聊天继续对话（服务器需安装对应 CLI）；Grok 提供续聊命令，请在服务器的对应项目目录执行。Grok 本次不包含应用内聊天。
+Web 模式和桌面连接远程节点时，分叉在会话所在服务器创建，成功后直接打开新会话。Claude 与 Codex 可在会话页底部继续对话（服务器需安装对应 CLI）；Grok 与 Oh My Pi 提供续聊命令，请在服务器的对应项目目录执行。
 
 Codex 使用本机/服务器上的 `codex app-server` 原生 `thread/fork`，按持久化轮次定位分叉点，并核对新会话的历史边界。旧版 CLI 忽略指定轮次参数时，仅对新分叉执行原生回退并再次验证；无法可靠定位的记录会明确报错，请刷新会话或升级 CLI。回退记录在原始日志中保留，消息视图不会将已回退的轮次作为有效历史展示。
 
@@ -277,7 +353,7 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 ### 显示设置
 
-- 界面默认使用简体中文。在左下角齿轮 →「显示设置 → 界面语言 / Language」选择 **English** 可立即切换英文，选择会保存在当前浏览器/桌面 WebView 的本地存储，重启后沿用；首次启动不根据系统语言自动切换。
+- 界面默认使用简体中文。在左下角「设置 → 显示设置 → 界面语言 / Language」选择 **English** 可立即切换英文，选择会保存在当前浏览器/桌面 WebView 的本地存储，重启后沿用；首次启动不根据系统语言自动切换。
 - 中英文覆盖应用界面、弹窗、提示和相对时间。会话原文、项目名、自定义标签以及 CLI/服务器返回的原始诊断保留原样。语言和时区独立设置。
 - 时区默认跟随用户系统，也可在「设置 → 显示设置」中选择浏览器支持的 IANA 时区；消息、账单、搜索结果、会话列表、管理页面以及统计日期筛选统一使用该时区
 - 时区偏好保存在浏览器本地，不改变 JSONL 中的 UTC 原始时间；切换后统计数据会按新时区立即重新分日
@@ -296,14 +372,15 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 ### CLI 对话
 
-侧边栏「新建对话」进入，选工作目录后即可在应用内直接和 Claude Code、Codex CLI 或 Oh My Pi 对话，无需切到终端；入口按当前数据源自动检测对应 CLI 是否已安装。
+侧边栏「新建对话」进入，选工作目录后即可在应用内直接和 Claude Code 或 Codex CLI 对话，无需切到终端。对话通过本机（或 Web 服务所在机器）安装的 CLI 执行，入口会自动检测对应 CLI 是否已安装；未检测到时可直接跳到「设置 → 对话设置」。Grok 与 Oh My Pi 请使用终端续聊。
 
+- 首轮回复完成后自动转入该会话的会话页，之后在底部常驻的输入框里继续；已有会话同样在会话页底部直接续聊，也可以选中文字「回复」引用
 - 流式输出，实时渲染 AI 回复（Markdown + 代码高亮）
 - **工具调用专用查看器**：Read（高亮 + 行号）、Edit（Diff）、Write（预览）、Bash（终端风格）、Grep/Glob
 - 对话按轮次分组（显示轮次编号与 token 用量），header 累计 token、每条消息分项明细
 - 超过 30 轮自动虚拟滚动，长对话不卡
-- 支持续聊已有 Claude、Codex 与 Oh My Pi 会话（消息详情页「继续对话」入口）
 - 自动记住上次模型、续聊历史会话时自动匹配原会话模型；`/model` 或 `Ctrl+K` 切换模型
+- Web 服务默认不允许客户端请求「跳过权限」或传入自定义 API Key / Base URL，需服务端显式开启（见上方参数表）
 
 ### Skills 浏览 / 导入 / 删除
 
@@ -335,7 +412,7 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 
 ### 无效项管理
 
-侧边栏「无效项管理」按项目分组扫描异常数据（无效项目 = 路径不存在；无效会话 = 消息数为 0），批量勾选后统一清理。桌面端删除入回收站，Web 端为永久删除。
+侧边栏「无效项管理」按项目分组扫描异常数据（无效项目 = 路径不存在；无效会话 = 消息数为 0），批量勾选后统一清理，桌面端与 Web 端都移入回收站，可恢复。
 
 > Codex 数据源当前仅支持清理无效会话，不支持删除无效项目索引。
 
@@ -356,7 +433,7 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 ### 数据安全
 
 - **原子写入**：所有元数据 / 索引 / 书签文件均原子落盘，进程异常中断不会留下损坏或截断的文件
-- **软删除回收站**：删除会话 / 清理空项目移入回收站，可随时恢复，不会立即永久删除
+- **软删除回收站**：删除会话 / 项目 / 清理空项目均移入回收站，可随时恢复；OMP 与 Grok 删除整个项目时合并为一条记录
 
 ## 开发
 
@@ -561,7 +638,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 关于作者信息弹窗
 - [x] 会话标签与别名系统 + 跨项目标签筛选
 - [x] 全局搜索会话分组模式 + 应用内使用说明
-- [x] 应用内 CLI 对话（Claude `--resume` / Codex `app-server` / Oh My Pi print mode 续聊）
+- [x] 应用内 CLI 对话（Claude `--resume` / Codex `app-server` 续聊）
 - [x] CLI 配置自动检测（API Key / Base URL / 默认模型）
 - [x] 工具调用专用查看器（Read/Edit/Write/Bash/Grep/Glob）
 - [x] 对话轮次分组 + Token 详细统计 + 虚拟化滚动

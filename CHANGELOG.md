@@ -8,6 +8,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [3.0.0] - 2026-09-30
+
+本版本包含 Web 服务默认配置与应用内续聊范围的**不兼容变更**，升级前请阅读「Breaking」。
+
+### Breaking
+
+- **Web 服务默认只监听 `127.0.0.1`**。监听 `0.0.0.0` 等非本机地址时必须设置 `--token` / `ASV_TOKEN`，否则拒绝启动；确需免认证可显式加 `--allow-no-auth`。Docker 部署需设置 `ASV_TOKEN`（`docker-compose.yml` 已改为必填）。
+- **Web 续聊的「跳过权限」和客户端自定义 API Key / Base URL 默认关闭**，需在服务端分别加 `--allow-skip-permissions`、`--allow-client-credentials` 开启；未开启时客户端请求会收到明确报错。
+- **应用内续聊仅支持 Claude 与 Codex**（均在本地执行 CLI）。Oh My Pi 与 Grok 仍支持浏览、搜索、分叉和终端恢复，但不再提供应用内对话。
+- **Web 端删除会话改为移入回收站**（此前为永久删除），与桌面端一致。
+
+### Security
+
+- 终端恢复会话前校验会话 ID 仅含 `[A-Za-z0-9._-]`，阻止经篡改的会话文件向 shell 注入命令。
+- Claude 续聊在提示词前加 `--`，以 `-` 开头的提示词不会再被解析为 CLI 参数。
+- WebSocket（`/ws`、`/ws/chat`）校验 Origin，拒绝跨站连接；CORS 由全放行改为可信来源白名单，可用 `--allowed-origins` / `ASV_ALLOWED_ORIGINS` 追加（如反向代理域名）。
+- Web 续聊不再继承服务器全部环境变量，与桌面端一致清空后按白名单转发。
+
+### Added
+
+- 独立设置页 `/settings`（显示、对话、更新、使用说明、关于），支持 `?section=` 直达；未检测到 CLI 时可一键跳到对话设置。
+- 页头统一为「来源 › 项目 › 会话」面包屑。
+- 长会话右侧位置条按真实位置标出每个提问，悬停预览、点击跳转。
+- 新建对话首轮回复完成后自动转入对应会话页；会话页输入框常驻底部。
+- 统一的加载 / 空状态 / 错误组件；消息或会话列表加载失败时显示错误与「重试」，不再是空白页。
+- 新增 `success` / `warning` / `info` 语义色，状态色在浅色与深色主题下对比度均 ≥ 4.5:1。
+- 所有弹窗支持 Esc 关闭（嵌套时只关闭最上层），补齐 `role="dialog"` 与图标按钮 `aria-label`。
+- CI 运行 `cargo test`。
+
+### Changed
+
+- 侧栏瘦身：来源切换改为一行图标；只显示最近 8 个项目，末尾链接到全部项目；切换来源时搜索、收藏、设置等通用页面保持不动。
+- OMP 与 Grok 删除整个项目时，在回收站中合并为一条「项目」记录，整体恢复。
+- 提问汇总 / 结果数 / 删除确认等 27 处拼接文案改为整句插值，英文语序正确。
+- 桌面端与 Web 端共用续聊 CLI 启动、环境变量、Codex 协议判断、会话元数据合并与文件监听过滤逻辑（`session_core::chat_cli` 等）。
+- README 截图全部更新为 v3.0.0 界面（17 张，含暗色主题与 Codex），使用虚构演示数据生成。
+
+### Performance
+
+- 流式输出时不再整页重渲染：store 整体订阅改为 `useShallow` 选择器；移除每行 O(n²) 复制且无人读取的 `rawOutput`。
+- 消息缓存改为共享引用（`Arc`），命中时只拷贝所需分页。
+- 搜索先判断命中再扫描标题与完整解析（未命中的文件只读一次），搜索结果不再挤掉正在查看的会话缓存。
+- 搜索、导出、删除、回收站等 I/O 命令移出 UI 主线程；CLI 路径查找结果缓存。
+
+### Fixed
+
+- Grok 会话打开空白：路由参数被二次解码，破坏了 Grok URL 编码的目录名；同时隐藏 Grok 注入的 `<user_info>` / `<system-reminder>`，只显示真实提问。
+- 桌面远程节点模式下「终端续聊」按钮无响应；Grok 会话补上复制续聊命令；复制失败时给出提示。
+- 浅色主题下 Bash 工具输出几乎不可读。
+- 刷新或直接打开 Codex / Grok / Oh My Pi 的项目页、会话页时误用 Claude 来源加载而报错：当前来源改为本地记住。
+- 历史会话中 Read 等工具查看器始终显示"无内容"：现按 `tool_use_id` 配对工具结果并显示读取到的文件。
+- 历史会话中工具报错从未按错误样式显示、工具结果变化时列表不刷新：前端类型与后端实际字段（`tool_use_id` / `is_error`）不一致，已对齐。
+- 跨卷（如 Docker 挂载目录）删除到回收站失败时回退为复制后删除。
+- 修正路径解码单测中错误的 Windows 编码样例。
+
+### Removed
+
+- 应用内 OMP 续聊、遗留的 `codex exec` 分支，以及 `AppState`、`useChatStream`、`UserQuestionJumpList` 等未使用代码。
+
+### Version
+
+- 将工作区版本统一提升到 `3.0.0`，同步 `package.json`、`package-lock.json`、根 `Cargo.lock`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
 ## [2.22.1] - 2026-09-30
 
 ### Added
