@@ -5,7 +5,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { ScrollArea } from "../ScrollArea";
 import { Sidebar } from "./Sidebar";
-import { UpdateToast } from "./UpdateIndicator";
+import { UpdateDialog } from "./UpdateDialog";
 
 export function AppLayout() {
   const { t } = useTranslation();
@@ -62,7 +62,7 @@ export function AppLayout() {
           <Outlet />
         </ScrollArea>
       </main>
-      <UpdateToast />
+      <UpdateDialog />
     </div>
   );
 }

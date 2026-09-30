@@ -29,6 +29,7 @@
 - 轻量检查会验证节点 URL、时区格式化，以及聊天/OMP 的提示词、CLI 检测、profile/XDG 路径和环境继承契约；还会检查四来源 Fork 的桌面/Web 调用流程与终端失败后保留新会话的行为。它不替代 Rust/TypeScript 编译检查。
 - 可单独运行 `node scripts/check-session-fork.mjs` 检查分叉调用流程。会话文件的 Rust 回归用例位于 `crates/session-core/src/fork/tests.rs`，覆盖工具轮次、OMP 祖先链与附件、Grok 原始历史、分叉失败清理、分页定位及 Codex 回退；这些用例需要人工运行 `cargo test -p session-core fork::tests`。
 - `node scripts/check-i18n.mjs` 检查中英文词典、占位符、默认中文、语言持久化与相对时间，并用解析器检查前端源码的语法及漏抽取的中文文案；不执行类型检查或构建。维护规则见 [src/i18n/README.md](../src/i18n/README.md)。
+- `node scripts/check-updates.mjs`（Node.js 24+）用模拟桌面 API 运行真实更新状态逻辑，检查自动/手动详情展示、忽略版本、下载进度、失败重试和便携版跳转；不访问网络、不安装更新、不编译。该专项检查单独运行，不改变通用轻量检查的 Node.js 版本要求。
 - `node scripts/check-appimage.mjs` 检查 Tauri CLI 的版本锁定，避免重新引入绝对 `.DirIcon` 符号链接的上游缺陷；两项检查均已纳入 `npm run check:scripts`。
 
 ## AppImage 产物验证
