@@ -11,8 +11,12 @@ use crate::state::{
     store_partial_messages, tail_window_len,
 };
 
-/// Types of records to skip during parsing (large/irrelevant)
-const SKIP_TYPES: &[&str] = &["file-history-snapshot", "progress"];
+/// Line-level markers for record types that never produce display messages.
+/// Pre-built so the per-line check doesn't allocate.
+const SKIP_TYPE_MARKERS: &[&str] = &[
+    "\"type\":\"file-history-snapshot\"",
+    "\"type\":\"progress\"",
+];
 
 /// Parse a JSONL session file and return paginated display messages.
 /// Uses line-level pre-filtering to skip irrelevant record types.
@@ -79,9 +83,9 @@ fn parse_tail_messages(
         }
 
         // Line-level pre-filter: skip known large/irrelevant record types
-        if SKIP_TYPES
+        if SKIP_TYPE_MARKERS
             .iter()
-            .any(|t| trimmed.contains(&format!("\"type\":\"{}\"", t)))
+            .any(|marker| trimmed.contains(marker))
         {
             continue;
         }
@@ -213,9 +217,9 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
         if trimmed.is_empty() {
             continue;
         }
-        if SKIP_TYPES
+        if SKIP_TYPE_MARKERS
             .iter()
-            .any(|t| trimmed.contains(&format!("\"type\":\"{}\"", t)))
+            .any(|marker| trimmed.contains(marker))
         {
             continue;
         }

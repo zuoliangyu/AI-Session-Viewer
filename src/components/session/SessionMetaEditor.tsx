@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
+import { useShallow } from "zustand/react/shallow";
 
 interface Props {
   sessionId: string;
@@ -25,7 +26,9 @@ export function SessionMetaEditor({
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(-1);
   const tagInputRef = useRef<HTMLInputElement>(null);
-  const { updateSessionMeta, allTags } = useAppStore();
+  const { updateSessionMeta, allTags } = useAppStore(
+    useShallow((state) => ({ updateSessionMeta: state.updateSessionMeta, allTags: state.allTags })),
+  );
 
   useEffect(() => {
     tagInputRef.current?.focus();

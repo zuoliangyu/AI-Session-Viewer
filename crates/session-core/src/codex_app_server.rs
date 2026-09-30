@@ -170,16 +170,6 @@ impl CodexAppServer {
         Ok(rx)
     }
 
-    /// Drop *all* subscribers for a thread. Currently unused — kept for API
-    /// completeness; subscribers normally rely on Receiver-drop pruning.
-    #[allow(dead_code)]
-    pub async fn unsubscribe_all(&self, thread_id: &str) {
-        let guard = self.inner.lock().await;
-        for (_, rt) in guard.iter() {
-            rt.subscribers.lock().remove(thread_id);
-        }
-    }
-
     /// Send a request and await its result. Returns the raw `result` value.
     async fn request(
         &self,

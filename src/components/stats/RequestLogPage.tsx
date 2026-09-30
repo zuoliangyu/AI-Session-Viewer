@@ -14,6 +14,7 @@ import {
 import { useAppStore } from "../../stores/appStore";
 import type { RequestLogFilter, RequestRecord } from "../../types";
 import { formatShortDateTime } from "../../utils/dateTime";
+import { useShallow } from "zustand/react/shallow";
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -63,7 +64,9 @@ export function RequestLogPage() {
     projects,
     loadProjects,
     timeZone,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ source: state.source, requestLog: state.requestLog, requestLogTotal: state.requestLogTotal, requestLogTotalCost: state.requestLogTotalCost, requestLogHasUnpricedUsage: state.requestLogHasUnpricedUsage, requestLogLoading: state.requestLogLoading, requestLogFilter: state.requestLogFilter, loadRequestLog: state.loadRequestLog, setRequestLogFilter: state.setRequestLogFilter, projects: state.projects, loadProjects: state.loadProjects, timeZone: state.timeZone })),
+  );
   const initialFilter: RequestLogFilter = useMemo(() => ({
     projectId: searchParams.get("projectId"),
     sessionId: searchParams.get("sessionId"),

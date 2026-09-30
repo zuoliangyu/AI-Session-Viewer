@@ -14,6 +14,7 @@ import {
   Filter,
 } from "lucide-react";
 import { formatDateOnly } from "../../utils/dateTime";
+import { useShallow } from "zustand/react/shallow";
 
 type SearchMode = "messages" | "sessions";
 type SearchScope = "all" | "content" | "session" | "tags";
@@ -40,7 +41,9 @@ export function SearchPage() {
     loadCrossProjectTags,
     setGlobalTagFilter,
     timeZone,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ source: state.source, searchResults: state.searchResults, searchLoading: state.searchLoading, search: state.search, searchScope: state.searchScope, setSearchScope: state.setSearchScope, crossProjectTags: state.crossProjectTags, globalTagFilter: state.globalTagFilter, loadCrossProjectTags: state.loadCrossProjectTags, setGlobalTagFilter: state.setGlobalTagFilter, timeZone: state.timeZone })),
+  );
   const [query, setQuery] = useState("");
   const [searchMode, setSearchMode] = useState<SearchMode>("messages");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);

@@ -53,6 +53,7 @@ import {
   Sparkles,
   ChevronDown,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 declare const __IS_TAURI__: boolean;
 declare const __APP_VERSION__: string;
@@ -116,10 +117,13 @@ export function Sidebar() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias, recycledItems } =
-    useAppStore();
+  const { source, setSource, projects, loadProjects, projectsLoading, bookmarks, loadBookmarks, deleteProject, setProjectAlias, recycledItems } = useAppStore(
+    useShallow((state) => ({ source: state.source, setSource: state.setSource, projects: state.projects, loadProjects: state.loadProjects, projectsLoading: state.projectsLoading, bookmarks: state.bookmarks, loadBookmarks: state.loadBookmarks, deleteProject: state.deleteProject, setProjectAlias: state.setProjectAlias, recycledItems: state.recycledItems })),
+  );
   const { theme, setTheme } = useTheme();
-  const { detectCli, availableClis, clearChat } = useChatStore();
+  const { detectCli, availableClis, clearChat } = useChatStore(
+    useShallow((state) => ({ detectCli: state.detectCli, availableClis: state.availableClis, clearChat: state.clearChat })),
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [projectQuery, setProjectQuery] = useState("");
   const [hiddenSources, setHiddenSources] = useState<SessionSource[]>(() => {
@@ -730,7 +734,9 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
     claudeBaseUrlOverride,
     codexApiKeyOverride,
     codexBaseUrlOverride,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({ addCustomModel: state.addCustomModel, removeCustomModel: state.removeCustomModel, claudeApiKeyOverride: state.claudeApiKeyOverride, claudeBaseUrlOverride: state.claudeBaseUrlOverride, codexApiKeyOverride: state.codexApiKeyOverride, codexBaseUrlOverride: state.codexBaseUrlOverride })),
+  );
 
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
@@ -1081,7 +1087,9 @@ function CliConfigInfo({
 
 function CliConfigDisplay() {
   useTranslation();
-  const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore();
+  const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore(
+    useShallow((state) => ({ cliConfig: state.cliConfig, cliConfigLoading: state.cliConfigLoading, cliConfigError: state.cliConfigError, fetchCliConfig: state.fetchCliConfig })),
+  );
   const [fetched, setFetched] = useState(false);
   const handleFetch = async () => { await fetchCliConfig(); setFetched(true); };
   useEffect(() => { if (!fetched) handleFetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1090,7 +1098,9 @@ function CliConfigDisplay() {
 
 function CodexCliConfigDisplay() {
   useTranslation();
-  const { codexCliConfig, codexCliConfigLoading, codexCliConfigError, fetchCodexCliConfig } = useChatStore();
+  const { codexCliConfig, codexCliConfigLoading, codexCliConfigError, fetchCodexCliConfig } = useChatStore(
+    useShallow((state) => ({ codexCliConfig: state.codexCliConfig, codexCliConfigLoading: state.codexCliConfigLoading, codexCliConfigError: state.codexCliConfigError, fetchCodexCliConfig: state.fetchCodexCliConfig })),
+  );
   const [fetched, setFetched] = useState(false);
   const handleFetch = async () => { await fetchCodexCliConfig(); setFetched(true); };
   useEffect(() => { if (!fetched) handleFetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1154,7 +1164,9 @@ function CopyCommandLine({ cmd }: { cmd: string }) {
 
 function ChatSettingsTab() {
   const { t } = useTranslation();
-  const { terminalShell, setTerminalShell } = useAppStore();
+  const { terminalShell, setTerminalShell } = useAppStore(
+    useShallow((state) => ({ terminalShell: state.terminalShell, setTerminalShell: state.setTerminalShell })),
+  );
   const {
     skipPermissions,
     setSkipPermissions,
@@ -1172,7 +1184,9 @@ function ChatSettingsTab() {
     setClaudeBaseUrlOverride,
     setCodexApiKeyOverride,
     setCodexBaseUrlOverride,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({ skipPermissions: state.skipPermissions, setSkipPermissions: state.setSkipPermissions, defaultModel: state.defaultModel, setDefaultModel: state.setDefaultModel, cliPath: state.cliPath, setCliPath: state.setCliPath, availableClis: state.availableClis, detectCli: state.detectCli, claudeApiKeyOverride: state.claudeApiKeyOverride, claudeBaseUrlOverride: state.claudeBaseUrlOverride, codexApiKeyOverride: state.codexApiKeyOverride, codexBaseUrlOverride: state.codexBaseUrlOverride, setClaudeApiKeyOverride: state.setClaudeApiKeyOverride, setClaudeBaseUrlOverride: state.setClaudeBaseUrlOverride, setCodexApiKeyOverride: state.setCodexApiKeyOverride, setCodexBaseUrlOverride: state.setCodexBaseUrlOverride })),
+  );
 
   const isWindows = __IS_TAURI__ && navigator.platform.startsWith("Win");
   const [installMethod, setInstallMethod] = useState<InstallMethod>(

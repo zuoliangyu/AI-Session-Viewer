@@ -5,13 +5,15 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { Star, Trash2, MessageSquare, FolderOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { useShallow } from "zustand/react/shallow";
 
 
 export function BookmarksPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { bookmarks, bookmarksLoading, loadBookmarks, removeBookmark, source } =
-    useAppStore();
+  const { bookmarks, bookmarksLoading, loadBookmarks, removeBookmark, source } = useAppStore(
+    useShallow((state) => ({ bookmarks: state.bookmarks, bookmarksLoading: state.bookmarksLoading, loadBookmarks: state.loadBookmarks, removeBookmark: state.removeBookmark, source: state.source })),
+  );
 
   useEffect(() => {
     loadBookmarks();

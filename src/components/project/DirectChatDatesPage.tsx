@@ -7,6 +7,7 @@ import { ArrowLeft, FolderClock, Clock, Hash } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
 import { isDirectBucket, directBucketDate } from "../../utils/directChat";
+import { useShallow } from "zustand/react/shallow";
 
 /**
  * Middle layer of the Codex "直连对话" drill-down: 直连对话总入口 → (this page)
@@ -16,7 +17,9 @@ import { isDirectBucket, directBucketDate } from "../../utils/directChat";
 export function DirectChatDatesPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { source, projects, loadProjects, projectsLoading } = useAppStore();
+  const { source, projects, loadProjects, projectsLoading } = useAppStore(
+    useShallow((state) => ({ source: state.source, projects: state.projects, loadProjects: state.loadProjects, projectsLoading: state.projectsLoading })),
+  );
 
   useEffect(() => {
     if (projects.length === 0) loadProjects();

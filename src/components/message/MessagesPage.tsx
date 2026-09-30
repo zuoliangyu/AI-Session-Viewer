@@ -474,7 +474,9 @@ export function MessagesPage() {
     setPaneSource,
     setActivePane,
     fetchModelList: fetchChatModelList,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({ availableClis: state.availableClis, detectCli: state.detectCli, continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, clearPane: state.clearPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane, fetchModelList: state.fetchModelList })),
+  );
   const mainChatPane = useChatStore(useCallback((state) => state.panes[mainPaneId], [mainPaneId]));
 
   const session = sessions.find((s) => s.filePath === filePath);
@@ -1646,7 +1648,9 @@ function SplitSessionPane({
     setPaneModel,
     setPaneSource,
     setActivePane,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({ continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, clearPane: state.clearPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane })),
+  );
   const paneState = useChatStore(useCallback((state) => state.panes[paneId], [paneId]));
   const activePaneId = useChatStore((state) => state.activePaneId);
   const isActivePane = activePaneId === paneId;

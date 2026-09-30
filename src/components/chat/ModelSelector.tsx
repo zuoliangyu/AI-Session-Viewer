@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { ModelInfo } from "../../types/chat";
+import { useShallow } from "zustand/react/shallow";
 
 interface Props {
   paneId?: string;
@@ -34,7 +35,9 @@ export function ModelSelector({
     fetchModelList,
     addCustomModel,
     removeCustomModel,
-  } = useChatStore();
+  } = useChatStore(
+    useShallow((state) => ({ fetchModelList: state.fetchModelList, addCustomModel: state.addCustomModel, removeCustomModel: state.removeCustomModel })),
+  );
   const { model, source } = pane;
   const { modelList, modelListLoading, modelListError } = paneModelListState;
 

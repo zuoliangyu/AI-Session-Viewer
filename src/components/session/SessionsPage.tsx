@@ -33,6 +33,7 @@ import { ProjectSkillsPanel } from "../skills/ProjectSkillsPanel";
 import { saveExport, saveExportMany } from "../../services/exportHelpers";
 import type { ExportFormat, SessionIndexEntry } from "../../types";
 import { formatDateOnly, formatDateTime } from "../../utils/dateTime";
+import { useShallow } from "zustand/react/shallow";
 
 declare const __IS_TAURI__: boolean;
 
@@ -61,7 +62,9 @@ export function SessionsPage() {
     isBookmarked,
     bookmarks,
     timeZone,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ source: state.source, sessions: state.sessions, invalidSessions: state.invalidSessions, sessionsLoading: state.sessionsLoading, selectProject: state.selectProject, deleteSession: state.deleteSession, projects: state.projects, allTags: state.allTags, tagFilter: state.tagFilter, setTagFilter: state.setTagFilter, addBookmark: state.addBookmark, removeBookmark: state.removeBookmark, isBookmarked: state.isBookmarked, bookmarks: state.bookmarks, timeZone: state.timeZone })),
+  );
 
   const project = projects.find((p) => p.id === projectId);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -146,7 +149,9 @@ export function SessionsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const { terminalShell } = useAppStore();
+  const { terminalShell } = useAppStore(
+    useShallow((state) => ({ terminalShell: state.terminalShell })),
+  );
 
   const [resumeError, setResumeError] = useState<string | null>(null);
 

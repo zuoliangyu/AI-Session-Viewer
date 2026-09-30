@@ -267,24 +267,3 @@ pub fn store_partial_messages(
         CachedMessages::partial(modified_key, total, range_start, messages.to_vec()),
     )
 }
-
-/// Application state shared across commands.
-/// The underlying cache is global so Tauri and Web can reuse the same logic.
-#[allow(dead_code)]
-pub struct AppState {
-    pub message_cache: &'static Mutex<LruCache<String, CachedMessages>>,
-}
-
-impl AppState {
-    pub fn new() -> Self {
-        Self {
-            message_cache: global_message_cache(),
-        }
-    }
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self::new()
-    }
-}

@@ -2,7 +2,6 @@ mod commands;
 mod watcher;
 
 use commands::chat::ChatProcessState;
-use session_core::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -14,7 +13,6 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState::new())
         .manage(ChatProcessState::new())
         .invoke_handler(tauri::generate_handler![
             commands::projects::get_projects,

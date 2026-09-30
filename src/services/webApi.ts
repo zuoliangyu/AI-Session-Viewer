@@ -623,7 +623,7 @@ export async function listModels(
   return apiPost("/api/models", { source, apiKey, baseUrl });
 }
 
-// Chat WebSocket connection — managed externally by useChatStream
+// Chat WebSocket connection (shared by all chat panes)
 let chatWs: WebSocket | null = null;
 const chatWsSubscribers = new Set<(rawMessage: string) => void>();
 let chatWsOpenPromise: Promise<WebSocket> | null = null;

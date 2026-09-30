@@ -33,6 +33,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 
 type TimePreset = "today" | "week" | "month" | "30d" | "all" | "custom";
 
@@ -223,7 +224,9 @@ export function StatsPage() {
     projectCostsLoading,
     loadProjectCosts,
     timeZone,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ source: state.source, tokenSummary: state.tokenSummary, statsLoading: state.statsLoading, statsIsFirstBuild: state.statsIsFirstBuild, loadStats: state.loadStats, projectCosts: state.projectCosts, projectCostsLoading: state.projectCostsLoading, loadProjectCosts: state.loadProjectCosts, timeZone: state.timeZone })),
+  );
   const [preset, setPreset] = useState<TimePreset>("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");

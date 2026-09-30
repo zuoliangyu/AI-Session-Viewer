@@ -25,6 +25,7 @@ import { ProjectActionsMenu } from "./ProjectActionsMenu";
 import { DeleteProjectDialog } from "./DeleteProjectDialog";
 import { ScanProgressView } from "../common/ScanProgressView";
 import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
+import { useShallow } from "zustand/react/shallow";
 
 export function ProjectsPage() {
   const { t } = useTranslation();
@@ -41,7 +42,9 @@ export function ProjectsPage() {
     setGlobalTagFilter,
     deleteProject,
     setProjectAlias,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({ source: state.source, projects: state.projects, loadProjects: state.loadProjects, projectsLoading: state.projectsLoading, refreshInBackground: state.refreshInBackground, crossProjectTags: state.crossProjectTags, globalTagFilter: state.globalTagFilter, loadCrossProjectTags: state.loadCrossProjectTags, setGlobalTagFilter: state.setGlobalTagFilter, deleteProject: state.deleteProject, setProjectAlias: state.setProjectAlias })),
+  );
 
   // ⋯ 操作菜单状态
   const [actionsMenu, setActionsMenu] = useState<{

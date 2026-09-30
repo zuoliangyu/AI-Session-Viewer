@@ -18,6 +18,7 @@ import { api } from "../../services/api";
 import { useAppStore } from "../../stores/appStore";
 import type { ProjectEntry, SessionIndexEntry } from "../../types";
 import { formatDateTime } from "../../utils/dateTime";
+import { useShallow } from "zustand/react/shallow";
 
 type CleanupGroup = {
   project: ProjectEntry;
@@ -110,7 +111,9 @@ function compareGroups(a: CleanupGroup, b: CleanupGroup): number {
 export function InvalidItemsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { source, loadProjects, timeZone } = useAppStore();
+  const { source, loadProjects, timeZone } = useAppStore(
+    useShallow((state) => ({ source: state.source, loadProjects: state.loadProjects, timeZone: state.timeZone })),
+  );
   const [groups, setGroups] = useState<CleanupGroup[]>([]);
   /** 仅在拉取项目列表那一刻为 true；扫描阶段不再阻塞 UI，进度由 scanProgress 反映。 */
   const [bootstrapping, setBootstrapping] = useState(false);
