@@ -26,6 +26,7 @@ import { DeleteProjectDialog } from "./DeleteProjectDialog";
 import { ScanProgressView } from "../common/ScanProgressView";
 import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 import { useShallow } from "zustand/react/shallow";
+import { EmptyState } from "../common/StateViews";
 
 export function ProjectsPage() {
   const { t } = useTranslation();
@@ -278,11 +279,9 @@ export function ProjectsPage() {
       {projectsLoading ? (
         <ScanProgressView label={t("加载项目列表")} />
       ) : filteredProjects.length === 0 ? (
-        <div className="text-muted-foreground">
-          {globalTagFilter.length > 0
-            ? t("没有匹配筛选条件的项目。")
-            : emptyText}
-        </div>
+        <EmptyState
+          title={globalTagFilter.length > 0 ? t("没有匹配筛选条件的项目。") : emptyText}
+        />
       ) : (
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => (

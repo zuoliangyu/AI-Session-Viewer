@@ -17,6 +17,8 @@ import {
   Check,
 } from "lucide-react";
 import { OmpMark } from "../layout/ProviderMarks";
+import { getResumeCommand } from "../../utils/resumeCommand";
+import { copyTextToClipboard } from "../message/utils";
 
 export function ChatHeader({
   paneId = DEFAULT_CHAT_PANE_ID,
@@ -37,17 +39,12 @@ export function ChatHeader({
 
   const handleCopySessionId = () => {
     if (!sessionId) return;
-    navigator.clipboard.writeText(sessionId);
+    void copyTextToClipboard(sessionId);
     setCopiedSessionId(true);
     setTimeout(() => setCopiedSessionId(false), 1500);
   };
   const shortSessionId = sessionId ? sessionId.slice(0, 8) : "";
-  const resumeHint =
-    source === "codex"
-      ? `codex resume ${sessionId ?? ""}`
-      : source === "omp"
-        ? `omp --resume ${sessionId ?? ""}`
-        : `claude --resume ${sessionId ?? ""}`;
+  const resumeHint = getResumeCommand(source, sessionId ?? "");
 
   const cliLabel = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
   const cliInfo = availableClis.find((c) => c.cliType === source);

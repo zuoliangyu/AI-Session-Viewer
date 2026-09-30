@@ -33,9 +33,16 @@ import { ProjectSkillsPanel } from "../skills/ProjectSkillsPanel";
 import { saveExport, saveExportMany } from "../../services/exportHelpers";
 import type { ExportFormat, SessionIndexEntry } from "../../types";
 import { formatDateOnly, formatDateTime } from "../../utils/dateTime";
+import { getResumeCommand } from "../../utils/resumeCommand";
+import { isRemoteNodeActive } from "../../services/nodeConfig";
+import { copyTextToClipboard } from "../message/utils";
+import { EmptyState, ErrorState } from "../common/StateViews";
 import { useShallow } from "zustand/react/shallow";
 
 declare const __IS_TAURI__: boolean;
+// Remote-node mode routes the API to a web server, where resume_session is a
+// no-op, so only a local desktop session can open a terminal.
+const USE_TAURI_TRANSPORT = __IS_TAURI__ && !isRemoteNodeActive();
 
 function sessionFilenameBase(s: SessionIndexEntry): string {
   return s.alias || s.threadName || s.firstPrompt || s.sessionId;
@@ -51,6 +58,7 @@ export function SessionsPage() {
     sessions,
     invalidSessions,
     sessionsLoading,
+    sessionsError,
     selectProject,
     deleteSession,
     projects,
@@ -63,7 +71,7 @@ export function SessionsPage() {
     bookmarks,
     timeZone,
   } = useAppStore(
-    useShallow((state) => ({ source: state.source, sessions: state.sessions, invalidSessions: state.invalidSessions, sessionsLoading: state.sessionsLoading, selectProject: state.selectProject, deleteSession: state.deleteSession, projects: state.projects, allTags: state.allTags, tagFilter: state.tagFilter, setTagFilter: state.setTagFilter, addBookmark: state.addBookmark, removeBookmark: state.removeBookmark, isBookmarked: state.isBookmarked, bookmarks: state.bookmarks, timeZone: state.timeZone })),
+    useShallow((state) => ({ source: state.source, sessions: state.sessions, invalidSessions: state.invalidSessions, sessionsLoading: state.sessionsLoading, sessionsError: state.sessionsError, selectProject: state.selectProject, deleteSession: state.deleteSession, projects: state.projects, allTags: state.allTags, tagFilter: state.tagFilter, setTagFilter: state.setTagFilter, addBookmark: state.addBookmark, removeBookmark: state.removeBookmark, isBookmarked: state.isBookmarked, bookmarks: state.bookmarks, timeZone: state.timeZone })),
   );
 
   const project = projects.find((p) => p.id === projectId);
@@ -132,19 +140,15 @@ export function SessionsPage() {
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const getResumeCommand = (sessionId: string) =>
-    source === "claude"
-      ? `claude --resume ${sessionId}`
-      : source === "grok"
-        ? `grok -r ${sessionId}`
-        : source === "omp"
-          ? `omp --resume ${sessionId}`
-          : `codex resume ${sessionId}`;
-
   const handleCopyCommand = async (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    await navigator.clipboard.writeText(getResumeCommand(sessionId));
+    const command = getResumeCommand(source, sessionId);
+    if (!(await copyTextToClipboard(command))) {
+      setResumeError(t("复制失败，请手动复制：{{v0}}", { v0: command }));
+      setTimeout(() => setResumeError(null), 5000);
+      return;
+    }
     setCopiedId(sessionId);
     setTimeout(() => setCopiedId(null), 2000);
   };
@@ -163,8 +167,12 @@ export function SessionsPage() {
   ) => {
     e.stopPropagation();
     setResumeError(null);
-    if (__IS_TAURI__) {
-      if (!projectPath) return;
+    if (USE_TAURI_TRANSPORT) {
+      if (!projectPath) {
+        setResumeError(t("找不到会话所在的项目目录，无法在终端中恢复"));
+        setTimeout(() => setResumeError(null), 5000);
+        return;
+      }
       try {
         await api.resumeSession(source, sessionId, projectPath, filePath, terminalShell);
       } catch (err) {
@@ -411,12 +419,16 @@ export function SessionsPage() {
       <div ref={scrollRef} className="workspace-list-body">
       {sessionsLoading ? (
         <ScanProgressView label={t("加载会话列表")} />
+      ) : sessionsError && sessions.length === 0 ? (
+        <ErrorState
+          title={t("会话列表加载失败")}
+          message={sessionsError}
+          onRetry={() => selectProject(projectId)}
+        />
       ) : filteredSessions.length === 0 ? (
-        <div className="text-muted-foreground">
-          {tagFilter.length > 0
-            ? t("没有匹配筛选条件的会话。")
-            : t("此项目没有会话记录。")}
-        </div>
+        <EmptyState
+          title={tagFilter.length > 0 ? t("没有匹配筛选条件的会话。") : t("此项目没有会话记录。")}
+        />
       ) : (
         <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative", width: "100%" }}>
           {rowVirtualizer.getVirtualItems().map((virtualRow) => {
@@ -575,7 +587,7 @@ export function SessionsPage() {
                     >
                       <CopyPlus className="w-3.5 h-3.5" />{t("克隆到其他 Provider")}</button>
                   )}
-                  {(source === "claude" || source === "codex" || source === "omp") && (
+                  {(source === "claude" || source === "codex" || source === "grok" || source === "omp") && (
                     <button
                       onClick={(e) =>
                         handleResume(
@@ -586,16 +598,16 @@ export function SessionsPage() {
                         )
                       }
                       className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
-                      title={__IS_TAURI__ ? t("在终端中恢复此会话") : t("复制恢复命令")}
+                      title={USE_TAURI_TRANSPORT ? t("在终端中恢复此会话") : t("复制恢复命令")}
                     >
-                      {__IS_TAURI__ ? (
+                      {USE_TAURI_TRANSPORT ? (
                         <><Play className="w-3 h-3" />{t("终端续聊")}</>
                       ) : (
                         <>{copiedId === session.sessionId ? t("已复制") : <><Copy className="w-3 h-3" />{t("复制命令")}</>}</>
                       )}
                     </button>
                   )}
-                  {__IS_TAURI__ && (source === "claude" || source === "codex" || source === "omp") && (
+                  {USE_TAURI_TRANSPORT && (source === "claude" || source === "codex" || source === "grok" || source === "omp") && (
                     <button
                       onClick={(e) => handleCopyCommand(e, session.sessionId)}
                       className="px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-md hover:bg-accent hover:text-foreground flex items-center gap-1"

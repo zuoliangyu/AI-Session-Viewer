@@ -433,7 +433,7 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
           {viewMode === "code" ? (
             <DeferredSyntaxBlock
               content={input.length > 15000
-                ? input.slice(0, 15000) + "\n... (truncated)"
+                ? input.slice(0, 15000) + "\n" + t("...（已截断）")
                 : input}
               language={rawViewLanguage}
               copyText={input}
@@ -520,7 +520,7 @@ function ReadContent({
     return <div className="p-3 text-xs text-muted-foreground">{t("无内容")}</div>;
   }
 
-  const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
+  const display = content.length > 15000 ? content.slice(0, 15000) + "\n" + t("...（已截断）") : content;
 
   return (
     lang === "markdown" ? (
@@ -606,7 +606,7 @@ function WriteContent({
     );
   }
 
-  const display = content.length > 15000 ? content.slice(0, 15000) + "\n... (truncated)" : content;
+  const display = content.length > 15000 ? content.slice(0, 15000) + "\n" + t("...（已截断）") : content;
 
   return (
     lang === "markdown" ? (
@@ -659,19 +659,19 @@ function BashContent({
       {/* Output */}
       {output && (
         <div
-          className={`relative group border-t border-border ${
-            result?.isError ? "bg-red-500/5" : "bg-[#1e1e1e]"
-          }`}
+          className="relative group border-t border-white/10 bg-[#1e1e1e]"
         >
           <div className="absolute right-2 top-1 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
             <CopyButton text={output} />
           </div>
+          {/* The terminal surface is dark in both themes, so use fixed
+              light-on-dark text instead of theme tokens. */}
           <pre
             className={`px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto ${
-              result?.isError ? "text-red-400" : "text-muted-foreground"
+              result?.isError ? "text-red-300" : "text-zinc-300"
             }`}
           >
-            {output.length > 10000 ? output.slice(0, 10000) + "\n... (truncated)" : output}
+            {output.length > 10000 ? output.slice(0, 10000) + "\n" + t("...（已截断）") : output}
           </pre>
         </div>
       )}
@@ -720,7 +720,7 @@ function SearchContent({
               result?.isError ? "text-red-400" : "text-muted-foreground"
             }`}
           >
-            {output.length > 10000 ? output.slice(0, 10000) + "\n... (truncated)" : output}
+            {output.length > 10000 ? output.slice(0, 10000) + "\n" + t("...（已截断）") : output}
           </pre>
         </div>
       )}
@@ -1042,7 +1042,7 @@ function ErrorBlock({ content }: { content: string }) {
   useTranslation();
   return (
     <div className="p-3 text-xs font-mono text-red-400 bg-red-500/5 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
-      {content.length > 5000 ? content.slice(0, 5000) + "\n... (truncated)" : content}
+      {content.length > 5000 ? content.slice(0, 5000) + "\n" + t("...（已截断）") : content}
     </div>
   );
 }

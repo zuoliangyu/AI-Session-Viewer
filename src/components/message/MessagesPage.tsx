@@ -28,6 +28,7 @@ import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
 import { StreamingMessage, getLinkedToolUseIds } from "../chat/StreamingMessage";
 import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
 import { copyTextToClipboard, formatTime } from "./utils";
+import { getResumeCommand } from "../../utils/resumeCommand";
 import { api } from "../../services/api";
 import { subscribeToChatWebSocketMessages } from "../../services/webApi";
 import { SessionMetaEditor } from "../session/SessionMetaEditor";
@@ -37,6 +38,7 @@ import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { SessionCostBadge } from "./SessionCostBadge";
+import { EmptyState, ErrorState, LoadingState } from "../common/StateViews";
 import { TrajectoryView } from "./TrajectoryView";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
 import {
@@ -371,6 +373,7 @@ export function MessagesPage() {
     source,
     messages,
     messagesLoading,
+    messagesError,
     messagesHasMore,
     messagesHasNewer,
     messagesTotal,
@@ -395,6 +398,7 @@ export function MessagesPage() {
       source: state.source,
       messages: state.messages,
       messagesLoading: state.messagesLoading,
+      messagesError: state.messagesError,
       messagesHasMore: state.messagesHasMore,
       messagesHasNewer: state.messagesHasNewer,
       messagesTotal: state.messagesTotal,
@@ -994,20 +998,9 @@ export function MessagesPage() {
     }
   }, [filePath, resolvedSessionId, resolvedSessionTitle, projectId, source]);
 
-  const getResumeCommand = () => {
-    if (!resolvedSessionId) return "";
-    return source === "claude"
-      ? `claude --resume ${resolvedSessionId}`
-      : source === "grok"
-        ? `grok -r ${resolvedSessionId}`
-        : source === "omp"
-          ? `omp --resume ${resolvedSessionId}`
-          : `codex resume ${resolvedSessionId}`;
-  };
-
   const handleCopyCommand = async (e: React.MouseEvent) => {
     e.preventDefault();
-    const command = getResumeCommand();
+    const command = resolvedSessionId ? getResumeCommand(source, resolvedSessionId) : "";
     if (!await copyTextToClipboard(command)) {
       setResumeError(t("复制失败，请手动复制：{{v0}}", { v0: command }));
       return;
@@ -1034,7 +1027,7 @@ export function MessagesPage() {
         setTimeout(() => setResumeError(null), 5000);
       }
     } else {
-      const cmd = getResumeCommand();
+      const cmd = resolvedSessionId ? getResumeCommand(source, resolvedSessionId) : "";
       if (!await copyTextToClipboard(cmd)) {
         setResumeError(t("复制失败，请手动复制：{{v0}}", { v0: cmd }));
         return;
@@ -1269,7 +1262,7 @@ export function MessagesPage() {
             <div className="mt-1 space-y-1">
               <div>{source === "grok" ? t("Grok 请使用下方命令续聊。") : t("可在下方继续对话，或使用命令续聊。")}{t("在会话所在机器的项目目录运行：")}</div>
               <div className="break-all text-xs text-muted-foreground">{createdFork.projectPath}</div>
-              <code className="block select-all break-all font-mono text-xs">{getResumeCommand()}</code>
+              <code className="block select-all break-all font-mono text-xs">{resolvedSessionId ? getResumeCommand(source, resolvedSessionId) : ""}</code>
             </div>
           )}
         </div>
@@ -1420,9 +1413,18 @@ export function MessagesPage() {
                     projectPath={chatProjectPath}
                   />
                 ) : messagesLoading && messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-muted-foreground">
-                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    {t("加载消息中...")}</div>
+                  <LoadingState label={t("加载消息中...")} />
+                ) : messagesError && messages.length === 0 ? (
+                  <ErrorState
+                    title={t("消息加载失败")}
+                    message={messagesError}
+                    onRetry={() => selectSession(filePath)}
+                  />
+                ) : !messagesLoading && messages.length === 0 && messagesTotal === 0 && chatMessages.length === 0 ? (
+                  <EmptyState
+                    icon={<MessageSquare className="h-8 w-8" />}
+                    title={t("此会话没有可显示的消息")}
+                  />
                 ) : (
                   measuredMessageThread
                 )}

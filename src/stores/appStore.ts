@@ -64,6 +64,11 @@ interface TracedMessageResult<T extends PaginatedMessages | RangeMessages> {
   responseAt: number;
 }
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" && error ? error : String(error);
+}
+
 function normalizeFilePath(value: string): string {
   const normalized = value.replace(/\\/g, "/");
   return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
@@ -291,11 +296,15 @@ interface AppState {
   // **不要单独再 RPC 拿这个数据** —— 同一份缓存的拆片即可。
   invalidSessions: SessionIndexEntry[];
   sessionsLoading: boolean;
+  /** Last session-list load failure; cleared on the next load. */
+  sessionsError: string | null;
   selectedFilePath: string | null;
 
   // Messages — progressive (windowed) loading
   messages: DisplayMessage[];
   messagesLoading: boolean;
+  /** Initial message load failure for `selectedFilePath`; cleared on reselect. */
+  messagesError: string | null;
   messagesTotal: number;
   /** Index of the first loaded message in the full session (inclusive). */
   loadedStart: number;
@@ -416,8 +425,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions: [],
       invalidSessions: [],
       sessionsLoading: false,
+      sessionsError: null,
       messages: [],
       messagesLoading: false,
+      messagesError: null,
       selectedProject: null,
       selectedFilePath: null,
       searchResults: [],
@@ -475,10 +486,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   sessions: [],
   invalidSessions: [],
   sessionsLoading: false,
+  sessionsError: null,
   selectedFilePath: null,
 
   messages: [],
   messagesLoading: false,
+  messagesError: null,
   messagesTotal: 0,
   loadedStart: 0,
   loadedEnd: 0,
@@ -557,6 +570,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessions: [],
       invalidSessions: [],
       sessionsLoading: true,
+      sessionsError: null,
       selectedFilePath: null,
       messages: [],
       messagesTotal: 0,
@@ -603,7 +617,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().source === requestSource &&
         get().selectedProject === projectId
       ) {
-        set({ sessions: [], invalidSessions: [], sessionsLoading: false });
+        set({
+          sessions: [],
+          invalidSessions: [],
+          sessionsLoading: false,
+          sessionsError: errorMessage(e),
+        });
       }
     }
   },
@@ -618,6 +637,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         selectedFilePath: filePath,
         messagesLoading: true,
+        messagesError: null,
         messages: [],
         messagesTotal: 0,
         loadedStart: 0,
@@ -685,7 +705,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         get().source === requestSource &&
         get().selectedFilePath === filePath
       ) {
-        set({ messagesLoading: false });
+        set({ messagesLoading: false, messagesError: errorMessage(e) });
       }
     }
   },

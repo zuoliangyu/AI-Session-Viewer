@@ -892,5 +892,11 @@
   "此版本未提供更新说明": "No release notes were provided for this version.",
   "无法打开链接，请稍后重试": "Unable to open the link. Please try again later.",
   "稍后更新": "Update later",
-  "包含 {{v0}} 项": "{{v0}} items"
+  "包含 {{v0}} 项": "{{v0}} items",
+  "加载失败": "Failed to load",
+  "消息加载失败": "Failed to load messages",
+  "此会话没有可显示的消息": "This session has no messages to display",
+  "会话列表加载失败": "Failed to load sessions",
+  "找不到会话所在的项目目录，无法在终端中恢复": "Can't find this session's project directory, so it can't be resumed in a terminal",
+  "...（已截断）": "... (truncated)"
 }

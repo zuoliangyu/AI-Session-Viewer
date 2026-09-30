@@ -6,6 +6,7 @@ import { useAppStore } from "../../stores/appStore";
 import { Star, Trash2, MessageSquare, FolderOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
+import { EmptyState, LoadingState } from "../common/StateViews";
 
 
 export function BookmarksPage() {
@@ -53,9 +54,9 @@ export function BookmarksPage() {
       </div>
 
       {bookmarksLoading ? (
-        <div className="text-muted-foreground">{t("加载收藏...")}</div>
+        <LoadingState label={t("加载收藏...")} />
       ) : filtered.length === 0 ? (
-        <div className="text-muted-foreground">{t("暂无收藏。在会话列表或消息页中点击星标即可添加收藏。")}</div>
+        <EmptyState title={t("暂无收藏。在会话列表或消息页中点击星标即可添加收藏。")} />
       ) : (
         <div className="space-y-6">
           {grouped.map(([projectName, items]) => (

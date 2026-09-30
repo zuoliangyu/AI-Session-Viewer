@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatDateOnly } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
+import { EmptyState } from "../common/StateViews";
 
 type SearchMode = "messages" | "sessions";
 type SearchScope = "all" | "content" | "session" | "tags";
@@ -479,14 +480,15 @@ export function SearchPage() {
           </div>
         )
       ) : query && !searchLoading ? (
-        <div className="text-center text-muted-foreground py-12">
-          {globalTagFilter.length > 0 && searchResults.length > 0
-            ? t("没有匹配标签筛选条件的搜索结果")
-            : t("未找到匹配的结果")}
-        </div>
+        <EmptyState
+          title={
+            globalTagFilter.length > 0 && searchResults.length > 0
+              ? t("没有匹配标签筛选条件的搜索结果")
+              : t("未找到匹配的结果")
+          }
+        />
       ) : !query ? (
-        <div className="text-center text-muted-foreground py-12">
-          {t("输入关键词搜索所有会话内容")}</div>
+        <EmptyState icon={<Search className="h-8 w-8" />} title={t("输入关键词搜索所有会话内容")} />
       ) : null}
     </div>
   );
