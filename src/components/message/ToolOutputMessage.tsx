@@ -113,7 +113,7 @@ function OutputBlock({
         >
           {copied ? (
             <>
-              <Check className="w-3 h-3 text-green-500" />
+              <Check className="w-3 h-3 text-success" />
               {t("已复制")}</>
           ) : (
             <>

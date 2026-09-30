@@ -171,7 +171,7 @@ export function RequestLogPage() {
             {t("共")}<span className="font-semibold text-foreground">{requestLogTotal.toLocaleString()}</span> {t("条")}</span>
           <span>
             {t("累计花费")}{" "}
-            <span className="font-semibold text-green-500">
+            <span className="font-semibold text-success">
               {requestLogHasUnpricedUsage ? t("未定价") : formatCost(requestLogTotalCost)}
             </span>
           </span>
@@ -317,14 +317,14 @@ export function RequestLogPage() {
                   <span className="text-right font-mono text-purple-500">
                     {record.cacheCreationTokens > 0 ? formatTokens(record.cacheCreationTokens) : "—"}
                   </span>
-                  <span className="text-right font-mono text-amber-500">
+                  <span className="text-right font-mono text-warning">
                     {formatTokens(record.outputTokens)}
                   </span>
                   <span className="text-right font-mono text-muted-foreground flex items-center justify-end gap-0.5">
                     {record.durationMs !== null && <Clock className="w-2.5 h-2.5 opacity-50" />}
                     {formatDuration(record.durationMs)}
                   </span>
-                  <span className="text-right font-mono text-green-500 flex items-center justify-end gap-1">
+                  <span className="text-right font-mono text-success flex items-center justify-end gap-1">
                     {record.isPriced ? formatCost(record.costUsd) : t("未定价")}
                     <ExternalLink className="w-2.5 h-2.5 opacity-40" />
                   </span>

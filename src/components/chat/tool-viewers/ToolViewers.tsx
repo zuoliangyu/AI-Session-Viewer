@@ -211,7 +211,7 @@ function CopyButton({ text }: { text: string }) {
       className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
       title={t("复制")}
     >
-      {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+      {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
     </button>
   );
 }
@@ -367,14 +367,14 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
   return (
     <div
       className={`mt-2 mb-2 border rounded-md overflow-hidden ${
-        hasError ? "border-red-500/30" : "border-border"
+        hasError ? "border-destructive/30" : "border-border"
       }`}
     >
       {/* Header */}
       <div
         className={`flex items-center text-xs transition-colors ${
           hasError
-            ? "bg-red-500/5 hover:bg-red-500/10"
+            ? "bg-destructive/5 hover:bg-destructive/10"
             : "bg-muted/50 hover:bg-muted"
         }`}
       >
@@ -390,7 +390,7 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
               {summary}
             </span>
           )}
-          {hasError && <AlertCircle className="w-3 h-3 text-red-400" />}
+          {hasError && <AlertCircle className="w-3 h-3 text-destructive" />}
         </button>
 
         {/* Code/Preview 切换按钮 */}
@@ -406,7 +406,7 @@ export function ToolViewer({ name, input, result, onSubmitAnswers, interactive }
           }}
           className={`shrink-0 px-2 py-2 transition-colors ${
             viewMode === "code" && expanded
-              ? "text-blue-400"
+              ? "text-info"
               : "text-muted-foreground hover:text-foreground"
           }`}
           title={!expanded ? t("展开并显示{{v0}}", { v0: rawViewTitle }) : viewMode === "code" ? t("切换到预览模式") : t("切换到{{v0}}", { v0: rawViewTitle })}
@@ -717,7 +717,7 @@ function SearchContent({
           </div>
           <pre
             className={`px-3 py-2 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto ${
-              result?.isError ? "text-red-400" : "text-muted-foreground"
+              result?.isError ? "text-destructive" : "text-muted-foreground"
             }`}
           >
             {output.length > 10000 ? output.slice(0, 10000) + "\n" + t("...（已截断）") : output}
@@ -842,7 +842,7 @@ function DefaultContent({
       {output && (
         <pre
           className={`p-3 text-xs font-mono whitespace-pre-wrap break-all max-h-60 overflow-y-auto border-t border-border ${
-            result?.isError ? "text-red-400 bg-red-500/5" : "text-muted-foreground"
+            result?.isError ? "text-destructive bg-destructive/5" : "text-muted-foreground"
           }`}
         >
           {output.length > 10000 ? output.slice(0, 10000) + "\n…" : output}
@@ -1041,7 +1041,7 @@ function AskUserQuestionContent({
 function ErrorBlock({ content }: { content: string }) {
   useTranslation();
   return (
-    <div className="p-3 text-xs font-mono text-red-400 bg-red-500/5 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+    <div className="p-3 text-xs font-mono text-destructive bg-destructive/5 whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
       {content.length > 5000 ? content.slice(0, 5000) + "\n" + t("...（已截断）") : content}
     </div>
   );

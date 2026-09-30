@@ -350,7 +350,7 @@ export function SessionsPage() {
       {/* 损坏会话提示：has_messages 但 JSONL 中部解析失败，正常列表会过滤掉，
           但仍可在 /cleanup 里查看残存内容或清理。 */}
       {corruptSessions.length > 0 && (
-        <div className="mb-4 px-4 py-3 rounded-lg border border-amber-500/30 bg-amber-500/10 text-sm text-amber-500 flex items-center justify-between gap-3 flex-wrap">
+        <div className="mb-4 px-4 py-3 rounded-lg border border-warning/30 bg-warning/10 text-sm text-warning flex items-center justify-between gap-3 flex-wrap">
           <span className="flex items-center gap-2 min-w-0">
             <AlertTriangle className="w-4 h-4 shrink-0" />
             <span className="truncate">
@@ -358,7 +358,7 @@ export function SessionsPage() {
           </span>
           <button
             onClick={() => navigate("/cleanup")}
-            className="text-xs underline hover:text-amber-400 transition-colors shrink-0"
+            className="text-xs underline hover:text-warning transition-colors shrink-0"
           >
             {t("查看并清理 →")}</button>
         </div>
@@ -551,8 +551,8 @@ export function SessionsPage() {
                     }}
                     className={`p-1.5 text-xs rounded-md transition-colors ${
                       isBookmarked(session.sessionId)
-                        ? "text-yellow-500"
-                        : "text-muted-foreground hover:text-yellow-500"
+                        ? "text-warning"
+                        : "text-muted-foreground hover:text-warning"
                     }`}
                     title={isBookmarked(session.sessionId) ? t("取消收藏") : t("收藏会话")}
                   >

@@ -198,9 +198,9 @@ export function NodeSelector() {
                     {status === "checking" ? (
                       <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                     ) : status === "online" ? (
-                      <Wifi className="h-4 w-4 text-green-500" />
+                      <Wifi className="h-4 w-4 text-success" />
                     ) : status ? (
-                      <WifiOff className="h-4 w-4 text-red-500" />
+                      <WifiOff className="h-4 w-4 text-destructive" />
                     ) : (
                       <Server className="h-4 w-4 text-muted-foreground" />
                     )}

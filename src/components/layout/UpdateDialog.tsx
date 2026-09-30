@@ -50,8 +50,8 @@ export function UpdateDialog() {
       <div className="flex max-h-[calc(100dvh-2rem)] flex-col">
         <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border p-5">
           <h2 id="update-dialog-title" className="flex items-center gap-2 text-base font-semibold" aria-live="polite">
-            {busy ? <RefreshCw className="h-5 w-5 shrink-0 animate-spin text-blue-500" />
-              : <CheckCircle2 className={`h-5 w-5 shrink-0 ${status === "error" ? "text-destructive" : "text-green-500"}`} />}
+            {busy ? <RefreshCw className="h-5 w-5 shrink-0 animate-spin text-info" />
+              : <CheckCircle2 className={`h-5 w-5 shrink-0 ${status === "error" ? "text-destructive" : "text-success"}`} />}
             {title}
           </h2>
           <button className="rounded p-1 text-muted-foreground hover:bg-accent/50 disabled:opacity-40" disabled={working} onClick={closeDialog} aria-label={t("关闭更新详情")}>
@@ -67,7 +67,7 @@ export function UpdateDialog() {
             </div>
             {newVersion && <div className="flex justify-between gap-4">
               <dt className="text-muted-foreground">{t("最新版本")}</dt>
-              <dd className="break-all font-mono font-medium text-blue-500">v{newVersion}</dd>
+              <dd className="break-all font-mono font-medium text-info">v{newVersion}</dd>
             </div>}
           </dl>
 

@@ -79,7 +79,7 @@ export function ProjectActionsMenu({
           title={t("复制路径")}
         >
           {copied
-            ? <Check className="w-3.5 h-3.5 text-green-500" />
+            ? <Check className="w-3.5 h-3.5 text-success" />
             : <Copy className="w-3.5 h-3.5" />}
         </button>
       </div>

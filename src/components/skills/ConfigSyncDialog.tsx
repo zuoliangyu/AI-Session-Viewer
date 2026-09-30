@@ -367,7 +367,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
             {(error || result) && (
               <div
                 className={`border-t border-border px-4 py-3 text-xs ${
-                  error ? "text-destructive" : "text-green-500"
+                  error ? "text-destructive" : "text-success"
                 }`}
               >
                 {error ?? result}

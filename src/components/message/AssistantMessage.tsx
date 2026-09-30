@@ -109,7 +109,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     >
       {copied ? (
         <>
-          <Check className="h-3.5 w-3.5 text-green-500" />
+          <Check className="h-3.5 w-3.5 text-success" />
           {t("已复制")}</>
       ) : (
         <>
@@ -273,7 +273,7 @@ function FunctionCallBlock({ name, arguments: args }: { name: string; arguments:
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center gap-2 px-3 py-2 text-xs bg-muted/50 hover:bg-muted transition-colors"
       >
-        <Wrench className="w-3.5 h-3.5 text-green-500" />
+        <Wrench className="w-3.5 h-3.5 text-success" />
         <span className="font-mono font-medium">{name}</span>
         {expanded ? (
           <ChevronDown className="w-3 h-3 ml-auto" />

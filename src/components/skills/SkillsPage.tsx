@@ -170,7 +170,7 @@ export function SkillsPage() {
             {projectPath && (
               <SkillSection
                 title={t("项目级 Skills")}
-                icon={<FolderOpen className="w-4 h-4 text-green-500" />}
+                icon={<FolderOpen className="w-4 h-4 text-success" />}
                 skills={data.project}
                 onSelect={setActive}
                 onDelete={setDeleteTarget}
@@ -179,7 +179,7 @@ export function SkillsPage() {
             )}
             <SkillSection
               title={t("全局 Skills")}
-              icon={<Globe className="w-4 h-4 text-blue-500" />}
+              icon={<Globe className="w-4 h-4 text-info" />}
               skills={data.global}
               onSelect={setActive}
               onDelete={setDeleteTarget}

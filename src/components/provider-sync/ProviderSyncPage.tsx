@@ -139,7 +139,7 @@ export function ProviderSyncPage() {
         <header className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold flex items-center gap-2">
-              <Repeat className="w-5 h-5 text-green-500" />
+              <Repeat className="w-5 h-5 text-success" />
               {t("Codex Provider 同步")}</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {t("切换 Codex 供应商后，历史 rollout 和 SQLite 元数据仍指向旧 provider，导致在 Codex Desktop /")}<code>/resume</code> {t("中看不见。 本工具把它们对齐到当前 config.toml 中的 model_provider，并备份原文件。")}</p>
@@ -154,14 +154,14 @@ export function ProviderSyncPage() {
         </header>
 
         {error && (
-          <div className="rounded-md border border-red-500/40 bg-red-500/10 p-3 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
-            <div className="flex-1 text-sm text-red-600 dark:text-red-400 break-all">
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-destructive mt-0.5 shrink-0" />
+            <div className="flex-1 text-sm text-destructive break-all">
               {error}
             </div>
             <button
               onClick={clearError}
-              className="text-xs text-red-500 hover:text-red-400 shrink-0"
+              className="text-xs text-destructive hover:text-destructive shrink-0"
             >
               {t("关闭")}</button>
           </div>
@@ -215,7 +215,7 @@ export function ProviderSyncPage() {
                       <button
                         onClick={onSync}
                         disabled={busy}
-                        className="flex-1 px-3 py-2 text-sm rounded-md bg-yellow-500 text-black hover:bg-yellow-400 transition-colors disabled:opacity-50"
+                        className="flex-1 px-3 py-2 text-sm rounded-md bg-warning text-warning-foreground hover:bg-warning/90 transition-colors disabled:opacity-50"
                       >
                         {busy ? t("执行中...") : t("确认同步")}
                       </button>
@@ -298,8 +298,8 @@ export function ProviderSyncPage() {
             />
 
             {status.encryptedWarnings.length > 0 && (
-              <section className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-4 text-sm">
-                <h3 className="font-medium text-yellow-700 dark:text-yellow-300 flex items-center gap-1.5 mb-1">
+              <section className="rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
+                <h3 className="font-medium text-warning flex items-center gap-1.5 mb-1">
                   <ShieldAlert className="w-4 h-4" />
                   {t("加密内容警告")}</h3>
                 <p className="text-xs text-muted-foreground mb-2">
@@ -342,7 +342,7 @@ function StatusOverview({
     <section className="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
-          <FileJson className="w-4 h-4 text-green-500" />
+          <FileJson className="w-4 h-4 text-success" />
           config.toml
         </div>
         <div className="text-xs space-y-1 text-muted-foreground">
@@ -351,7 +351,7 @@ function StatusOverview({
               {status.currentProvider}
             </span>
             {status.currentProviderImplicit && (
-              <span className="ml-1 text-yellow-500">{t("(默认值，未显式设置)")}</span>
+              <span className="ml-1 text-warning">{t("(默认值，未显式设置)")}</span>
             )}
           </div>
           <div className="break-all">{t("路径：")}{status.configTomlPath}</div>
@@ -366,7 +366,7 @@ function StatusOverview({
       <div className="rounded-lg border border-border bg-card p-4 space-y-2">
         <div className="flex items-center gap-1.5 text-sm font-medium">
           <AlertTriangle
-            className={`w-4 h-4 ${totalMismatched > 0 ? "text-yellow-500" : "text-green-500"}`}
+            className={`w-4 h-4 ${totalMismatched > 0 ? "text-warning" : "text-success"}`}
           />
           {t("不一致汇总")}</div>
         <div className="text-xs space-y-1 text-muted-foreground">
@@ -392,7 +392,7 @@ function StatusOverview({
 
       <ProviderDistribution
         title={t("活跃会话分布")}
-        icon={<FolderOpen className="w-4 h-4 text-blue-500" />}
+        icon={<FolderOpen className="w-4 h-4 text-info" />}
         entries={status.rolloutStats}
         current={status.currentProvider}
       />
@@ -408,7 +408,7 @@ function StatusOverview({
           <Database className="w-4 h-4 text-orange-500" />
           state_5.sqlite threads
           {!status.sqliteExists && (
-            <span className="text-xs text-yellow-500 ml-2">{t("(文件不存在，跳过)")}</span>
+            <span className="text-xs text-warning ml-2">{t("(文件不存在，跳过)")}</span>
           )}
         </div>
         {status.sqliteExists ? (
@@ -419,7 +419,7 @@ function StatusOverview({
               status.sqliteStats.map((entry, i) => (
                 <div
                   key={`${entry.provider}-${entry.archived}-${i}`}
-                  className={`flex items-center justify-between px-2 py-1 rounded font-mono text-foreground border ${entry.provider === status.currentProvider ? "border-green-500/40 bg-green-500/10" : "border-border bg-muted/40"}`}
+                  className={`flex items-center justify-between px-2 py-1 rounded font-mono text-foreground border ${entry.provider === status.currentProvider ? "border-success/40 bg-success/10" : "border-border bg-muted/40"}`}
                 >
                   <span className="truncate">
                     {entry.provider || t("(空)")}
@@ -463,7 +463,7 @@ function ProviderDistribution({
           {entries.map((entry) => (
             <div
               key={entry.provider}
-              className={`flex items-center justify-between px-2 py-1 rounded font-mono border ${entry.provider === current ? "border-green-500/40 bg-green-500/10 text-foreground" : "border-border bg-muted/40 text-muted-foreground"}`}
+              className={`flex items-center justify-between px-2 py-1 rounded font-mono border ${entry.provider === current ? "border-success/40 bg-success/10 text-foreground" : "border-border bg-muted/40 text-muted-foreground"}`}
             >
               <span className="truncate">{entry.provider || t("(空)")}</span>
               <span className="ml-2">{entry.count}</span>
@@ -478,8 +478,8 @@ function ProviderDistribution({
 function SyncResultSummary({ result }: { result: { backupDir: string; targetProvider: string; updatedRollouts: number; updatedSqliteRows: number; globalStateUpdated: boolean; configUpdated: boolean; skippedLocked: string[] } }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-md border border-green-500/40 bg-green-500/10 p-3 text-xs space-y-1">
-      <div className="font-medium text-green-700 dark:text-green-400">
+    <div className="rounded-md border border-success/40 bg-success/10 p-3 text-xs space-y-1">
+      <div className="font-medium text-success">
         {t("已同步到")}{result.targetProvider}
       </div>
       <div className="text-muted-foreground space-y-0.5">
@@ -492,7 +492,7 @@ function SyncResultSummary({ result }: { result: { backupDir: string; targetProv
         <div className="break-all">{t("备份目录：")}{result.backupDir}</div>
         {result.skippedLocked.length > 0 && (
           <details>
-            <summary className="cursor-pointer text-yellow-500">
+            <summary className="cursor-pointer text-warning">
               {t("跳过{{v0}} 个被锁的文件", { v0: result.skippedLocked.length })}</summary>
             <ul className="mt-1 list-disc list-inside font-mono">
               {result.skippedLocked.map((p) => (

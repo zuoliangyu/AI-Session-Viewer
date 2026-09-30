@@ -643,9 +643,9 @@ export function MessagesPage() {
         scrolledTargetRef.current = scrollToMessageId;
         el.scrollIntoView({ behavior: "smooth", block: "center" });
         // Flash highlight
-        el.classList.add("ring-2", "ring-yellow-500/50", "rounded-lg");
+        el.classList.add("ring-2", "ring-warning/50", "rounded-lg");
         setTimeout(() => {
-          el.classList.remove("ring-2", "ring-yellow-500/50", "rounded-lg");
+          el.classList.remove("ring-2", "ring-warning/50", "rounded-lg");
         }, 2000);
       }
     });
@@ -1473,7 +1473,7 @@ export function MessagesPage() {
                 )}
                 {viewMode === "messages" && chatError && (
                   <div className="max-w-4xl mx-auto px-6">
-                    <div className="flex items-center gap-2 py-2 text-sm text-red-400">
+                    <div className="flex items-center gap-2 py-2 text-sm text-destructive">
                       <AlertCircle className="w-4 h-4 shrink-0" />
                       {chatError}
                     </div>
@@ -1910,7 +1910,7 @@ function SplitSessionPane({
         )}
         {chatError && (
           <div className="px-6">
-            <div className="flex items-center gap-2 py-2 text-sm text-red-400">
+            <div className="flex items-center gap-2 py-2 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
               {chatError}
             </div>

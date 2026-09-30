@@ -665,7 +665,7 @@ function StreamingAndError({
         </div>
       )}
       {error && (
-        <div className="flex items-center gap-2 py-2 text-sm text-red-400">
+        <div className="flex items-center gap-2 py-2 text-sm text-destructive">
           <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
@@ -705,7 +705,7 @@ function EmptyState({
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted border border-border">
             {cliLabel === "Oh My Pi" ? <OmpMark className="w-4 h-4" /> : <Bot className={`w-4 h-4 ${cliLabel === "Codex" ? "text-green-500" : "text-orange-500"}`} />}
             <span className="text-sm font-medium">{cliLabel}</span>
-            <span className={`ml-auto text-xs ${cliAvailable ? "text-green-500" : "text-red-400"}`}>
+            <span className={`ml-auto text-xs ${cliAvailable ? "text-success" : "text-destructive"}`}>
               {cliAvailable ? t("已安装") : t("未检测到")}
             </span>
           </div>

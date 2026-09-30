@@ -192,7 +192,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {hint && (
             <span
               className={`ml-auto text-[10px] truncate max-w-[40%] ${
-                hint.kind === "error" ? "text-red-400" : "text-emerald-500"
+                hint.kind === "error" ? "text-destructive" : "text-success"
               }`}
               title={hint.text}
             >
@@ -223,7 +223,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           {isStreaming ? (
             <button
               onClick={onCancel}
-              className="shrink-0 p-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+              className="shrink-0 p-2 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
               title={t("停止生成")}
             >
               <Square className="w-4 h-4" />

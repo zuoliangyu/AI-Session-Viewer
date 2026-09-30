@@ -39,8 +39,8 @@ const SCOPE_LABEL: Record<SkillEntry["scope"], string> = {
 };
 
 const SCOPE_BADGE_CLASS: Record<SkillEntry["scope"], string> = {
-  global: "bg-blue-500/15 text-blue-500",
-  project: "bg-green-500/15 text-green-500",
+  global: "bg-info/15 text-info",
+  project: "bg-success/15 text-success",
   plugin: "bg-purple-500/15 text-purple-500",
 };
 
@@ -299,7 +299,7 @@ export function SkillDetailModal({
             >
               <span className="truncate">{skill.path}</span>
               {copied ? (
-                <Check className="w-3 h-3 text-green-500 shrink-0" />
+                <Check className="w-3 h-3 text-success shrink-0" />
               ) : (
                 <Copy className="w-3 h-3 shrink-0" />
               )}

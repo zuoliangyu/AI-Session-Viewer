@@ -18,7 +18,7 @@ export function UpdateIndicator() {
       </div>
       {newVersion && (
         <p className="text-muted-foreground">
-          {t("新版本可用")} <span className="font-mono text-blue-500">v{newVersion}</span>
+          {t("新版本可用")} <span className="font-mono text-info">v{newVersion}</span>
           {dismissed && <span className="ml-2 text-xs">{t("已忽略此版本")}</span>}
         </p>
       )}
@@ -26,7 +26,7 @@ export function UpdateIndicator() {
         {status === "checking" && t("检查更新中...")}
         {status === "downloading" && t("正在下载更新...")}
         {status === "installing" && t("正在安装，即将重启...")}
-        {status === "up-to-date" && <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-green-500" />{t("已是最新版本")}</span>}
+        {status === "up-to-date" && <span className="flex items-center gap-1.5"><CheckCircle2 className="h-4 w-4 text-success" />{t("已是最新版本")}</span>}
         {status === "error" && <span className="text-destructive">{t("更新操作失败，请查看详情")}</span>}
       </div>
       <div className="flex flex-wrap gap-2">

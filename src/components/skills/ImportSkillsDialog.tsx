@@ -206,7 +206,7 @@ export function ImportSkillsDialog({
           {result && (
             <div className="space-y-1 text-xs">
               {result.imported.length > 0 && (
-                <div className="flex items-start gap-1.5 text-green-500">
+                <div className="flex items-start gap-1.5 text-success">
                   <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                   <span>{t("已导入：")}{result.imported.join("、")}</span>
                 </div>

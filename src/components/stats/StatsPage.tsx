@@ -559,7 +559,7 @@ export function StatsPage() {
               ? t("未定价")
               : formatCost(filteredTotals.totalCost)
           }
-          accent="text-green-500"
+          accent="text-success"
         />
         <StatCard
           icon={<Activity className="w-5 h-5" />}
@@ -592,8 +592,8 @@ export function StatsPage() {
           value={`${(overallCacheHitRate * 100).toFixed(1)}%`}
           accent={
             overallCacheHitRate < 0.6
-              ? "text-yellow-500"
-              : "text-green-500"
+              ? "text-warning"
+              : "text-success"
           }
         />
       </div>

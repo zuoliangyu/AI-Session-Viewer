@@ -371,7 +371,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
 
       {/* Added toast */}
       {addedCount !== null && (
-        <div className="flex items-center gap-1 text-xs text-green-500">
+        <div className="flex items-center gap-1 text-xs text-success">
           <Check className="w-3 h-3" />
           {t("已添加{{v0}} 个自定义模型", { v0: addedCount })}</div>
       )}
@@ -417,7 +417,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
           {t("正在获取...")}</div>
       )}
       {error && (
-        <div className="flex items-center gap-1.5 py-1 text-xs text-red-400">
+        <div className="flex items-center gap-1.5 py-1 text-xs text-destructive">
           <AlertCircle className="w-3 h-3 shrink-0" />
           <span className="truncate">{error}</span>
         </div>
@@ -451,7 +451,7 @@ function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
                     {isCustom ? (
                       <button
                         onClick={() => handleRemove(m.id)}
-                        className="p-0.5 rounded text-transparent group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
+                        className="p-0.5 rounded text-transparent group-hover:text-muted-foreground hover:!text-destructive transition-colors shrink-0"
                         title={t("移除自定义模型")}
                       >
                         <Trash2 className="w-3 h-3" />
@@ -492,7 +492,7 @@ function CliConfigInfo({
   if (error) {
     return (
       <div className="space-y-1">
-        <div className="flex items-center gap-1.5 text-xs text-red-400">
+        <div className="flex items-center gap-1.5 text-xs text-destructive">
           <AlertCircle className="w-3 h-3" />
           {error}
         </div>
@@ -524,7 +524,7 @@ function CliConfigInfo({
                 {config.authJsonHasKey ? config.authJsonKeyMasked : t("未找到")}
               </span>
               {config.authJsonHasKey && config.apiKeySource === "auth.json" && (
-                <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
+                <span className="ml-auto text-[10px] text-success">{t("✓ 使用中")}</span>
               )}
             </div>
           </div>
@@ -542,7 +542,7 @@ function CliConfigInfo({
                 {config.configTomlUrl || t("未找到（将用默认值）")}
               </span>
               {config.configTomlUrl && config.baseUrlSource === "config.toml" && (
-                <span className="ml-auto shrink-0 text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-success">{t("✓ 使用中")}</span>
               )}
             </div>
             {config.configTomlHasKey && (
@@ -551,7 +551,7 @@ function CliConfigInfo({
                 <span className="text-muted-foreground">API Key:</span>
                 <span className="font-mono text-foreground">{config.configTomlKeyMasked}</span>
                 {config.apiKeySource === "config.toml" && (
-                  <span className="ml-auto text-[10px] text-green-600 dark:text-green-400">{t("✓ 使用中")}</span>
+                  <span className="ml-auto text-[10px] text-success">{t("✓ 使用中")}</span>
                 )}
               </div>
             )}
@@ -566,7 +566,7 @@ function CliConfigInfo({
 
           {/* Resolved summary */}
           {!config.hasApiKey && (
-            <p className="text-[11px] text-yellow-500">
+            <p className="text-[11px] text-warning">
               {t("未找到 API Key，请在 auth.json 中配置或在下方手动填入。")}</p>
           )}
           {config.baseUrlSource === "default" && (
@@ -677,7 +677,7 @@ function CopyCommandLine({ cmd }: { cmd: string }) {
         className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
         title={t("复制")}
       >
-        {copied ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
+        {copied ? <Check className="w-3 h-3 text-success" /> : <Copy className="w-3 h-3" />}
       </button>
     </div>
   );
@@ -787,8 +787,8 @@ function ChatSettingsTab() {
 
           {/* Claude 检测失败提示 */}
           {claudeNotFound && (
-            <div className="rounded-md bg-yellow-500/10 border border-yellow-500/30 p-2.5 space-y-1.5">
-              <p className="text-xs font-medium text-yellow-600 dark:text-yellow-400">
+            <div className="rounded-md bg-warning/10 border border-warning/30 p-2.5 space-y-1.5">
+              <p className="text-xs font-medium text-warning">
                 {t("未找到 Claude CLI")}</p>
               <p className="text-[11px] text-muted-foreground">{t("通过 npm 安装：")}</p>
               <CopyCommandLine cmd="npm install -g @anthropic-ai/claude-code" />
@@ -803,8 +803,8 @@ function ChatSettingsTab() {
 
           {/* Codex 检测失败提示 */}
           {codexNotFound && (
-            <div className="rounded-md bg-blue-500/10 border border-blue-500/30 p-2.5 space-y-1.5">
-              <p className="text-xs font-medium text-blue-600 dark:text-blue-400">
+            <div className="rounded-md bg-info/10 border border-info/30 p-2.5 space-y-1.5">
+              <p className="text-xs font-medium text-info">
                 {t("未找到 Codex CLI（可选）")}</p>
               <p className="text-[11px] text-muted-foreground">{t("通过 npm 安装：")}</p>
               <CopyCommandLine cmd="npm install -g @openai/codex" />
@@ -961,7 +961,7 @@ function ChatSettingsTab() {
           <span className="text-xs text-foreground">
             {t("跳过权限确认 (--dangerously-skip-permissions)")}</span>
         </label>
-        <p className="mt-1 text-xs text-yellow-500">
+        <p className="mt-1 text-xs text-warning">
           {skipPermissions
             ? t("警告：CLI 将自动执行所有工具操作而不请求确认")
             : t("CLI 会在执行文件修改等操作前请求确认")}

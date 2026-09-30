@@ -69,10 +69,10 @@ export function DiffView({ oldString, newString, fileName }: Props) {
         )}
         <span className="ml-auto flex items-center gap-2">
           {addedCount > 0 && (
-            <span className="text-green-500">+{addedCount}</span>
+            <span className="text-success">+{addedCount}</span>
           )}
           {removedCount > 0 && (
-            <span className="text-red-400">-{removedCount}</span>
+            <span className="text-destructive">-{removedCount}</span>
           )}
         </span>
       </div>
@@ -84,9 +84,9 @@ export function DiffView({ oldString, newString, fileName }: Props) {
             key={idx}
             className={`flex whitespace-pre ${
               line.type === "added"
-                ? "bg-green-500/10 text-green-400"
+                ? "bg-success/10 text-success"
                 : line.type === "removed"
-                  ? "bg-red-500/10 text-red-400"
+                  ? "bg-destructive/10 text-destructive"
                   : "text-muted-foreground"
             }`}
           >

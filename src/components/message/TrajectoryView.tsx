@@ -282,8 +282,8 @@ function recordColor(kind: string): string {
 }
 
 function statusClass(status: string): string {
-  if (status === "error") return "text-red-500";
-  if (status === "running") return "text-amber-500";
+  if (status === "error") return "text-destructive";
+  if (status === "running") return "text-warning";
   if (status === "aborted") return "text-orange-500";
   return "text-muted-foreground";
 }
@@ -419,7 +419,7 @@ function DetailBlock({
   useTranslation();
   return (
     <div
-      className={`min-w-0 rounded-md border p-2 ${error ? "border-red-500/40 bg-red-500/5" : "border-border/70 bg-background/50"}`}
+      className={`min-w-0 rounded-md border p-2 ${error ? "border-destructive/40 bg-destructive/5" : "border-border/70 bg-background/50"}`}
     >
       <div className="mb-1 text-[10px] font-medium text-muted-foreground">
         {label}
@@ -753,7 +753,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     );
   if (error)
     return (
-      <div className="mx-auto mt-8 flex max-w-xl items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-500">
+      <div className="mx-auto mt-8 flex max-w-xl items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
         <span className="break-words">{error}</span>
       </div>
@@ -792,7 +792,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
           <div
             className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
               enrichmentError
-                ? "border-yellow-500/40 bg-yellow-500/5 text-yellow-600 dark:text-yellow-400"
+                ? "border-warning/40 bg-warning/5 text-warning"
                 : "border-border bg-muted/30 text-muted-foreground"
             }`}
           >
@@ -816,7 +816,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
         </section>
         <TimingOverview records={filteredRecords} />
         {trajectory.warnings.length > 0 && (
-          <section className="rounded-lg border border-yellow-500/40 bg-yellow-500/5 p-3 text-xs text-yellow-600 dark:text-yellow-400">
+          <section className="rounded-lg border border-warning/40 bg-warning/5 p-3 text-xs text-warning">
             <div className="flex items-center gap-1.5 font-medium">
               <AlertTriangle className="h-3.5 w-3.5" />
               {trajectory.warnings.length} {t("条解析警告")}</div>
@@ -881,7 +881,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                     {t("条）")}</button>
                   {pagingError && (
                     <span
-                      className="min-w-0 truncate text-xs text-red-500"
+                      className="min-w-0 truncate text-xs text-destructive"
                       title={pagingError}
                     >
                       {pagingError}

@@ -229,12 +229,12 @@ function getThreadLineTone(node: ThreadDisplayNode) {
     case "assistant":
       return {
         label: "text-foreground",
-        meta: "text-sky-600 dark:text-sky-400",
+        meta: "text-info",
       };
     case "user":
       return {
         label: "text-foreground",
-        meta: "text-emerald-600 dark:text-emerald-400",
+        meta: "text-success",
       };
     default:
       return {
@@ -559,8 +559,8 @@ export const MessageThread = memo(function MessageThread({
                 onClick={() => handleToggleBookmark(msg, msgId)}
                 className={`rounded p-1 transition-all ${
                   bookmarked
-                    ? "text-yellow-500 opacity-100"
-                    : "text-muted-foreground opacity-0 group-hover/bookmark:opacity-100 hover:text-yellow-500"
+                    ? "text-warning opacity-100"
+                    : "text-muted-foreground opacity-0 group-hover/bookmark:opacity-100 hover:text-warning"
                 }`}
                 title={bookmarked ? t("取消收藏") : t("收藏此消息")}
               >

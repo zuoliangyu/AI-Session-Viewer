@@ -90,7 +90,7 @@ export function SearchPage() {
     return (
       <>
         {text.slice(0, idx)}
-        <mark className="bg-yellow-500/30 text-foreground rounded px-0.5">
+        <mark className="bg-warning/30 text-foreground rounded px-0.5">
           {text.slice(idx, idx + q.length)}
         </mark>
         {text.slice(idx + q.length)}
@@ -342,7 +342,7 @@ export function SearchPage() {
                     >
                       {copiedFilePath === result.filePath ? (
                         <>
-                          <Check className="w-3 h-3 text-green-500" />
+                          <Check className="w-3 h-3 text-success" />
                           {t("已复制")}</>
                       ) : (
                         <>
@@ -431,7 +431,7 @@ export function SearchPage() {
                     >
                       {copiedFilePath === session.filePath ? (
                         <>
-                          <Check className="w-3 h-3 text-green-500" />
+                          <Check className="w-3 h-3 text-success" />
                           {t("已复制")}</>
                       ) : (
                         <>

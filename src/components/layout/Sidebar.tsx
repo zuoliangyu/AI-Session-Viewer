@@ -281,7 +281,7 @@ export function Sidebar() {
                     {project.isVirtual ? (
                       <FolderClock className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
                     ) : (
-                      <FolderOpen className={`w-3.5 h-3.5 shrink-0${project.pathExists === false ? " text-yellow-500" : ""}`} />
+                      <FolderOpen className={`w-3.5 h-3.5 shrink-0${project.pathExists === false ? " text-warning" : ""}`} />
                     )}
                     <span className="truncate flex-1 text-left">
                       {project.alias ?? project.shortName}
@@ -416,7 +416,7 @@ export function Sidebar() {
               }}
             />
             {renameError && (
-              <p className="text-xs text-red-400 mt-1">{renameError}</p>
+              <p className="text-xs text-destructive mt-1">{renameError}</p>
             )}
             <div className="flex justify-between items-center mt-4">
               <div>

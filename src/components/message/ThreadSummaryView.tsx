@@ -129,7 +129,7 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
       </div>
 
       {forkError && (
-        <div className="mb-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+        <div className="mb-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {t("分叉失败：")}{forkError}
         </div>
       )}
@@ -162,11 +162,11 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                   <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 font-mono text-[11px]">
                     {index + 1}
                   </span>
-                  <MessageCircleQuestion className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <MessageCircleQuestion className="h-3.5 w-3.5 text-success" />
                   <span>{t("用户提问")}</span>
                   {item.branchCount > 1 && (
                     <span
-                      className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-[10px] text-amber-600 dark:text-amber-400"
+                      className="rounded bg-warning/15 px-1.5 py-0.5 font-mono text-[10px] text-warning"
                       title={t("此消息后存在多个分叉")}
                     >
                       {source === "omp" ? t("{{v0}} 条路径", { v0: item.branchCount }) : t("{{v0}} 条分叉", { v0: item.branchCount })}
@@ -184,7 +184,7 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                   {item.question}
                 </p>
                 <div className="mt-2 flex items-start gap-2 rounded-md bg-muted/30 px-3 py-2">
-                  <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600 dark:text-sky-400" />
+                  <CornerDownRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-info" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                       <span>{assistantName} {t("回复")}</span>
@@ -195,7 +195,7 @@ export const ThreadSummaryView = memo(function ThreadSummaryView({
                       )}
                       {item.replyTimestamp && <span>· {item.replyTimestamp}</span>}
                       {item.hasTool && (
-                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">
+                        <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">
                           {t("含工具调用")}</span>
                       )}
                     </div>

@@ -60,7 +60,7 @@ export function DeleteProjectDialog({
           />
           <span className="text-xs text-muted-foreground leading-relaxed">
             {t("同时清理 Claude Code 项目配置")}{withCcConfig && (
-              <span className="block mt-1 text-yellow-600 dark:text-yellow-400">
+              <span className="block mt-1 text-warning">
                 {t("将从 ~/.claude.json 移除该项目配置，下次进入该目录等于全新项目")}</span>
             )}
           </span>

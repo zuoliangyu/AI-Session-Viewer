@@ -138,7 +138,7 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
               {projectPath && (
                 <SkillSection
                   title={t("项目级")}
-                  icon={<FolderOpen className="w-4 h-4 text-green-500" />}
+                  icon={<FolderOpen className="w-4 h-4 text-success" />}
                   skills={data.project}
                   onSelect={setActive}
                   onDelete={setDeleteTarget}
@@ -147,7 +147,7 @@ export function ProjectSkillsPanel({ projectPath }: { projectPath: string | null
               )}
               <SkillSection
                 title={t("全局")}
-                icon={<Globe className="w-4 h-4 text-blue-500" />}
+                icon={<Globe className="w-4 h-4 text-info" />}
                 skills={data.global}
                 onSelect={setActive}
                 onDelete={setDeleteTarget}

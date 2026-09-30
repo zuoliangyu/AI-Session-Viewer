@@ -106,16 +106,16 @@ export function CloneToProviderDialog({ session, onClose, onCloned }: Props) {
         {result ? (
           // ── Result view ──
           <div className="mb-4 text-sm space-y-2">
-            <div className="flex items-center gap-2 text-green-600 dark:text-green-500">
+            <div className="flex items-center gap-2 text-success">
               <CheckCircle2 className="w-4 h-4" />
               {t("已克隆{{v0}} 个副本到「{{v1}}」", { v0: result.cloned, v1: result.targetProvider })}
             </div>
             {result.skipped.length > 0 && (
-              <div className="text-yellow-600 dark:text-yellow-500 text-xs">
+              <div className="text-warning text-xs">
                 {t("跳过{{v0}} 个（文件缺失/被占用/无 thread 记录）", { v0: result.skipped.length })}</div>
             )}
             {result.encryptedSessionIds.length > 0 && (
-              <div className="flex items-start gap-1.5 text-yellow-600 dark:text-yellow-500 text-xs">
+              <div className="flex items-start gap-1.5 text-warning text-xs">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                 <span>
                   {t("其中{{v0}} 个含加密内容 （encrypted_content），跨 Provider/账号可能可见但无法 resume/compact。", { v0: result.encryptedSessionIds.length })}</span>

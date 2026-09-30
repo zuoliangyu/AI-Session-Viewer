@@ -78,7 +78,7 @@ export function ChatHeader({
       {/* CLI status */}
       <div className="flex items-center gap-1 text-xs text-muted-foreground">
         <CircleDot
-          className={`w-3 h-3 ${cliInfo ? "text-green-500" : "text-red-500"}`}
+          className={`w-3 h-3 ${cliInfo ? "text-success" : "text-destructive"}`}
         />
         <span>
           {cliInfo
@@ -112,7 +112,7 @@ export function ChatHeader({
           <Hash className="w-3 h-3 shrink-0" />
           <span className="font-mono tabular-nums">{shortSessionId}</span>
           {copiedSessionId ? (
-            <Check className="w-3 h-3 text-green-500" />
+            <Check className="w-3 h-3 text-success" />
           ) : (
             <Copy className="w-3 h-3 opacity-60" />
           )}
@@ -152,7 +152,7 @@ export function ChatHeader({
         disabled={isStreaming}
         className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
           skipPermissions
-            ? "border-yellow-500/50 bg-yellow-500/10 text-yellow-500"
+            ? "border-warning/50 bg-warning/10 text-warning"
             : "border-border bg-muted text-muted-foreground hover:text-foreground"
         } disabled:opacity-50`}
         title={
@@ -196,7 +196,7 @@ export function ChatHeader({
 
       {/* Streaming indicator */}
       {isStreaming && (
-        <div className="flex items-center gap-1.5 text-xs text-blue-400">
+        <div className="flex items-center gap-1.5 text-xs text-info">
           <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse" />
           {t("对话中...")}</div>
       )}

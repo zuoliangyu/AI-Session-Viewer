@@ -37,8 +37,8 @@ const TYPE_TABS: { key: TypeFilter; label: string }[] = [
 
 function ItemIcon({ itemType }: { itemType: string }) {
   useTranslation();
-  if (itemType === "project") return <FolderOpen className="w-4 h-4 text-blue-400" />;
-  if (itemType === "orphanDir") return <FolderX className="w-4 h-4 text-yellow-400" />;
+  if (itemType === "project") return <FolderOpen className="w-4 h-4 text-info" />;
+  if (itemType === "orphanDir") return <FolderX className="w-4 h-4 text-warning" />;
   return <FileText className="w-4 h-4 text-muted-foreground" />;
 }
 
@@ -46,8 +46,8 @@ function TypeBadge({ itemType }: { itemType: string }) {
   const { t } = useTranslation();
   const styles: Record<string, string> = {
     session: "bg-muted text-muted-foreground",
-    project: "bg-blue-500/15 text-blue-400",
-    orphanDir: "bg-yellow-500/15 text-yellow-500",
+    project: "bg-info/15 text-info",
+    orphanDir: "bg-warning/15 text-warning",
   };
   const labels: Record<string, string> = {
     session: t("会话"),
@@ -181,7 +181,7 @@ export function RecyclebinPage() {
             {recycledItems.length > 0 && (
               <button
                 onClick={() => setConfirmEmpty(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-red-500/40 text-red-400 hover:bg-red-500/10 transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border border-destructive/40 text-destructive hover:bg-destructive/10 transition-colors"
               >
                 <Trash className="w-3.5 h-3.5" />
                 {t("清空")}</button>
@@ -191,7 +191,7 @@ export function RecyclebinPage() {
 
         {/* 扫描结果提示 */}
         {scanResult !== null && (
-          <div className="mb-2 flex items-center gap-1.5 text-xs text-green-400">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-success">
             <ScanLine className="w-3.5 h-3.5" />
             {scanResult === 0 ? t("未发现孤儿目录") : t("已将 {{v0}} 个孤儿目录移入回收站", { v0: scanResult })}
             <button onClick={() => setScanResult(null)} className="ml-1 opacity-60 hover:opacity-100">×</button>
@@ -226,10 +226,10 @@ export function RecyclebinPage() {
 
       {/* Error banner */}
       {error && (
-        <div className="mx-4 mt-3 flex items-start gap-2 p-3 rounded-md bg-red-500/10 border border-red-500/30 text-xs text-red-400">
+        <div className="mx-4 mt-3 flex items-start gap-2 p-3 rounded-md bg-destructive/10 border border-destructive/30 text-xs text-destructive">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto shrink-0 hover:text-red-300">×</button>
+          <button onClick={() => setError(null)} className="ml-auto shrink-0 hover:text-destructive">×</button>
         </div>
       )}
 
@@ -292,7 +292,7 @@ export function RecyclebinPage() {
                   <button
                     onClick={() => handlePermanentDelete(item)}
                     disabled={actionLoading === item.id}
-                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded-md border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50"
                     title={t("永久删除")}
                   >
                     <Trash className="w-3.5 h-3.5" />
@@ -318,7 +318,7 @@ export function RecyclebinPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+              <AlertTriangle className="w-5 h-5 text-destructive shrink-0" />
               <h3 className="workspace-page-title">{t("清空回收站")}</h3>
             </div>
             <p className="text-sm text-muted-foreground mb-5">
@@ -331,7 +331,7 @@ export function RecyclebinPage() {
                 {t("取消")}</button>
               <button
                 onClick={handleEmptyRecyclebin}
-                className="px-4 py-2 text-sm rounded-md bg-red-500 text-white hover:bg-red-600 transition-colors"
+                className="px-4 py-2 text-sm rounded-md bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors"
               >
                 {t("永久删除全部")}</button>
             </div>

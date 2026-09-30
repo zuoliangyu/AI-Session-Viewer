@@ -379,7 +379,7 @@ export function ProjectsPage() {
                       project.isVirtual
                         ? "text-muted-foreground italic"
                         : project.pathExists === false
-                          ? "text-yellow-500"
+                          ? "text-warning"
                           : "text-muted-foreground"
                     }`}
                     title={
@@ -487,7 +487,7 @@ export function ProjectsPage() {
             }}
           />
           {renameError && (
-            <p className="text-xs text-red-400 mt-1">{renameError}</p>
+            <p className="text-xs text-destructive mt-1">{renameError}</p>
           )}
           <div className="flex justify-between items-center mt-4">
             <div>
@@ -593,7 +593,7 @@ export function ProjectsPage() {
               />
               <span className="text-xs text-muted-foreground leading-relaxed">
                 {t("同时清理 Claude Code 项目配置")}{batchWithCcConfig && (
-                  <span className="block mt-1 text-yellow-600 dark:text-yellow-400">
+                  <span className="block mt-1 text-warning">
                     {t("将从 ~/.claude.json 移除这些项目配置")}</span>
                 )}
               </span>

@@ -59,7 +59,7 @@ export function SessionCostBadge({ filePath }: { filePath: string }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="hidden md:flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-green-500/30 bg-green-500/5 text-green-600 dark:text-green-400 hover:bg-green-500/10 transition-colors font-mono"
+        className="hidden md:flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-success/30 bg-success/5 text-success hover:bg-success/10 transition-colors font-mono"
         title={t("点击查看本会话的逐请求账单")}
       >
         <DollarSign className="w-3 h-3" />
@@ -130,7 +130,7 @@ function SessionCostModal({
             >
               {copied ? (
                 <>
-                  <Check className="w-3 h-3 text-green-500" />
+                  <Check className="w-3 h-3 text-success" />
                   {t("已复制")}</>
               ) : (
                 <>
@@ -153,12 +153,12 @@ function SessionCostModal({
           <SummaryStat
             label={t("累计花费")}
             value={isFullyPriced ? formatCost(summary.costUsd) : t("未定价")}
-            accent="text-green-500"
+            accent="text-success"
           />
           <SummaryStat label={t("输入")} value={formatTokens(summary.inputTokens)} />
           <SummaryStat label={t("缓存读")} value={formatTokens(summary.cacheReadTokens)} accent="text-teal-500" />
           <SummaryStat label={t("缓存写")} value={formatTokens(summary.cacheCreationTokens)} accent="text-purple-500" />
-          <SummaryStat label={t("输出")} value={formatTokens(summary.outputTokens)} accent="text-amber-500" />
+          <SummaryStat label={t("输出")} value={formatTokens(summary.outputTokens)} accent="text-warning" />
         </div>
 
         {/* Per-request rows */}
@@ -197,13 +197,13 @@ function SessionCostModal({
                   <td className="px-3 py-1.5 text-right font-mono text-purple-500">
                     {r.cacheCreationTokens > 0 ? formatTokens(r.cacheCreationTokens) : "—"}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-amber-500">
+                  <td className="px-3 py-1.5 text-right font-mono text-warning">
                     {formatTokens(r.outputTokens)}
                   </td>
                   <td className="px-3 py-1.5 text-right font-mono text-muted-foreground">
                     {formatDuration(r.durationMs)}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-green-500">
+                  <td className="px-3 py-1.5 text-right font-mono text-success">
                     {r.isPriced ? formatCost(r.costUsd) : t("未定价")}
                   </td>
                 </tr>

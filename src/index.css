@@ -38,8 +38,16 @@
     --muted-foreground: 215 12% 40%;
     --accent: 210 16% 90%;
     --accent-foreground: 215 22% 15%;
-    --destructive: 0 84.2% 60.2%;
+    /* Status colors double as text colors, so each is tuned for >= 4.5:1
+       contrast on --background/--card in its theme. */
+    --destructive: 0 72% 47%;
     --destructive-foreground: 0 0% 100%;
+    --success: 142 72% 29%;
+    --success-foreground: 0 0% 100%;
+    --warning: 30 90% 36%;
+    --warning-foreground: 0 0% 100%;
+    --info: 221 83% 48%;
+    --info-foreground: 0 0% 100%;
     --border: 214 18% 90%;
     --input: 210 14% 87%;
     --ring: 190 65% 40%;
@@ -59,8 +67,15 @@
     --muted-foreground: 215 12% 65%;
     --accent: 215 20% 18%;
     --accent-foreground: 210 14% 89%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 20% 98%;
+    /* Light-on-dark like --primary: readable as text, dark text on fills. */
+    --destructive: 0 91% 71%;
+    --destructive-foreground: 220 30% 7%;
+    --success: 142 69% 58%;
+    --success-foreground: 220 30% 7%;
+    --warning: 43 96% 56%;
+    --warning-foreground: 220 30% 7%;
+    --info: 213 94% 68%;
+    --info-foreground: 220 30% 7%;
     --border: 215 22% 16%;
     --input: 215 22% 16%;
     --ring: 185 75% 48%;

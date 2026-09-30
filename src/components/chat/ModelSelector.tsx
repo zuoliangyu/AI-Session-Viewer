@@ -267,7 +267,7 @@ export function ModelSelector({
               <Loader2 className="w-4 h-4 animate-spin" />
               {t("加载模型列表...")}</div>
           ) : modelListError ? (
-            <div className="flex flex-col items-center gap-2 py-6 text-sm text-red-400">
+            <div className="flex flex-col items-center gap-2 py-6 text-sm text-destructive">
               <div className="flex items-center gap-2">
                 <AlertCircle className="w-4 h-4" />
                 {modelListError}
@@ -339,7 +339,7 @@ export function ModelSelector({
                             e.stopPropagation();
                             removeCustomModel(m.id, source, paneId);
                           }}
-                          className="p-0.5 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
+                          className="p-0.5 rounded text-muted-foreground/0 group-hover:text-muted-foreground hover:!text-destructive transition-colors shrink-0"
                           title={t("移除自定义模型")}
                         >
                           <Trash2 className="w-3 h-3" />

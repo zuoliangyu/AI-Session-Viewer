@@ -443,7 +443,7 @@ export function InvalidItemsPage() {
             <span className="text-sm text-foreground">{t("无效项管理")}</span>
           </div>
           <div className="flex items-center gap-2">
-            <FolderX className="w-6 h-6 text-amber-500" />
+            <FolderX className="w-6 h-6 text-warning" />
             <h1 className="workspace-page-title">{t("无效项目 / 无效会话")}</h1>
           </div>
           <p className="mt-2 text-sm text-muted-foreground max-w-3xl">
@@ -513,7 +513,7 @@ export function InvalidItemsPage() {
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-xs text-muted-foreground">{t("无效项目")}</div>
-          <div className="mt-1 text-2xl font-semibold text-amber-500">
+          <div className="mt-1 text-2xl font-semibold text-warning">
             {summary.invalidProjectCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
@@ -531,7 +531,7 @@ export function InvalidItemsPage() {
         </div>
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="text-xs text-muted-foreground">{t("损坏会话")}</div>
-          <div className="mt-1 text-2xl font-semibold text-amber-500">
+          <div className="mt-1 text-2xl font-semibold text-warning">
             {summary.corruptSessionCount}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
@@ -542,13 +542,13 @@ export function InvalidItemsPage() {
       {(loadError || actionError) && (
         <div className="space-y-3">
           {loadError && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{loadError}</span>
             </div>
           )}
           {actionError && (
-            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+            <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>{actionError}</span>
             </div>
@@ -557,21 +557,21 @@ export function InvalidItemsPage() {
       )}
 
       <div className="space-y-3">
-        <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-500/10 px-4 py-3 text-sm text-blue-400">
+        <div className="flex items-start gap-2 rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-sm text-info">
           <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
           <div className="space-y-1">
             <p>{t("会话删除会移入回收站，可在回收站中恢复。")}</p>
           </div>
         </div>
         {!canDeleteInvalidProjects && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               {t("当前数据源为 `codex`，项目删除后端暂不支持。此页仅可清理无效会话，不能删除无效项目索引。")}</span>
           </div>
         )}
         {scanWarning && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-500">
+          <div className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
             <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>{scanWarning}</span>
           </div>
@@ -588,7 +588,7 @@ export function InvalidItemsPage() {
               <span className="truncate">
                 {t("正在扫描会话异常项（")}{scanProgress.completed} /{" "}
                 {scanProgress.total}）{scanProgress.failed > 0 && (
-                  <span className="text-amber-500 ml-1">
+                  <span className="text-warning ml-1">
                     · {scanProgress.failed} {t("个失败")}</span>
                 )}
               </span>
@@ -613,8 +613,8 @@ export function InvalidItemsPage() {
           <p className="mt-3 text-sm text-muted-foreground">{t("正在加载项目列表...")}</p>
         </div>
       ) : loadError ? (
-        <div className="rounded-xl border border-dashed border-red-500/30 bg-red-500/5 px-6 py-16 text-center">
-          <AlertCircle className="w-12 h-12 text-red-400/70 mx-auto" />
+        <div className="rounded-xl border border-dashed border-destructive/30 bg-destructive/5 px-6 py-16 text-center">
+          <AlertCircle className="w-12 h-12 text-destructive/70 mx-auto" />
           <h2 className="mt-4 text-lg font-medium text-foreground">{t("扫描失败")}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {t("当前无法完成无效项扫描，因此还不能判断是否存在无效项目、空会话或损坏会话。")}</p>
@@ -679,7 +679,7 @@ export function InvalidItemsPage() {
                           {group.project.alias ?? group.project.shortName}
                         </h2>
                         {group.invalidProject && (
-                          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-500">
+                          <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs text-warning">
                             {t("项目路径无效")}</span>
                         )}
                         {(() => {
@@ -697,7 +697,7 @@ export function InvalidItemsPage() {
                                 </span>
                               )}
                               {corrupt > 0 && (
-                                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-xs text-amber-500">
+                                <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs text-warning">
                                   {t("损坏会话")}{corrupt}
                                 </span>
                               )}
@@ -772,12 +772,12 @@ export function InvalidItemsPage() {
                           ) : (
                             <span className="mt-1 h-4 w-4 rounded border border-border bg-muted/40" />
                           )}
-                          <FolderX className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                          <FolderX className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="text-sm font-medium text-foreground">
                                 {t("无效项目目录")}</span>
-                              <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-500">
+                              <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] text-warning">
                                 `pathExists === false`
                               </span>
                             </div>
@@ -813,7 +813,7 @@ export function InvalidItemsPage() {
                                 className="mt-1 rounded border-border"
                               />
                               {isCorrupt ? (
-                                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-500" />
+                                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
                               ) : (
                                 <FileX className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
                               )}
@@ -823,7 +823,7 @@ export function InvalidItemsPage() {
                                     {sessionTitle}
                                   </span>
                                   {isCorrupt ? (
-                                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] text-amber-500">
+                                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] text-warning">
                                       {t("文件损坏，部分可读")}</span>
                                   ) : (
                                     <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
@@ -844,7 +844,7 @@ export function InvalidItemsPage() {
                                   )}
                                 </div>
                                 {isCorrupt && (
-                                  <p className="mt-1 text-xs text-amber-500/80">
+                                  <p className="mt-1 text-xs text-warning/80">
                                     {t("JSONL 中部出现解析失败的行（常见于 CC 异常退出留下的稀疏空洞）。 \"查看详情\"会跳过坏行展示残存内容。")}</p>
                                 )}
                                 <p className="mt-1 break-all text-xs text-muted-foreground/80">
