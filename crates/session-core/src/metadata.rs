@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use crate::parser::path_encoder::get_projects_dir;
+use crate::persistence::{self, StateLock};
 use crate::provider::codex;
 
 /// Per-session metadata (alias + tags)
@@ -104,38 +105,34 @@ fn resolve_claude_project_dir(project_id: &str) -> Option<PathBuf> {
 
 /// Load metadata file; returns default if not found
 pub fn load_metadata(source: &str, project_id: &str) -> MetadataFile {
-    let path = match metadata_path(source, project_id) {
-        Some(p) => p,
-        None => return MetadataFile::default(),
-    };
-
-    if !path.exists() {
-        return MetadataFile::default();
-    }
-
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_default()
+    try_load_metadata(source, project_id).unwrap_or_else(|error| {
+        eprintln!("[metadata] {error}");
+        MetadataFile::default()
+    })
 }
 
-/// Save metadata file (atomic: write tmp + rename)
-pub fn save_metadata(source: &str, project_id: &str, meta: &MetadataFile) -> Result<(), String> {
+pub(crate) fn try_load_metadata(source: &str, project_id: &str) -> Result<MetadataFile, String> {
+    let path = match metadata_path(source, project_id) {
+        Some(p) => p,
+        None => return Ok(MetadataFile::default()),
+    };
+    persistence::read_json(&path)
+}
+
+/// All writers, including importers, edit the latest snapshot under one lock.
+/// The callback must not call another persistence mutation (the lock is not reentrant).
+pub(crate) fn edit_metadata(
+    source: &str,
+    project_id: &str,
+    edit: impl FnOnce(&mut MetadataFile) -> Result<bool, String>,
+) -> Result<(), String> {
+    let lock = StateLock::acquire()?;
     let path = metadata_path(source, project_id)
         .ok_or_else(|| "Cannot resolve metadata path".to_string())?;
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create metadata directory: {}", e))?;
+    let mut metadata = persistence::read_json(&path)?;
+    if edit(&mut metadata)? {
+        lock.write_json(&path, &metadata)?;
     }
-
-    let content =
-        serde_json::to_string_pretty(meta).map_err(|e| format!("Failed to serialize: {}", e))?;
-
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, content).map_err(|e| format!("Failed to write tmp: {}", e))?;
-    fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to rename: {}", e))?;
-
     Ok(())
 }
 
@@ -147,17 +144,15 @@ pub fn update_session_meta(
     alias: Option<String>,
     tags: Vec<String>,
 ) -> Result<(), String> {
-    let mut meta = load_metadata(source, project_id);
-
-    // If both alias and tags are empty, remove the entry
-    if alias.is_none() && tags.is_empty() {
-        meta.sessions.remove(session_id);
-    } else {
-        meta.sessions
-            .insert(session_id.to_string(), SessionMeta { alias, tags });
-    }
-
-    save_metadata(source, project_id, &meta)
+    edit_metadata(source, project_id, |meta| {
+        if alias.is_none() && tags.is_empty() {
+            Ok(meta.sessions.remove(session_id).is_some())
+        } else {
+            meta.sessions
+                .insert(session_id.to_string(), SessionMeta { alias, tags });
+            Ok(true)
+        }
+    })
 }
 
 /// Rename a chat session's alias by project path (used by /rename in ChatInput).
@@ -201,25 +196,20 @@ pub fn rename_chat_session(
             if !jsonl_path.exists() {
                 return Err(format!("Session file not found: {}", jsonl_path.display()));
             }
-            crate::parser::jsonl::append_custom_title(&jsonl_path, session_id, trimmed.as_deref())?;
-
-            let existing = load_metadata("claude", &encoded);
-            let tags = existing
-                .sessions
-                .get(session_id)
-                .map(|s| s.tags.clone())
-                .unwrap_or_default();
-            update_session_meta("claude", &encoded, session_id, None, tags)?;
+            edit_metadata("claude", &encoded, |meta| {
+                crate::parser::jsonl::append_custom_title(
+                    &jsonl_path,
+                    session_id,
+                    trimmed.as_deref(),
+                )?;
+                Ok(set_alias_preserving_tags(meta, session_id, None))
+            })?;
             Ok(encoded)
         }
         "codex" => {
-            let existing = load_metadata("codex", "");
-            let tags = existing
-                .sessions
-                .get(session_id)
-                .map(|s| s.tags.clone())
-                .unwrap_or_default();
-            update_session_meta("codex", project_path, session_id, trimmed, tags)?;
+            edit_metadata("codex", project_path, |meta| {
+                Ok(set_alias_preserving_tags(meta, session_id, trimmed))
+            })?;
             Ok(project_path.to_string())
         }
         _ => Err(format!("Unknown source: {}", source)),
@@ -228,11 +218,47 @@ pub fn rename_chat_session(
 
 /// Remove metadata for a single session
 pub fn remove_session_meta(source: &str, project_id: &str, session_id: &str) -> Result<(), String> {
-    let mut meta = load_metadata(source, project_id);
-    if meta.sessions.remove(session_id).is_some() {
-        save_metadata(source, project_id, &meta)?;
+    edit_metadata(source, project_id, |meta| {
+        Ok(meta.sessions.remove(session_id).is_some())
+    })
+}
+
+fn set_alias_preserving_tags(
+    meta: &mut MetadataFile,
+    session_id: &str,
+    alias: Option<String>,
+) -> bool {
+    let has_tags = meta
+        .sessions
+        .get(session_id)
+        .is_some_and(|entry| !entry.tags.is_empty());
+    if alias.is_none() && !has_tags {
+        return meta.sessions.remove(session_id).is_some();
     }
-    Ok(())
+    meta.sessions
+        .entry(session_id.to_string())
+        .or_default()
+        .alias = alias;
+    true
+}
+
+/// Relocation merges both stores under the same global lock, including removal
+/// of the source, so an editor cannot write between the merge and the removal.
+pub(crate) fn merge_metadata_files(lock: &StateLock, from: &Path, to: &Path) -> Result<(), String> {
+    if from == to {
+        return Ok(());
+    }
+    let source: MetadataFile = persistence::read_json(from)?;
+    let mut target: MetadataFile = persistence::read_json(to)?;
+    for (id, meta) in source.sessions {
+        target.sessions.entry(id).or_insert(meta);
+    }
+    lock.write_json(to, &target)?;
+    match fs::remove_file(from) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("移除旧元数据 {} 失败：{error}", from.display())),
+    }
 }
 
 /// Get all unique tags used in a project (for autocomplete)

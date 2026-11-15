@@ -60,37 +60,15 @@ fn generate_id() -> String {
     format!("{:x}", ts)
 }
 
-pub fn load_manifest() -> RecyclebinManifest {
-    let path = match get_recyclebin_manifest_path() {
-        Some(p) => p,
-        None => return RecyclebinManifest::default(),
-    };
-    if !path.exists() {
-        return RecyclebinManifest::default();
-    }
-    let data = match fs::read_to_string(&path) {
-        Ok(d) => d,
-        Err(_) => return RecyclebinManifest::default(),
-    };
-    serde_json::from_str(&data).unwrap_or_default()
+fn load_manifest() -> Result<RecyclebinManifest, String> {
+    let path = get_recyclebin_manifest_path().ok_or("Cannot determine recyclebin path")?;
+    crate::persistence::read_json(&path)
 }
 
-pub fn save_manifest(manifest: &RecyclebinManifest) -> Result<(), String> {
+fn save_manifest(lock: &crate::persistence::StateLock, manifest: &RecyclebinManifest) -> Result<(), String> {
     let path = get_recyclebin_manifest_path()
         .ok_or_else(|| "Cannot determine recyclebin path".to_string())?;
-
-    // Ensure directory exists
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create recyclebin dir: {}", e))?;
-    }
-
-    let json = serde_json::to_string_pretty(manifest)
-        .map_err(|e| format!("Failed to serialize manifest: {}", e))?;
-    let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, &json).map_err(|e| format!("Failed to write manifest tmp: {}", e))?;
-    fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to rename manifest: {}", e))?;
-    Ok(())
+    lock.write_json(&path, manifest)
 }
 
 /// 移动文件或目录到回收站 items/ 目录，追加 manifest，返回生成的 id。
@@ -103,6 +81,8 @@ pub fn move_to_recyclebin(
     session_title: Option<String>,
     project_name: Option<String>,
 ) -> Result<String, String> {
+    let lock = crate::persistence::StateLock::acquire()?;
+    let mut manifest = load_manifest()?;
     let items_dir = get_recyclebin_items_dir()
         .ok_or_else(|| "Cannot determine recyclebin items path".to_string())?;
     fs::create_dir_all(&items_dir)
@@ -146,9 +126,8 @@ pub fn move_to_recyclebin(
         moved_at: chrono::Utc::now().to_rfc3339(),
     };
 
-    let mut manifest = load_manifest();
     manifest.items.push(item);
-    if let Err(error) = save_manifest(&manifest) {
+    if let Err(error) = save_manifest(&lock, &manifest) {
         let rollback = move_path_no_replace(&target, original_path);
         return match rollback {
             Ok(()) => Err(format!("Failed to record recyclebin item: {error}")),
@@ -224,6 +203,8 @@ pub fn move_group_to_recyclebin(
     session_title: Option<String>,
     project_name: Option<String>,
 ) -> Result<String, String> {
+    let lock = crate::persistence::StateLock::acquire()?;
+    let mut manifest = load_manifest()?;
     if paths.is_empty() {
         return Err("Nothing to move to recyclebin".to_string());
     }
@@ -272,9 +253,8 @@ pub fn move_group_to_recyclebin(
         members,
         moved_at: chrono::Utc::now().to_rfc3339(),
     };
-    let mut manifest = load_manifest();
     manifest.items.push(item.clone());
-    if let Err(error) = save_manifest(&manifest) {
+    if let Err(error) = save_manifest(&lock, &manifest) {
         let operation_error = format!("Failed to record recyclebin group: {error}");
         return Err(rollback_group_after_failure(
             &group_dir,
@@ -380,6 +360,8 @@ pub fn move_omp_session_to_recyclebin(
     session_title: Option<String>,
     project_name: Option<String>,
 ) -> Result<String, String> {
+    let lock = crate::persistence::StateLock::acquire()?;
+    let mut manifest = load_manifest()?;
     if !session_path.is_file() {
         return Err("OMP session file not found".to_string());
     }
@@ -437,9 +419,8 @@ pub fn move_omp_session_to_recyclebin(
         members: Vec::new(),
         moved_at: chrono::Utc::now().to_rfc3339(),
     };
-    let mut manifest = load_manifest();
     manifest.items.push(item);
-    if let Err(error) = save_manifest(&manifest) {
+    if let Err(error) = save_manifest(&lock, &manifest) {
         let mut rollback_errors = Vec::new();
         if let (Some(artifact_path), Some(companion_stored_path)) =
             (artifact_path.as_ref(), companion_stored_path.as_ref())
@@ -464,16 +445,17 @@ pub fn move_omp_session_to_recyclebin(
 }
 
 /// 列出所有回收站条目，按 movedAt 倒序排列。
-pub fn list_items() -> Vec<RecycledItem> {
-    let mut items = load_manifest().items;
+pub fn list_items() -> Result<Vec<RecycledItem>, String> {
+    let mut items = load_manifest()?.items;
     items.sort_by(|a, b| b.moved_at.cmp(&a.moved_at));
-    items
+    Ok(items)
 }
 
 /// 将条目还原到 original_path，自动创建父目录。
 /// 还原成功后失效对应数据源的 sessions 缓存，避免 UI 不刷新。
 pub fn restore_item(id: &str) -> Result<(), String> {
-    let mut manifest = load_manifest();
+    let lock = crate::persistence::StateLock::acquire()?;
+    let mut manifest = load_manifest()?;
     let pos = manifest
         .items
         .iter()
@@ -485,7 +467,8 @@ pub fn restore_item(id: &str) -> Result<(), String> {
             .ok_or_else(|| "Cannot determine recyclebin items path".to_string())?;
         restore_group(&item, &items_dir)?;
         manifest.items.remove(pos);
-        save_manifest(&manifest)?;
+        save_manifest(&lock, &manifest)?;
+        drop(lock);
         invalidate_source_cache(&item.source);
         return Ok(());
     }
@@ -544,7 +527,8 @@ pub fn restore_item(id: &str) -> Result<(), String> {
     }
 
     manifest.items.remove(pos);
-    save_manifest(&manifest)?;
+    save_manifest(&lock, &manifest)?;
+    drop(lock);
 
     invalidate_source_cache(&item.source);
     Ok(())
@@ -628,7 +612,8 @@ fn remove_path(p: &std::path::Path) -> std::io::Result<()> {
 
 /// 永久删除条目（从 items/ 删文件 + manifest 移除）。
 pub fn permanently_delete_item(id: &str) -> Result<(), String> {
-    let mut manifest = load_manifest();
+    let lock = crate::persistence::StateLock::acquire()?;
+    let mut manifest = load_manifest()?;
     let pos = manifest
         .items
         .iter()
@@ -651,13 +636,14 @@ pub fn permanently_delete_item(id: &str) -> Result<(), String> {
     }
 
     manifest.items.remove(pos);
-    save_manifest(&manifest)?;
+    save_manifest(&lock, &manifest)?;
     Ok(())
 }
 
 /// 清空回收站所有条目，返回删除数量。
 pub fn empty_recyclebin() -> Result<usize, String> {
-    let manifest = load_manifest();
+    let lock = crate::persistence::StateLock::acquire()?;
+    let manifest = load_manifest()?;
     let count = manifest.items.len();
     if count == 0 {
         return Ok(0);
@@ -681,7 +667,7 @@ pub fn empty_recyclebin() -> Result<usize, String> {
         }
     }
 
-    save_manifest(&RecyclebinManifest::default())?;
+    save_manifest(&lock, &RecyclebinManifest::default())?;
     Ok(count)
 }
 

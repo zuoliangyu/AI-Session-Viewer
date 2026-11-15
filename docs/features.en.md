@@ -121,3 +121,5 @@ Sessions may contain code, command output, and secrets, so keep exports safe. En
 Installed desktop packages use the in-app updater. Windows portable packages link to GitHub Releases. Updates can be checked in Settings, and individual versions can be skipped.
 
 Desktop and web file watchers batch changed paths to refresh affected projects. Desktop also performs a periodic background refresh. Metadata, indexes, and bookmarks use atomic writes.
+
+Bookmarks, recycle-bin manifests, and session metadata serialize read-modify-write operations and related file moves across desktop and web processes with `~/.claude-code-viewer/state-write-lock.sqlite`. A write-lock wait exceeding five seconds returns an error and can be retried; do not delete this lock file while the app is running. Saves use unique temporary files in the destination directory and atomic replacement. Only missing files count as empty data; corrupt or unreadable files block writes. The lock does not coordinate external editors or provide an automatic transaction rollback across multiple data files.

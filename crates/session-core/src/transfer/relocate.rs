@@ -569,16 +569,16 @@ fn preview_source(source: &str, projects: Vec<RelocatePreviewProject>) -> Option
     })
 }
 
-fn count_bookmarks(plan: &Plan, remap: &Remap) -> u32 {
+fn count_bookmarks(plan: &Plan, remap: &Remap) -> Result<u32, String> {
     let claude_names: Vec<&str> = plan.claude.iter().map(|mv| mv.name.as_str()).collect();
-    crate::bookmarks::load_bookmarks()
+    Ok(crate::bookmarks::load_bookmarks()?
         .bookmarks
         .iter()
         .filter(|b| match b.source.as_str() {
             "claude" => claude_names.contains(&b.project_id.as_str()),
             _ => remap.apply(&b.project_id).is_some(),
         })
-        .count() as u32
+        .count() as u32)
 }
 
 pub(super) fn preview(request: &RelocateRequest) -> Result<RelocatePreview, String> {
@@ -634,7 +634,7 @@ pub(super) fn preview(request: &RelocateRequest) -> Result<RelocatePreview, Stri
     Ok(RelocatePreview {
         from_exists: Path::new(&remap.from).is_dir(),
         to_exists: fs::symlink_metadata(&remap.to).is_ok(),
-        bookmarks: count_bookmarks(&plan, &remap),
+        bookmarks: count_bookmarks(&plan, &remap)?,
         from: remap.from.clone(),
         to: remap.to.clone(),
         sources,
@@ -766,6 +766,7 @@ impl Relocator<'_> {
 
     fn relocate_claude_dir(&mut self, root: &Path, mv: &ClaudeMove, report: &mut RelocateSourceReport) -> Result<(), String> {
         self.check_cancel()?;
+        let lock = crate::persistence::StateLock::acquire()?;
         report.sessions += mv.sessions;
         let target = root.join(&mv.new_name);
         // Paths below the final directory that still need their cwd rewritten.
@@ -780,7 +781,7 @@ impl Relocator<'_> {
                 fs::rename(&mv.dir, &target).map_err(|e| format!("重命名项目目录失败：{e}"))?;
                 report.moved_dirs += 1;
             } else {
-                to_rewrite = self.merge_claude_dir(mv, &target)?;
+                to_rewrite = self.merge_claude_dir(&lock, mv, &target)?;
                 merged_from = Some(mv.dir.clone());
             }
             self.claude_names.insert(mv.name.clone(), mv.new_name.clone());
@@ -805,7 +806,7 @@ impl Relocator<'_> {
     /// Move the entries of `mv.dir` into the existing `target`, keeping
     /// anything whose name is already taken. The index and viewer metadata
     /// are merged separately. Returns the moved transcripts (relative paths).
-    fn merge_claude_dir(&mut self, mv: &ClaudeMove, target: &Path) -> Result<Vec<PathBuf>, String> {
+    fn merge_claude_dir(&mut self, lock: &crate::persistence::StateLock, mv: &ClaudeMove, target: &Path) -> Result<Vec<PathBuf>, String> {
         let entries = fs::read_dir(&mv.dir).map_err(|e| format!("读取项目目录失败：{e}"))?;
         let mut moved: Vec<PathBuf> = Vec::new();
         for entry in entries.flatten() {
@@ -827,7 +828,7 @@ impl Relocator<'_> {
             move_path(&entry.path(), &destination)?;
             moved.push(PathBuf::from(&name));
         }
-        self.merge_claude_viewer_meta(mv, target);
+        self.merge_claude_viewer_meta(lock, mv, target);
         Ok(mv
             .jsonl
             .iter()
@@ -840,30 +841,11 @@ impl Relocator<'_> {
             .collect())
     }
 
-    fn merge_claude_viewer_meta(&mut self, mv: &ClaudeMove, target: &Path) {
+    fn merge_claude_viewer_meta(&mut self, lock: &crate::persistence::StateLock, mv: &ClaudeMove, target: &Path) {
         let old_path = mv.dir.join(".session-viewer-meta.json");
-        let Ok(Some(old)) = read_json(&old_path) else {
-            return;
-        };
         let new_path = target.join(".session-viewer-meta.json");
-        let mut merged = match read_json(&new_path) {
-            Ok(Some(value)) => value,
-            Ok(None) => json!({ "version": 1, "sessions": {} }),
-            Err(error) => return self.error(error),
-        };
-        if let (Some(into), Some(from)) = (
-            merged.get_mut("sessions").and_then(Value::as_object_mut),
-            old.get("sessions").and_then(Value::as_object),
-        ) {
-            for (id, meta) in from {
-                into.entry(id.clone()).or_insert_with(|| meta.clone());
-            }
-        }
-        match write_json_atomic(&new_path, &merged) {
-            Ok(()) => {
-                let _ = fs::remove_file(old_path);
-            }
-            Err(error) => self.error(error),
+        if let Err(error) = crate::metadata::merge_metadata_files(lock, &old_path, &new_path) {
+            self.error(error);
         }
     }
 

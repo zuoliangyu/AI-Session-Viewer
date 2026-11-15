@@ -591,21 +591,21 @@ impl Importer<'_> {
             self.error(format!("{source} 别名/标签数据损坏，已跳过"));
             return;
         };
-        let mut local = metadata::load_metadata(source, project_id);
-        let mut changed = false;
-        for (id, meta) in archived.sessions {
-            let Some(overwritten) = ids.get(&id) else {
-                continue;
-            };
-            if *overwritten || !local.sessions.contains_key(&id) {
-                local.sessions.insert(id, meta);
-                changed = true;
+        let result = metadata::edit_metadata(source, project_id, |local| {
+            let mut changed = false;
+            for (id, meta) in archived.sessions {
+                let Some(overwritten) = ids.get(&id) else {
+                    continue;
+                };
+                if *overwritten || !local.sessions.contains_key(&id) {
+                    local.sessions.insert(id, meta);
+                    changed = true;
+                }
             }
-        }
-        if changed {
-            if let Err(error) = metadata::save_metadata(source, project_id, &local) {
-                self.error(format!("保存 {source} 别名/标签失败：{error}"));
-            }
+            Ok(changed)
+        });
+        if let Err(error) = result {
+            self.error(format!("保存 {source} 别名/标签失败：{error}"));
         }
     }
 

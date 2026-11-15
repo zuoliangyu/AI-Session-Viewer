@@ -464,7 +464,7 @@ fn write_codex_extras(writer: &mut Writer, root: &Path, ids: &HashSet<String>) -
         }
     }
 
-    let mut meta = crate::metadata::load_metadata("codex", "");
+    let mut meta = crate::metadata::try_load_metadata("codex", "")?;
     meta.sessions.retain(|id, _| ids.contains(id));
     if !meta.sessions.is_empty() {
         let bytes = serde_json::to_vec_pretty(&meta).map_err(|e| e.to_string())?;
@@ -636,7 +636,7 @@ fn write_archive(job: &JobHandle, plans: &[PlannedSource], partial: &Path) -> Re
         return Err("所选范围内没有可导出的会话".to_string());
     }
 
-    let bookmarks: Vec<ArchivedBookmark> = crate::bookmarks::load_bookmarks()
+    let bookmarks: Vec<ArchivedBookmark> = crate::bookmarks::load_bookmarks()?
         .bookmarks
         .into_iter()
         .filter_map(|bookmark| {

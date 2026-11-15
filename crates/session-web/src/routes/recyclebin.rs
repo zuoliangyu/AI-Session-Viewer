@@ -4,12 +4,12 @@ use axum::response::Json;
 use serde::{Deserialize, Serialize};
 use session_core::recyclebin::{self, RecycledItem};
 
-pub async fn list_items() -> Json<Vec<RecycledItem>> {
-    Json(
-        tokio::task::spawn_blocking(recyclebin::list_items)
-            .await
-            .unwrap_or_default(),
-    )
+pub async fn list_items() -> Result<Json<Vec<RecycledItem>>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(recyclebin::list_items)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map(Json)
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }
 
 pub async fn restore_item(Path(id): Path<String>) -> Result<Json<()>, (StatusCode, String)> {

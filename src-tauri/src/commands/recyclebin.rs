@@ -5,7 +5,7 @@ use session_core::recyclebin::{self, RecycledItem};
 pub async fn list_recycled_items() -> Result<Vec<RecycledItem>, String> {
     tauri::async_runtime::spawn_blocking(recyclebin::list_items)
         .await
-        .map_err(|error| format!("Failed to list recycle bin items: {error}"))
+        .map_err(|error| format!("Failed to list recycle bin items: {error}"))?
 }
 
 #[tauri::command]

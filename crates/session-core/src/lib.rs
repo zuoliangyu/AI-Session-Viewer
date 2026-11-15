@@ -11,6 +11,7 @@ pub mod model_list;
 pub mod models;
 pub mod parser;
 pub mod paths;
+mod persistence;
 pub mod provider;
 pub mod provider_sync;
 pub mod recyclebin;

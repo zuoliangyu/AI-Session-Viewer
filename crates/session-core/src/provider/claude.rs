@@ -949,17 +949,25 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
                     None,
                     Some(project_name.clone()),
                 ) {
-                    eprintln!(
-                        "[delete_project] Failed to move {:?} to recyclebin: {}",
-                        p, e
-                    );
+                    invalidate_cache();
+                    return Err(format!(
+                        "Failed to move {} to recyclebin; project deletion stopped: {}",
+                        p.display(), e
+                    ));
                 }
             }
         }
     }
 
+    // Invalidate even if a later lock or bookmark update fails after moves.
+    invalidate_cache();
+
     // 删除（现已清空 jsonl 的）项目目录
-    if let Err(e) = fs::remove_dir_all(&canonical_dir) {
+    let remove_result = {
+        let _lock = crate::persistence::StateLock::acquire()?;
+        fs::remove_dir_all(&canonical_dir)
+    };
+    if let Err(e) = remove_result {
         // 可能还有非 jsonl 文件，或目录不为空，静默记录
         eprintln!(
             "[delete_project] Failed to remove dir {:?}: {}",
@@ -975,7 +983,7 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
         config_cleaned = clean_claude_config(real_path.as_deref().unwrap_or(""));
 
         // Level 2b：清理书签
-        bookmarks_removed = clean_bookmarks_for_project(project_id);
+        bookmarks_removed = crate::bookmarks::remove_project_bookmarks("claude", project_id)?;
     }
     // Level 3 (WithHistory) 的 history.jsonl 清理逻辑预留此处，本次不实现具体功能。
 
@@ -1035,41 +1043,6 @@ fn clean_claude_config(real_path: &str) -> bool {
         return false;
     }
     fs::rename(&tmp_path, &config_path).is_ok()
-}
-
-/// 从 ~/.session-viewer-bookmarks.json 删除 project_id 匹配的书签。
-/// 返回删除数量，失败时返回 0（静默）。
-fn clean_bookmarks_for_project(project_id: &str) -> usize {
-    use crate::bookmarks::load_bookmarks;
-
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return 0,
-    };
-    let path = home.join(".session-viewer-bookmarks.json");
-
-    let mut file = load_bookmarks();
-    let before = file.bookmarks.len();
-    file.bookmarks.retain(|b| b.project_id != project_id);
-    let removed = before - file.bookmarks.len();
-
-    if removed == 0 {
-        return 0;
-    }
-
-    // 原子写回
-    let json = match serde_json::to_string_pretty(&file) {
-        Ok(j) => j,
-        Err(_) => return 0,
-    };
-    let tmp_path = path.with_extension("json.tmp");
-    if fs::write(&tmp_path, &json).is_err() {
-        return 0;
-    }
-    if fs::rename(&tmp_path, &path).is_err() {
-        return 0;
-    }
-    removed
 }
 
 /// 扫描所有项目目录，将孤儿 UUID 子目录批量移入回收站。
