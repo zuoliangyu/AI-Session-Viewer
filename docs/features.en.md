@@ -84,6 +84,8 @@ Codex chat notifications are routed by thread. Late events for closed or unsubsc
 
 If a Codex notification buffer overflows or app-server exits, affected streams report an error and stop waiting. Reload the session to recover. One slow subscriber does not block healthy subscribers.
 
+Cancellation requested during startup is retained. A Codex task interrupts only its own turn in the original runtime; each thread in that runtime permits one active send task. Disconnecting a web chat ends its active streams in the UI, while the server cancels and waits for the connection's tasks to exit. Detached background chat is not supported. Cancellation failures or missing CLI stop confirmations return errors.
+
 ## Skills, MCP, and plugins
 
 Skill and MCP previews belong to the selected source and target nodes. Changing either node requires a fresh preview. Node selection stays fixed during synchronization, and stale previews or duplicate submissions cannot start a write.

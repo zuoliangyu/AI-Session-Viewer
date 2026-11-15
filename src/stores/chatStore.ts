@@ -12,6 +12,9 @@ import { api } from "../services/api";
 type ChatSource = "claude" | "codex" | "omp";
 
 export const DEFAULT_CHAT_PANE_ID = "default";
+// Resume calls reuse session IDs, so a separate identity protects each
+// startup promise from overwriting a later turn in the same pane.
+const paneChatRequests = new Map<string, symbol>();
 
 interface ChatPaneModelListState {
   modelList: ModelInfo[];
@@ -863,6 +866,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   clearPane: (paneId) => {
+    paneChatRequests.delete(paneId);
     set((state) => {
       const currentPane = getOrCreatePaneState(
         state.panes,
@@ -881,6 +885,8 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   cancelPane: async (paneId) => {
     const pane = get().getPaneState(paneId);
+    paneChatRequests.delete(paneId);
+    get().setPaneStreaming(paneId, false);
     // Cancel by streamId — the routing key the backend uses for this turn.
     // Falls back to sessionId only if streamId hasn't been set yet (e.g. very
     // early failure before the start handshake).
@@ -892,7 +898,6 @@ export const useChatStore = create<ChatState>((set, get) => {
         console.error("Failed to cancel chat:", e);
       }
     }
-    get().setPaneStreaming(paneId, false);
   },
 
   fetchModelList: async (paneId) => {
@@ -1023,6 +1028,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     const pane = state.getPaneState(paneId);
     const overrides = getSourceOverrides(state, pane.source);
     const pendingSessionId = generateUUID();
+    const request = Symbol();
+    paneChatRequests.set(paneId, request);
+    const isCurrentRequest = () => paneChatRequests.get(paneId) === request
+      && get().getPaneState(paneId).streamId === pendingSessionId;
     localStorage.setItem("chat_lastUsedModel", model);
     // streamId is the stable routing key for this turn — listeners subscribe
     // by streamId, not sessionId, so the mid-stream sessionId swap (Claude
@@ -1048,6 +1057,8 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     try {
       await waitForNextPaint();
+      const currentPane = get().getPaneState(paneId);
+      if (!currentPane.isStreaming || !isCurrentRequest()) return;
       const sessionId = await api.startChat({
         source: pane.source,
         sessionId: pendingSessionId,
@@ -1058,16 +1069,19 @@ export const useChatStore = create<ChatState>((set, get) => {
         cliPath: state.cliPath || undefined,
         ...overrides,
       });
-      if (sessionId !== pendingSessionId) {
+      if (isCurrentRequest() && sessionId !== pendingSessionId) {
         get().setPaneSessionId(paneId, sessionId);
       }
     } catch (e) {
+      if (!isCurrentRequest()) return;
       get().setPaneState(paneId, {
         sessionId: null,
         streamId: null,
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      if (paneChatRequests.get(paneId) === request) paneChatRequests.delete(paneId);
     }
   },
 
@@ -1081,6 +1095,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     const state = get();
     const pane = state.getPaneState(paneId);
     const overrides = getSourceOverrides(state, pane.source);
+    const request = Symbol();
+    paneChatRequests.set(paneId, request);
+    const isCurrentRequest = () => paneChatRequests.get(paneId) === request
+      && get().getPaneState(paneId).streamId === sessionId;
     localStorage.setItem("chat_lastUsedModel", model);
     get().setPaneState(paneId, {
       isActive: true,
@@ -1114,10 +1132,13 @@ export const useChatStore = create<ChatState>((set, get) => {
         ...overrides,
       });
     } catch (e) {
+      if (!isCurrentRequest()) return;
       get().setPaneState(paneId, {
         isStreaming: false,
         error: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      if (paneChatRequests.get(paneId) === request) paneChatRequests.delete(paneId);
     }
   },
 

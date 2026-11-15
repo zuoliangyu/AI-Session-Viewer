@@ -43,6 +43,8 @@
 
 账单分页的定向回归：`node scripts/check-request-log-pagination.mjs`（Node.js 24+）。运行真实 store 与 1203 条内存记录，覆盖后续页访问、失败重试、筛选重置、乱序响应、来源与时区切换；不编译。
 
+聊天生命周期的定向回归：`node scripts/check-chat-lifecycle.mjs`（Node.js 24+）。用内存 WebSocket 和真实状态逻辑检查双流断线、启动期取消、旧连接及旧启动响应隔离；不连接服务器、不启动 CLI、不编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

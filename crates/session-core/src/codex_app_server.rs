@@ -16,7 +16,7 @@
 //! Notifications are passed through verbatim as serde_json::Value — the
 //! frontend parses them.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{ChildStdin, Command};
-use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{mpsc, oneshot, watch, Mutex as AsyncMutex};
 
 use crate::cli;
 use crate::cli_config::ResolvedCliCredentials;
@@ -103,6 +103,95 @@ impl Subscriber {
 pub struct CodexSubscription {
     receiver: mpsc::Receiver<CodexNotification>,
     failure: Arc<PlMutex<Option<String>>>,
+    registration: Option<(SubscriberMap, String)>,
+}
+
+impl Drop for CodexSubscription {
+    fn drop(&mut self) {
+        if let Some((subscribers, thread_id)) = &self.registration {
+            let mut subscribers = subscribers.lock();
+            if let Some(list) = subscribers.get_mut(thread_id) {
+                list.retain(|subscriber| !Arc::ptr_eq(&subscriber.failure, &self.failure));
+                if list.is_empty() {
+                    subscribers.remove(thread_id);
+                }
+            }
+        }
+    }
+}
+
+struct ThreadLease {
+    thread_id: String,
+    active: Arc<PlMutex<HashSet<String>>>,
+}
+
+impl ThreadLease {
+    fn acquire(active: &Arc<PlMutex<HashSet<String>>>, thread_id: &str) -> Result<Self, String> {
+        if !active.lock().insert(thread_id.to_string()) {
+            return Err(
+                "Codex thread already has an active turn in another pane or connection".into(),
+            );
+        }
+        Ok(Self {
+            thread_id: thread_id.to_string(),
+            active: active.clone(),
+        })
+    }
+}
+
+impl Drop for ThreadLease {
+    fn drop(&mut self) {
+        self.active.lock().remove(&self.thread_id);
+    }
+}
+
+/// Owns one turn in the exact runtime that accepted it. Cancellation never
+/// re-resolves credentials or targets a turn inferred from another pane's events.
+pub struct CodexTurn {
+    runtime: Arc<Runtime>,
+    lease: ThreadLease,
+    turn_id: String,
+    subscription: CodexSubscription,
+    finished: bool,
+}
+
+impl CodexTurn {
+    pub async fn recv(&mut self) -> Result<CodexNotification, String> {
+        loop {
+            let notification = self.subscription.recv().await?;
+            let turn_id = notification
+                .params
+                .get("turnId")
+                .and_then(Value::as_str)
+                .or_else(|| notification.params.get("turn")?.get("id")?.as_str());
+            if turn_id.is_some_and(|id| id != self.turn_id) {
+                continue;
+            }
+            self.finished = notification.turn_outcome().is_some();
+            return Ok(notification);
+        }
+    }
+
+    pub async fn interrupt(&mut self) -> Result<(), String> {
+        if self.finished {
+            return Ok(());
+        }
+        let params = json!({ "threadId": self.lease.thread_id, "turnId": self.turn_id });
+        tokio::time::timeout(
+            Duration::from_secs(10),
+            send_request(&self.runtime, "turn/interrupt", params),
+        )
+        .await
+        .map_err(|_| "Codex turn cancellation timed out".to_string())??;
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !self.finished {
+                self.recv().await?;
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|_| "Codex did not confirm that the turn stopped".to_string())?
+    }
 }
 
 impl CodexSubscription {
@@ -128,7 +217,11 @@ fn subscription_channel(capacity: usize) -> (Subscriber, CodexSubscription) {
             sender,
             failure: failure.clone(),
         },
-        CodexSubscription { receiver, failure },
+        CodexSubscription {
+            receiver,
+            failure,
+            registration: None,
+        },
     )
 }
 
@@ -157,6 +250,7 @@ struct Runtime {
     /// thread_id -> subscribers. Notifications without a thread_id (e.g.
     /// server-wide errors) fan out to *all* current subscribers.
     subscribers: SubscriberMap,
+    active_threads: Arc<PlMutex<HashSet<String>>>,
     stdin_tx: mpsc::Sender<String>,
     #[allow(dead_code)]
     creds_fingerprint: String,
@@ -280,24 +374,15 @@ impl CodexAppServer {
 
     /// Subscribe to notifications for a thread. Multiple subscribers per
     /// thread are supported; each receives every notification independently.
-    /// When the returned receiver is dropped, its sender is pruned on the
-    /// next dispatch to that thread.
+    /// Dropping the returned subscription immediately removes its sender and
+    /// an empty thread bucket, including failed or cancelled startup paths.
     pub async fn subscribe(
         &self,
         creds: &ResolvedCliCredentials,
         thread_id: &str,
     ) -> Result<CodexSubscription, String> {
         let rt = self.ensure(creds).await?;
-        let (subscriber, subscription) = subscription_channel(SUBSCRIBER_BUFFER);
-        let mut subscribers = rt.subscribers.lock();
-        if !rt.alive.load(Ordering::Relaxed) {
-            return Err("codex app-server exited before subscribing".to_string());
-        }
-        subscribers
-            .entry(thread_id.to_string())
-            .or_default()
-            .push(subscriber);
-        Ok(subscription)
+        register_subscription(&rt, thread_id)
     }
 
     /// Send a request and await its result. Returns the raw `result` value.
@@ -400,7 +485,14 @@ impl CodexAppServer {
         prompt: &str,
         model: Option<&str>,
         cwd: Option<&str>,
-    ) -> Result<Value, String> {
+        cancellation: &watch::Receiver<bool>,
+    ) -> Result<Option<CodexTurn>, String> {
+        let runtime = self.ensure(creds).await?;
+        if *cancellation.borrow() {
+            return Ok(None);
+        }
+        let lease = ThreadLease::acquire(&runtime.active_threads, thread_id)?;
+        let subscription = register_subscription(&runtime, thread_id)?;
         let mut params = json!({
             "threadId": thread_id,
             "input": [{
@@ -415,7 +507,23 @@ impl CodexAppServer {
         if let Some(c) = cwd.filter(|s| !s.is_empty()) {
             params["cwd"] = json!(c);
         }
-        self.request(creds, "turn/start", params).await
+        if *cancellation.borrow() {
+            return Ok(None);
+        }
+        let response = send_request(&runtime, "turn/start", params).await?;
+        let turn_id = response
+            .get("turn")
+            .and_then(|turn| turn.get("id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| "codex turn/start: missing turn.id".to_string())?
+            .to_string();
+        Ok(Some(CodexTurn {
+            runtime,
+            lease,
+            turn_id,
+            subscription,
+            finished: false,
+        }))
     }
 
     pub async fn interrupt_turn(
@@ -431,7 +539,41 @@ impl CodexAppServer {
 
 // ───────────────────────── helpers ─────────────────────────
 
+fn register_subscription(runtime: &Runtime, thread_id: &str) -> Result<CodexSubscription, String> {
+    let (subscriber, mut subscription) = subscription_channel(SUBSCRIBER_BUFFER);
+    let mut subscribers = runtime.subscribers.lock();
+    if !runtime.alive.load(Ordering::Relaxed) {
+        return Err("codex app-server exited before subscribing".into());
+    }
+    subscribers
+        .entry(thread_id.to_string())
+        .or_default()
+        .push(subscriber);
+    subscription.registration = Some((runtime.subscribers.clone(), thread_id.to_string()));
+    Ok(subscription)
+}
+
+struct PendingRequest<'a> {
+    runtime: &'a Runtime,
+    id: u64,
+}
+
+impl Drop for PendingRequest<'_> {
+    fn drop(&mut self) {
+        self.runtime.pending.lock().remove(&self.id);
+    }
+}
+
 async fn send_request(rt: &Runtime, method: &str, params: Value) -> Result<Value, String> {
+    send_request_with_timeout(rt, method, params, REQUEST_TIMEOUT).await
+}
+
+async fn send_request_with_timeout(
+    rt: &Runtime,
+    method: &str,
+    params: Value,
+    timeout: Duration,
+) -> Result<Value, String> {
     let id = rt.next_id();
     let (tx, rx) = oneshot::channel();
     {
@@ -441,6 +583,7 @@ async fn send_request(rt: &Runtime, method: &str, params: Value) -> Result<Value
         }
         pending.insert(id, tx);
     }
+    let _pending_request = PendingRequest { runtime: rt, id };
 
     let frame = json!({
         "jsonrpc": "2.0",
@@ -450,20 +593,16 @@ async fn send_request(rt: &Runtime, method: &str, params: Value) -> Result<Value
     })
     .to_string();
 
-    if rt.stdin_tx.send(frame).await.is_err() {
-        rt.pending.lock().remove(&id);
-        return Err("codex app-server stdin closed".to_string());
-    }
-
-    match tokio::time::timeout(REQUEST_TIMEOUT, rx).await {
-        Ok(Ok(Ok(value))) => Ok(value),
-        Ok(Ok(Err(e))) => Err(e),
-        Ok(Err(_)) => Err("codex app-server response dropped".to_string()),
-        Err(_) => {
-            rt.pending.lock().remove(&id);
-            Err(format!("codex app-server request '{}' timed out", method))
-        }
-    }
+    tokio::time::timeout(timeout, async {
+        rt.stdin_tx
+            .send(frame)
+            .await
+            .map_err(|_| "codex app-server stdin closed".to_string())?;
+        rx.await
+            .map_err(|_| "codex app-server response dropped".to_string())?
+    })
+    .await
+    .map_err(|_| format!("codex app-server request '{}' timed out", method))?
 }
 
 async fn spawn_runtime(
@@ -525,7 +664,12 @@ async fn spawn_runtime(
                     break;
                 }
             }
-            fail_runtime(&alive, &pending, &subscribers, "codex app-server stdin closed");
+            fail_runtime(
+                &alive,
+                &pending,
+                &subscribers,
+                "codex app-server stdin closed",
+            );
         });
     }
 
@@ -540,7 +684,12 @@ async fn spawn_runtime(
             while let Ok(Some(line)) = lines.next_line().await {
                 handle_inbound_line(&line, &pending, &subscribers);
             }
-            fail_runtime(&alive, &pending, &subscribers, "codex app-server output closed");
+            fail_runtime(
+                &alive,
+                &pending,
+                &subscribers,
+                "codex app-server output closed",
+            );
         });
     }
 
@@ -585,6 +734,7 @@ async fn spawn_runtime(
         next_id,
         pending,
         subscribers,
+        active_threads: Arc::new(PlMutex::new(HashSet::new())),
         stdin_tx,
         creds_fingerprint: fingerprint,
         alive,
@@ -692,23 +842,184 @@ fn handle_inbound_line(line: &str, pending: &PendingMap, subscribers: &Subscribe
 
 /// A slow subscriber fails explicitly instead of silently dropping an event
 /// (which may be turn/completed). Other subscribers keep receiving normally.
-fn dispatch_and_prune(
-    list: &mut Vec<Subscriber>,
-    notification: &CodexNotification,
-) {
-    list.retain(|subscriber| match subscriber.sender.try_send(notification.clone()) {
-        Ok(()) => true,
-        Err(mpsc::error::TrySendError::Full(_)) => {
-            subscriber.fail("codex notification buffer overflow; reload the session to recover");
-            false
-        }
-        Err(mpsc::error::TrySendError::Closed(_)) => false,
-    });
+fn dispatch_and_prune(list: &mut Vec<Subscriber>, notification: &CodexNotification) {
+    list.retain(
+        |subscriber| match subscriber.sender.try_send(notification.clone()) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                subscriber
+                    .fail("codex notification buffer overflow; reload the session to recover");
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        },
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn mock_runtime() -> (Arc<Runtime>, mpsc::Receiver<String>) {
+        let (stdin_tx, stdin_rx) = mpsc::channel(8);
+        (
+            Arc::new(Runtime {
+                next_id: AtomicU64::new(1),
+                pending: PendingMap::default(),
+                subscribers: SubscriberMap::default(),
+                active_threads: Arc::default(),
+                stdin_tx,
+                creds_fingerprint: "|".into(),
+                alive: Arc::new(AtomicBool::new(true)),
+            }),
+            stdin_rx,
+        )
+    }
+
+    #[tokio::test]
+    async fn request_timeout_includes_a_full_stdin_queue_and_removes_pending_entry() {
+        let (runtime, _requests) = mock_runtime();
+        while runtime.stdin_tx.try_send("blocked".into()).is_ok() {}
+        let error = send_request_with_timeout(
+            &runtime,
+            "turn/start",
+            Value::Null,
+            Duration::from_millis(10),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("timed out"));
+        assert!(runtime.pending.lock().is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_or_dropped_start_does_not_leave_a_subscription_bucket() {
+        let (runtime, mut requests) = mock_runtime();
+        let server = CodexAppServer::new();
+        server.inner.lock().await.put("|".into(), runtime.clone());
+        let credentials = ResolvedCliCredentials::default();
+        let (_sender, cancellation) = watch::channel(false);
+        let start = server.start_turn(&credentials, "thread", "prompt", None, None, &cancellation);
+        let malformed_reply = async {
+            let request: Value = serde_json::from_str(&requests.recv().await.unwrap()).unwrap();
+            handle_inbound_line(
+                &json!({ "id": request["id"], "result": {} }).to_string(),
+                &runtime.pending,
+                &runtime.subscribers,
+            );
+        };
+        let (result, ()) = tokio::join!(start, malformed_reply);
+        assert!(result.is_err());
+        assert!(runtime.subscribers.lock().is_empty());
+        assert!(runtime.active_threads.lock().is_empty());
+
+        let timed_out = tokio::time::timeout(
+            Duration::from_millis(10),
+            server.start_turn(&credentials, "thread", "prompt", None, None, &cancellation),
+        )
+        .await;
+        assert!(timed_out.is_err());
+        assert!(runtime.pending.lock().is_empty());
+        assert!(runtime.subscribers.lock().is_empty());
+        assert!(runtime.active_threads.lock().is_empty());
+    }
+
+    #[test]
+    fn thread_leases_isolate_concurrent_panes_and_release_after_completion() {
+        let active = Arc::default();
+        let first = ThreadLease::acquire(&active, "same-thread").unwrap();
+        assert!(ThreadLease::acquire(&active, "same-thread").is_err());
+        let unrelated = ThreadLease::acquire(&active, "other-thread").unwrap();
+        drop(first);
+        assert!(ThreadLease::acquire(&active, "same-thread").is_ok());
+        assert!(active.lock().contains("other-thread"));
+        drop(unrelated);
+    }
+
+    #[tokio::test]
+    async fn cancelled_start_never_sends_a_turn_request() {
+        let (runtime, mut requests) = mock_runtime();
+        let server = CodexAppServer::new();
+        server.inner.lock().await.put("|".into(), runtime);
+        let (_cancel, cancellation) = watch::channel(true);
+        assert!(server
+            .start_turn(
+                &ResolvedCliCredentials::default(),
+                "thread",
+                "prompt",
+                None,
+                None,
+                &cancellation
+            )
+            .await
+            .unwrap()
+            .is_none());
+        assert!(matches!(
+            requests.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn cancellation_during_start_interrupts_only_the_returned_turn_and_waits_for_terminal() {
+        let (runtime, mut requests) = mock_runtime();
+        let server = CodexAppServer::new();
+        server.inner.lock().await.put("|".into(), runtime.clone());
+        let credentials = ResolvedCliCredentials::default();
+        let (cancel, cancellation) = watch::channel(false);
+        let start = server.start_turn(
+            &credentials,
+            "owned-thread",
+            "prompt",
+            None,
+            None,
+            &cancellation,
+        );
+        let accept = async {
+            let request: Value = serde_json::from_str(&requests.recv().await.unwrap()).unwrap();
+            assert_eq!(request["method"], "turn/start");
+            cancel.send_replace(true);
+            handle_inbound_line(
+                &json!({ "id": request["id"], "result": { "turn": { "id": "owned-turn" } } })
+                    .to_string(),
+                &runtime.pending,
+                &runtime.subscribers,
+            );
+        };
+        let (turn, ()) = tokio::join!(start, accept);
+        let mut turn = turn.unwrap().unwrap();
+        assert!(*cancellation.borrow());
+        let stop = turn.interrupt();
+        let confirm = async {
+            let request: Value = serde_json::from_str(&requests.recv().await.unwrap()).unwrap();
+            assert_eq!(request["method"], "turn/interrupt");
+            assert_eq!(
+                request["params"],
+                json!({ "threadId": "owned-thread", "turnId": "owned-turn" })
+            );
+            handle_inbound_line(
+                &json!({ "id": request["id"], "result": {} }).to_string(),
+                &runtime.pending,
+                &runtime.subscribers,
+            );
+            for turn_id in ["another-turn", "owned-turn"] {
+                handle_inbound_line(
+                    &json!({ "method": "turn/completed", "params": {
+                    "threadId": "owned-thread", "turn": { "id": turn_id },
+                } })
+                    .to_string(),
+                    &runtime.pending,
+                    &runtime.subscribers,
+                );
+            }
+        };
+        let (stopped, ()) = tokio::join!(stop, confirm);
+        assert!(stopped.is_ok());
+        assert!(turn.finished);
+        assert!(runtime.pending.lock().is_empty());
+        drop(turn);
+        assert!(runtime.active_threads.lock().is_empty());
+    }
 
     #[tokio::test]
     async fn overflowing_subscriber_fails_without_losing_another_subscribers_terminal_event() {
@@ -744,8 +1055,12 @@ mod tests {
                 .sender
                 .try_send(notif("item/started", Value::Null))
                 .unwrap();
-            subscribers.lock().insert("first".into(), vec![first_sender]);
-            subscribers.lock().insert("second".into(), vec![second_sender]);
+            subscribers
+                .lock()
+                .insert("first".into(), vec![first_sender]);
+            subscribers
+                .lock()
+                .insert("second".into(), vec![second_sender]);
 
             fail_runtime(&alive, &pending, &subscribers, reason);
             assert!(!alive.load(Ordering::Relaxed));
@@ -764,20 +1079,21 @@ mod tests {
     async fn dropping_the_last_sender_is_an_error_not_successful_completion() {
         let (sender, mut subscription) = subscription_channel(1);
         drop(sender);
-        assert!(subscription.recv().await.unwrap_err().contains("closed unexpectedly"));
+        assert!(subscription
+            .recv()
+            .await
+            .unwrap_err()
+            .contains("closed unexpectedly"));
     }
 
-    fn test_subscription(
-        subscribers: &SubscriberMap,
-        thread_id: &str,
-    ) -> mpsc::Receiver<CodexNotification> {
+    fn test_subscription(subscribers: &SubscriberMap, thread_id: &str) -> CodexSubscription {
         let (subscriber, subscription) = subscription_channel(8);
         subscribers
             .lock()
             .entry(thread_id.to_string())
             .or_default()
             .push(subscriber);
-        subscription.receiver
+        subscription
     }
 
     #[test]
@@ -797,10 +1113,10 @@ mod tests {
                 &pending,
                 &subscribers,
             );
-            assert_eq!(first.try_recv().unwrap().params, params);
-            assert_eq!(second.try_recv().unwrap().params, params);
+            assert_eq!(first.receiver.try_recv().unwrap().params, params);
+            assert_eq!(second.receiver.try_recv().unwrap().params, params);
             assert!(matches!(
-                unrelated.try_recv(),
+                unrelated.receiver.try_recv(),
                 Err(mpsc::error::TryRecvError::Empty)
             ));
         }
@@ -824,7 +1140,7 @@ mod tests {
         assert!(!subscribers.lock().contains_key("closed-thread"));
         handle_inbound_line(&completed, &pending, &subscribers);
         assert!(matches!(
-            active.try_recv(),
+            active.receiver.try_recv(),
             Err(mpsc::error::TryRecvError::Empty)
         ));
     }
@@ -836,13 +1152,18 @@ mod tests {
         let mut first = test_subscription(&subscribers, "thread-a");
         let mut second = test_subscription(&subscribers, "thread-b");
         handle_inbound_line(
-            &json!({ "method": "error", "params": { "message": "runtime failed" } })
-                .to_string(),
+            &json!({ "method": "error", "params": { "message": "runtime failed" } }).to_string(),
             &pending,
             &subscribers,
         );
-        assert_eq!(first.try_recv().unwrap().turn_outcome(), Some(false));
-        assert_eq!(second.try_recv().unwrap().turn_outcome(), Some(false));
+        assert_eq!(
+            first.receiver.try_recv().unwrap().turn_outcome(),
+            Some(false)
+        );
+        assert_eq!(
+            second.receiver.try_recv().unwrap().turn_outcome(),
+            Some(false)
+        );
     }
 
     fn notif(method: &str, params: Value) -> CodexNotification {
@@ -857,9 +1178,18 @@ mod tests {
         let started = notif("turn/started", json!({ "turn": { "id": "t1" } }));
         assert_eq!(started.started_turn_id(), Some("t1"));
         assert_eq!(started.turn_outcome(), None);
-        assert_eq!(notif("item/started", json!({ "turn": { "id": "t1" } })).started_turn_id(), None);
-        assert_eq!(notif("turn/completed", Value::Null).turn_outcome(), Some(true));
-        assert_eq!(notif("turn/failed", Value::Null).turn_outcome(), Some(false));
+        assert_eq!(
+            notif("item/started", json!({ "turn": { "id": "t1" } })).started_turn_id(),
+            None
+        );
+        assert_eq!(
+            notif("turn/completed", Value::Null).turn_outcome(),
+            Some(true)
+        );
+        assert_eq!(
+            notif("turn/failed", Value::Null).turn_outcome(),
+            Some(false)
+        );
         assert_eq!(notif("error", Value::Null).turn_outcome(), Some(false));
     }
 }

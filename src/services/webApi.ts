@@ -754,6 +754,9 @@ export async function listModels(
 let chatWs: WebSocket | null = null;
 const chatWsSubscribers = new Set<(rawMessage: string) => void>();
 let chatWsOpenPromise: Promise<WebSocket> | null = null;
+let chatWsGeneration = 0;
+type ActiveChatStream = { socket: WebSocket | null; cancelled: boolean };
+const activeChatStreams = new Map<string, ActiveChatStream>();
 
 // Per-routing-id pending start/continue handshakes. The handshake completes
 // when the server echoes `{ type: "session_id", sessionId: <routingId> }`,
@@ -796,6 +799,8 @@ function dispatchHandshakeFrame(rawMessage: string): void {
 
     if (!routingId) return;
 
+    if (type === "complete") activeChatStreams.delete(routingId);
+
     const handshake = pendingChatStarts.get(routingId);
     if (!handshake) return;
 
@@ -809,6 +814,11 @@ function dispatchHandshakeFrame(rawMessage: string): void {
       const message =
         typeof data.data === "string" && data.data ? data.data : "Chat stream error";
       handshake.reject(new Error(message));
+    } else if (type === "complete") {
+      // Cancellation can finish before Codex has opened a thread. Resolve
+      // the pending routing key; the complete frame ends the pane normally.
+      pendingChatStarts.delete(routingId);
+      handshake.resolve(routingId);
     }
   } catch {
     // not JSON; ignore
@@ -820,30 +830,42 @@ function dispatchChatWsMessage(rawMessage: string): void {
   // session id before any output frame fan-out to subscribers.
   dispatchHandshakeFrame(rawMessage);
   for (const subscriber of chatWsSubscribers) {
-    subscriber(rawMessage);
+    try {
+      subscriber(rawMessage);
+    } catch (error) {
+      console.error("Chat stream listener failed", error);
+    }
   }
+}
+
+function failChatConnection(reason: string): void {
+  chatWsGeneration += 1;
+  chatWs = null;
+  chatWsOpenPromise = null;
+  for (const [routingId, stream] of [...activeChatStreams]) {
+    stream.cancelled = true;
+    dispatchChatWsMessage(JSON.stringify({ type: "error", data: reason, sessionId: routingId }));
+    dispatchChatWsMessage(JSON.stringify({ type: "complete", success: false, sessionId: routingId }));
+  }
+  rejectAllPendingHandshakes(reason);
 }
 
 function attachChatWebSocketListeners(ws: WebSocket): void {
   ws.addEventListener("message", (event) => {
-    if (typeof event.data === "string") {
+    if (chatWs === ws && typeof event.data === "string") {
       dispatchChatWsMessage(event.data);
     }
   });
 
   ws.addEventListener("close", () => {
     if (chatWs === ws) {
-      chatWs = null;
-      chatWsOpenPromise = null;
-      rejectAllPendingHandshakes("WebSocket closed");
+      failChatConnection("WebSocket closed; the chat task was cancelled");
     }
   });
 
   ws.addEventListener("error", () => {
     if (chatWs === ws && ws.readyState !== WebSocket.OPEN) {
-      chatWs = null;
-      chatWsOpenPromise = null;
-      rejectAllPendingHandshakes("WebSocket error");
+      failChatConnection("WebSocket error; the chat task was cancelled");
     }
   });
 }
@@ -857,14 +879,17 @@ async function openChatWebSocket(): Promise<WebSocket> {
     return chatWsOpenPromise;
   }
 
-  chatWsOpenPromise = (async () => {
+  const generation = chatWsGeneration;
+  const opening = (async () => {
     await probeWebSocketAuth();
+    if (generation !== chatWsGeneration) throw new Error("Chat connection was closed");
 
     if (chatWs && chatWs.readyState === WebSocket.OPEN) {
       return chatWs;
     }
 
     const wsUrl = await buildAuthenticatedWebSocketUrl("/ws/chat");
+    if (generation !== chatWsGeneration) throw new Error("Chat connection was closed");
     const ws = new WebSocket(wsUrl);
     attachChatWebSocketListeners(ws);
     chatWs = ws;
@@ -898,11 +923,12 @@ async function openChatWebSocket(): Promise<WebSocket> {
 
     return ws;
   })();
+  chatWsOpenPromise = opening;
 
   try {
-    return await chatWsOpenPromise;
+    return await opening;
   } catch (error) {
-    chatWsOpenPromise = null;
+    if (chatWsOpenPromise === opening) chatWsOpenPromise = null;
     throw error;
   }
 }
@@ -922,12 +948,9 @@ export async function connectFileWatcherWebSocket(): Promise<WebSocket> {
 }
 
 export function closeChatWebSocket(): void {
-  if (chatWs) {
-    chatWs.close();
-    chatWs = null;
-  }
-  chatWsOpenPromise = null;
-  rejectAllPendingHandshakes("WebSocket closed");
+  const socket = chatWs;
+  failChatConnection("WebSocket closed; the chat task was cancelled");
+  socket?.close();
 }
 
 function generateRoutingId(): string {
@@ -942,82 +965,56 @@ function generateRoutingId(): string {
   );
 }
 
+async function requestChat(
+  action: "start" | "continue",
+  params: StartChatParams | ContinueChatParams,
+  routingId: string,
+): Promise<string> {
+  if (activeChatStreams.has(routingId)) throw new Error(`Chat already active for sessionId ${routingId}`);
+  const stream: ActiveChatStream = { socket: null, cancelled: false };
+  activeChatStreams.set(routingId, stream);
+  try {
+    const ws = await openChatWebSocket();
+    if (stream.cancelled) return routingId;
+    stream.socket = ws;
+    return await new Promise<string>((resolve, reject) => {
+      pendingChatStarts.set(routingId, { resolve, reject });
+      try {
+        ws.send(JSON.stringify({
+          action, source: params.source, sessionId: routingId,
+          projectPath: params.projectPath, prompt: params.prompt, model: params.model,
+          skipPermissions: params.skipPermissions, apiKey: params.apiKey || "", baseUrl: params.baseUrl || "",
+        }));
+      } catch (error) {
+        pendingChatStarts.delete(routingId);
+        reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    });
+  } catch (error) {
+    if (activeChatStreams.get(routingId) === stream) activeChatStreams.delete(routingId);
+    throw error;
+  } finally {
+    if (stream.cancelled && !stream.socket && activeChatStreams.get(routingId) === stream) activeChatStreams.delete(routingId);
+  }
+}
+
 export async function startChat(params: StartChatParams): Promise<string> {
-  const ws = await openChatWebSocket();
-  const routingId = params.sessionId || generateRoutingId();
-
-  return new Promise<string>((resolve, reject) => {
-    if (pendingChatStarts.has(routingId)) {
-      // Two concurrent starts for the same routing id would race; the caller
-      // should never do this, but fail loudly rather than silently overwrite.
-      reject(new Error(`Duplicate chat start for sessionId ${routingId}`));
-      return;
-    }
-    pendingChatStarts.set(routingId, { resolve, reject });
-
-    try {
-      ws.send(
-        JSON.stringify({
-          action: "start",
-          source: params.source,
-          sessionId: routingId,
-          projectPath: params.projectPath,
-          prompt: params.prompt,
-          model: params.model,
-          skipPermissions: params.skipPermissions,
-          apiKey: params.apiKey || "",
-          baseUrl: params.baseUrl || "",
-        })
-      );
-    } catch (err) {
-      pendingChatStarts.delete(routingId);
-      reject(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+  return requestChat("start", params, params.sessionId || generateRoutingId());
 }
 
 export async function continueChat(params: ContinueChatParams): Promise<string> {
-  const ws = await openChatWebSocket();
-  const routingId = params.sessionId;
-  if (!routingId) {
-    throw new Error("continueChat requires a sessionId");
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    if (pendingChatStarts.has(routingId)) {
-      reject(new Error(`Duplicate chat continue for sessionId ${routingId}`));
-      return;
-    }
-    pendingChatStarts.set(routingId, { resolve, reject });
-
-    try {
-      ws.send(
-        JSON.stringify({
-          action: "continue",
-          source: params.source,
-          sessionId: routingId,
-          projectPath: params.projectPath,
-          prompt: params.prompt,
-          model: params.model,
-          skipPermissions: params.skipPermissions,
-          apiKey: params.apiKey || "",
-          baseUrl: params.baseUrl || "",
-        })
-      );
-    } catch (err) {
-      pendingChatStarts.delete(routingId);
-      reject(err instanceof Error ? err : new Error(String(err)));
-    }
-  });
+  if (!params.sessionId) throw new Error("continueChat requires a sessionId");
+  return requestChat("continue", params, params.sessionId);
 }
 
 export async function cancelChat(sessionId: string): Promise<void> {
-  if (!sessionId) return;
-  if (chatWs && chatWs.readyState === WebSocket.OPEN) {
-    chatWs.send(JSON.stringify({ action: "cancel", sessionId }));
+  const stream = activeChatStreams.get(sessionId);
+  if (!stream) return;
+  stream.cancelled = true;
+  if (stream.socket?.readyState === WebSocket.OPEN) {
+    stream.socket.send(JSON.stringify({ action: "cancel", sessionId }));
   }
 }
-
 // Bookmarks API
 export async function listBookmarks(source?: string): Promise<Bookmark[]> {
   const params: Record<string, string> = {};

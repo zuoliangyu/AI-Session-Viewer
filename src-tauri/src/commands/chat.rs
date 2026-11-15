@@ -1,60 +1,31 @@
 use std::collections::HashMap;
 use std::process::Stdio;
-use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 
 use session_core::chat_cli;
 use session_core::cli;
 use session_core::cli_config::{self, CliConfig, ResolvedCliCredentials};
-use session_core::codex_app_server::{CodexAppServer, CodexSubscription};
+use session_core::codex_app_server::CodexAppServer;
 use session_core::model_list::{self, ModelInfo};
 
-/// Routing entry for a codex session — bundles the resolved thread_id with
-/// the credentials the turn was started with, so cancel can reach the same
-/// runtime instead of accidentally spinning up (or replacing!) a different
-/// one with disk-default credentials.
-#[derive(Clone)]
-pub struct CodexSessionEntry {
-    pub thread_id: String,
-    pub credentials: ResolvedCliCredentials,
-}
-
-/// State to track active chat processes (Claude only) and active Codex turns.
+/// Cancellation is registered before any asynchronous startup work. The task
+/// owns its process/turn and removes this entry only after it has stopped.
 pub struct ChatProcessState {
-    /// Claude session_id -> PID of the spawned CLI process
-    pub processes: Arc<Mutex<HashMap<String, u32>>>,
-    /// Codex thread_id -> turn_id (for cancellation via turn/interrupt)
-    pub codex_turns: Arc<Mutex<HashMap<String, String>>>,
-    /// Track which session_ids are codex (for cancel routing). Keys are the
-    /// frontend-supplied stream ids (pending UUID for new chats, real
-    /// thread_id for resume), values include both the resolved thread_id and
-    /// the originating credentials. Entries are removed when the turn
-    /// finishes, errors out, or is cancelled.
-    pub codex_sessions: Arc<Mutex<HashMap<String, CodexSessionEntry>>>,
+    cancellations: Mutex<HashMap<String, tokio::sync::watch::Sender<bool>>>,
 }
 
 impl ChatProcessState {
     pub fn new() -> Self {
         Self {
-            processes: Arc::new(Mutex::new(HashMap::new())),
-            codex_turns: Arc::new(Mutex::new(HashMap::new())),
-            codex_sessions: Arc::new(Mutex::new(HashMap::new())),
+            cancellations: Mutex::new(HashMap::new()),
         }
     }
 }
-
-/// Drop every codex_sessions entry that maps to `thread_id`. Called from the
-/// stream end / error / cancel paths so the table doesn't grow unbounded.
-fn drop_codex_session_entries(state: &ChatProcessState, thread_id: &str) {
-    let mut map = state.codex_sessions.lock();
-    map.retain(|_, entry| entry.thread_id != thread_id);
-}
-
 #[tauri::command]
 pub async fn detect_cli() -> Result<Vec<cli::CliInstallation>, String> {
     tokio::task::spawn_blocking(cli::discover_installations)
@@ -92,47 +63,24 @@ pub async fn start_chat(
     api_key: String,
     base_url: String,
 ) -> Result<String, String> {
-    let source = cli::normalize_chat_source(&source)?.to_string();
     let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
-
-    if source == "codex" {
-        return run_codex_chat(
-            app,
-            session_id,
-            project_path,
-            prompt,
-            model,
-            credentials,
-            None,
-        )
-        .await;
-    }
-
-    let resolved_cli = if cli_path.is_empty() {
-        cli::find_cli(&source)?
-    } else {
-        cli_path
-    };
-
-    let cmd = build_chat_command(BuildChatCommandParams {
-        cli_path: &resolved_cli,
-        source: &source,
-        project_path: &project_path,
-        prompt: &prompt,
-        model: &model,
+    spawn_chat_task(
+        app,
+        source,
+        session_id,
+        project_path,
+        prompt,
+        model,
         skip_permissions,
-        resume_session_id: None,
-        credentials: &credentials,
-    })?;
-
-    spawn_and_stream(app, cmd, session_id.clone(), source)?;
-
-    Ok(session_id)
+        cli_path,
+        api_key,
+        base_url,
+        false,
+    )
 }
 
-#[allow(clippy::too_many_arguments)]
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn continue_chat(
     app: AppHandle,
     source: String,
@@ -145,306 +93,194 @@ pub async fn continue_chat(
     api_key: String,
     base_url: String,
 ) -> Result<String, String> {
-    let source = cli::normalize_chat_source(&source)?.to_string();
-    let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
-
-    if source == "codex" {
-        return run_codex_chat(
-            app,
-            session_id.clone(),
-            project_path,
-            prompt,
-            model,
-            credentials,
-            Some(session_id),
-        )
-        .await;
-    }
-
-    let resolved_cli = if cli_path.is_empty() {
-        cli::find_cli(&source)?
-    } else {
-        cli_path
-    };
-    let cmd = build_chat_command(BuildChatCommandParams {
-        cli_path: &resolved_cli,
-        source: &source,
-        project_path: &project_path,
-        prompt: &prompt,
-        model: &model,
+    spawn_chat_task(
+        app,
+        source,
+        session_id,
+        project_path,
+        prompt,
+        model,
         skip_permissions,
-        resume_session_id: Some(&session_id),
-        credentials: &credentials,
-    })?;
-
-    spawn_and_stream(app, cmd, session_id.clone(), source)?;
-
-    Ok(session_id)
+        cli_path,
+        api_key,
+        base_url,
+        true,
+    )
 }
 
 #[tauri::command]
 pub async fn cancel_chat(app: AppHandle, session_id: String) -> Result<(), String> {
-    let state = app.state::<ChatProcessState>();
-
-    // Codex path: send turn/interrupt via app-server using the credentials
-    // the turn was actually started with — never re-resolve from disk, since
-    // a fingerprint mismatch would tear down the wrong runtime.
-    let codex_target = {
-        let map = state.codex_sessions.lock();
-        map.get(&session_id).cloned()
-    };
-    if let Some(entry) = codex_target {
-        let CodexSessionEntry {
-            thread_id,
-            credentials,
-        } = entry;
-        let turn_id = state.codex_turns.lock().get(&thread_id).cloned();
-        if let Some(turn_id) = turn_id {
-            let server = CodexAppServer::global();
-            let _ = server
-                .interrupt_turn(&credentials, &thread_id, &turn_id)
-                .await;
-        }
-        // Remove every entry pointing at this thread so the map can't leak.
-        drop_codex_session_entries(&state, &thread_id);
-        let _ = app.emit(
-            &format!("chat-complete:{}", session_id),
-            json!({ "success": false, "cancelled": true }).to_string(),
-        );
-        return Ok(());
+    if let Some(sender) = app
+        .state::<ChatProcessState>()
+        .cancellations
+        .lock()
+        .get(&session_id)
+    {
+        sender.send_replace(true);
     }
-
-    // Claude path (original): kill the spawned process by PID.
-    let pid = {
-        let mut processes = state.processes.lock();
-        processes.remove(&session_id)
-    };
-    if let Some(pid) = pid {
-        kill_process(pid);
-        let _ = app.emit(&format!("chat-complete:{}", session_id), "cancelled");
-    }
-
     Ok(())
 }
 
-/// Run a Codex chat turn through the app-server. The `pending_session_id` is
-/// the id the frontend is listening on (`chat-output:{id}`); for new chats
-/// it's a UUID the frontend generated, for resume it's the real thread_id.
-/// Returns the actual thread_id (== pending for resume, new for start).
-async fn run_codex_chat(
+#[allow(clippy::too_many_arguments)]
+fn spawn_chat_task(
     app: AppHandle,
-    pending_session_id: String,
+    source: String,
+    session_id: String,
     project_path: String,
     prompt: String,
     model: String,
-    credentials: ResolvedCliCredentials,
-    resume_thread_id: Option<String>,
+    skip_permissions: bool,
+    cli_path: String,
+    api_key: String,
+    base_url: String,
+    resume: bool,
 ) -> Result<String, String> {
-    let server = CodexAppServer::global();
-    let event_id = pending_session_id.clone();
-    let model_opt = if model.is_empty() {
-        None
-    } else {
-        Some(model.as_str())
-    };
-
-    // Open the thread (start or resume) and capture metadata.
-    let opened = server
-        .open_thread(&credentials, &project_path, model_opt, resume_thread_id.as_deref())
-        .await?;
-    let (thread_id, history_turns) = (opened.thread_id, opened.history_turns);
-
-    // Register session for cancel routing. Both pending and real ids map to
-    // the same entry so cancel can be triggered with whichever id the caller
-    // happens to know. The credentials are stashed here so cancel can
-    // reach the same runtime instead of being re-resolved from disk.
+    let source = cli::normalize_chat_source(&source)?.to_string();
+    let (cancel_tx, mut cancel_rx) = tokio::sync::watch::channel(false);
     {
         let state = app.state::<ChatProcessState>();
-        let mut map = state.codex_sessions.lock();
-        let entry = CodexSessionEntry {
-            thread_id: thread_id.clone(),
-            credentials: credentials.clone(),
-        };
-        map.insert(event_id.clone(), entry.clone());
-        if event_id != thread_id {
-            map.insert(thread_id.clone(), entry);
+        let mut tasks = state.cancellations.lock();
+        if tasks.contains_key(&session_id) {
+            return Err("Chat session already has an active task".into());
         }
+        tasks.insert(session_id.clone(), cancel_tx);
     }
-
-    // Always emit on `chat-output:{event_id}` — the stable per-pane stream
-    // key the frontend subscribes to. For new chats this is the pending UUID
-    // the frontend generated; for resume it's the real thread_id (event_id
-    // == thread_id). The frontend's `streamId` never changes mid-stream, so
-    // we can't switch channels even for new chats.
-    let stream_channel = event_id.clone();
-
-    // For new chats: announce the real thread_id via a session_id frame on
-    // the same stream channel. The frontend uses this to update pane.sessionId
-    // (used for resume / URL) without touching pane.streamId.
-    if event_id != thread_id {
-        let _ = app.emit(
-            &format!("chat-output:{}", stream_channel),
-            json!({
-                "type": "session_id",
-                "data": &thread_id,
-            })
-            .to_string(),
-        );
-    }
-
-    // Emit history (resume only) on the same stream channel.
-    if !history_turns.is_null() {
-        let _ = app.emit(
-            &format!("chat-output:{}", stream_channel),
-            json!({
-                "type": "history",
-                "data": history_turns,
-            })
-            .to_string(),
-        );
-    }
-
-    // Subscribe BEFORE starting the turn so we don't miss events.
-    let mut rx = server
-        .subscribe(&credentials, &thread_id)
-        .await
-        .map_err(|e| format!("codex subscribe failed: {}", e))?;
-
-    // Signal used to abort the streaming task if turn/start fails before any
-    // notification arrives. Using `Notify` rather than a oneshot because
-    // dropping a oneshot Sender wakes the Receiver with `Err(RecvError)`,
-    // which `select!` treats as a fired arm — so a successful turn would
-    // prematurely abort. `Notify::notify_one` only fires on the explicit
-    // call and stores a permit if no waiter is present yet.
-    let abort = Arc::new(tokio::sync::Notify::new());
-
-    // Kick off the turn. The frontend stays subscribed to the same stream
-    // channel for the entire lifetime of this turn, so no grace delay is
-    // needed — stream events can land before this command's return value
-    // gets back to JS. On failure we also clean up the codex_sessions table,
-    // emit chat-complete so the pane doesn't get stuck on "streaming", and
-    // signal the streaming task to wind down.
-    {
-        let server = server.clone();
-        let creds = credentials.clone();
-        let tid = thread_id.clone();
-        let prompt = prompt.clone();
-        let model_owned = model.clone();
-        let cwd = project_path.clone();
-        let app_for_err = app.clone();
-        let stream_channel_for_err = stream_channel.clone();
-        let thread_for_err = thread_id.clone();
-        let abort_for_err = abort.clone();
-        tokio::spawn(async move {
-            let m = if model_owned.is_empty() {
-                None
-            } else {
-                Some(model_owned.as_str())
-            };
-            if let Err(e) = server
-                .start_turn(&creds, &tid, &prompt, m, Some(cwd.as_str()))
-                .await
-            {
-                let _ = app_for_err.emit(
-                    &format!("chat-error:{}", stream_channel_for_err),
-                    format!("turn/start failed: {}", e),
-                );
-                let state = app_for_err.state::<ChatProcessState>();
-                drop_codex_session_entries(&state, &thread_for_err);
-                let _ = app_for_err.emit(
-                    &format!("chat-complete:{}", stream_channel_for_err),
-                    json!({ "success": false }).to_string(),
-                );
-                abort_for_err.notify_one();
+    let routing_id = session_id.clone();
+    tokio::spawn(async move {
+        let outcome = async {
+            if *cancel_rx.borrow() {
+                return Ok(false);
             }
-            // Success path: just drop the Arc<Notify>; no notification fires
-            // and the streaming loop continues until turn/completed.
-        });
-    }
-
-    // Spawn the streaming task on the stream channel.
-    {
-        let app_stream = app.clone();
-        let stream_channel_stream = stream_channel.clone();
-        let thread_id_stream = thread_id.clone();
-        let abort_stream = abort.clone();
-        tokio::spawn(async move {
-            stream_codex_notifications(
-                app_stream,
-                stream_channel_stream,
-                thread_id_stream,
-                &mut rx,
-                abort_stream,
-            )
-            .await;
-        });
-    }
-
-    Ok(thread_id)
+            let credentials =
+                cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
+            if source == "codex" {
+                return run_codex_chat(
+                    &app,
+                    &routing_id,
+                    &project_path,
+                    &prompt,
+                    &model,
+                    &credentials,
+                    resume,
+                    &mut cancel_rx,
+                )
+                .await;
+            }
+            let resolved_cli = if cli_path.is_empty() {
+                cli::find_cli(&source)?
+            } else {
+                cli_path
+            };
+            let cmd = build_chat_command(BuildChatCommandParams {
+                cli_path: &resolved_cli,
+                source: &source,
+                project_path: &project_path,
+                prompt: &prompt,
+                model: &model,
+                skip_permissions,
+                resume_session_id: resume.then_some(routing_id.as_str()),
+                credentials: &credentials,
+            })?;
+            if *cancel_rx.borrow() {
+                return Ok(false);
+            }
+            stream_process_output(app.clone(), cmd, &routing_id, &mut cancel_rx).await
+        }
+        .await;
+        let success = match outcome {
+            Ok(success) => success,
+            Err(error) => {
+                let _ = app.emit(&format!("chat-error:{}", routing_id), error);
+                false
+            }
+        };
+        app.state::<ChatProcessState>()
+            .cancellations
+            .lock()
+            .remove(&routing_id);
+        let _ = app.emit(
+            &format!("chat-complete:{}", routing_id),
+            json!({ "success": success }).to_string(),
+        );
+    });
+    Ok(session_id)
 }
 
-async fn stream_codex_notifications(
-    app: AppHandle,
-    event_id: String,
-    thread_id: String,
-    rx: &mut CodexSubscription,
-    abort: Arc<tokio::sync::Notify>,
-) {
-    let mut success = false;
+#[allow(clippy::too_many_arguments)]
+async fn run_codex_chat(
+    app: &AppHandle,
+    routing_id: &str,
+    project_path: &str,
+    prompt: &str,
+    model: &str,
+    credentials: &ResolvedCliCredentials,
+    resume: bool,
+    cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<bool, String> {
+    let server = CodexAppServer::global();
+    let model = (!model.is_empty()).then_some(model);
+    let opened = server
+        .open_thread(
+            credentials,
+            project_path,
+            model,
+            resume.then_some(routing_id),
+        )
+        .await?;
+    if *cancel_rx.borrow() {
+        return Ok(false);
+    }
+    let thread_id = opened.thread_id;
+    let channel = format!("chat-output:{}", routing_id);
+    let _ = app.emit(
+        &channel,
+        json!({ "type": "session_id", "data": thread_id }).to_string(),
+    );
+    if !opened.history_turns.is_null() {
+        let _ = app.emit(
+            &channel,
+            json!({ "type": "history", "data": opened.history_turns }).to_string(),
+        );
+    }
+    let Some(mut turn) = server
+        .start_turn(
+            credentials,
+            &thread_id,
+            prompt,
+            model,
+            Some(project_path),
+            cancel_rx,
+        )
+        .await?
+    else {
+        return Ok(false);
+    };
+    if *cancel_rx.borrow() {
+        turn.interrupt().await?;
+        return Ok(false);
+    }
     loop {
-        let notif = tokio::select! {
-            maybe = rx.recv() => match maybe {
-                Ok(n) => n,
+        let notification = tokio::select! {
+            result = turn.recv() => match result {
+                Ok(notification) => notification,
                 Err(error) => {
-                    let _ = app.emit(&format!("chat-error:{}", event_id), error);
-                    break;
+                    let _ = turn.interrupt().await;
+                    return Err(error);
                 }
             },
-            _ = abort.notified() => {
-                // turn/start failed and the start_turn task has already
-                // emitted chat-error + chat-complete + cleaned up — we just
-                // need to release the subscription.
-                return;
+            _ = cancel_rx.changed() => {
+                turn.interrupt().await?;
+                return Ok(false);
             }
         };
-
-        // Capture turn_id from turn/started for cancel support.
-        if let Some(tid) = notif.started_turn_id() {
-            let state = app.state::<ChatProcessState>();
-            state
-                .codex_turns
-                .lock()
-                .insert(thread_id.clone(), tid.to_string());
-        }
-
-        let payload = json!({
-            "type": "notification",
-            "method": &notif.method,
-            "params": &notif.params,
-        })
-        .to_string();
-        let _ = app.emit(&format!("chat-output:{}", event_id), &payload);
-
-        if let Some(outcome) = notif.turn_outcome() {
-            success = outcome;
-            break;
+        let _ = app.emit(&channel, json!({
+            "type": "notification", "method": notification.method, "params": notification.params,
+        }).to_string());
+        if let Some(success) = notification.turn_outcome() {
+            return Ok(success);
         }
     }
-
-    // Clear active turn id and any codex_sessions rows pointing at this
-    // thread so neither table grows unbounded across long-running sessions.
-    {
-        let state = app.state::<ChatProcessState>();
-        state.codex_turns.lock().remove(&thread_id);
-        drop_codex_session_entries(&state, &thread_id);
-    }
-
-    let _ = app.emit(
-        &format!("chat-complete:{}", event_id),
-        json!({ "success": success }).to_string(),
-    );
 }
-
 struct BuildChatCommandParams<'a> {
     cli_path: &'a str,
     source: &'a str,
@@ -488,6 +324,10 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
     cmd.current_dir(project_path);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    cmd.stdin(Stdio::null());
+    cmd.kill_on_drop(true);
+    #[cfg(unix)]
+    cmd.process_group(0);
 
     // Don't create a console window on Windows
     #[cfg(windows)]
@@ -499,87 +339,57 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
     Ok(cmd)
 }
 
-fn spawn_and_stream(
-    app: AppHandle,
-    mut cmd: Command,
-    session_id: String,
-    source: String,
-) -> Result<(), String> {
-    let child = cmd
-        .spawn()
-        .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
-    let pid = child.id().unwrap_or(0);
-
-    let state = app.state::<ChatProcessState>();
-    state.processes.lock().insert(session_id.clone(), pid);
-
-    let app_handle = app.clone();
-    let sid = session_id.clone();
-    tokio::spawn(async move {
-        stream_process_output(app_handle, child, sid, source).await;
-    });
-
-    Ok(())
-}
-
 async fn stream_process_output(
     app: AppHandle,
-    mut child: Child,
-    session_id: String,
-    _source: String,
-) {
+    mut cmd: Command,
+    session_id: &str,
+    cancel_rx: &mut tokio::sync::watch::Receiver<bool>,
+) -> Result<bool, String> {
+    let mut child = cmd
+        .spawn()
+        .map_err(|error| format!("Failed to spawn CLI process: {error}"))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-
     let app_stdout = app.clone();
-    let sid_stdout = session_id.clone();
-
-    // Stream stdout
-    let stdout_task = tokio::spawn(async move {
+    let sid_stdout = session_id.to_string();
+    let mut stdout_task = tokio::spawn(async move {
         if let Some(stdout) = stdout {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
+            let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                let event_name = format!("chat-output:{}", sid_stdout);
-                let _ = app_stdout.emit(&event_name, &line);
+                let _ = app_stdout.emit(&format!("chat-output:{}", sid_stdout), line);
             }
         }
     });
-
-    let app_stderr = app.clone();
-    let sid_stderr = session_id.clone();
-
-    // Stream stderr
-    let stderr_task = tokio::spawn(async move {
+    let sid_stderr = session_id.to_string();
+    let mut stderr_task = tokio::spawn(async move {
         if let Some(stderr) = stderr {
-            let reader = BufReader::new(stderr);
-            let mut lines = reader.lines();
+            let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                eprintln!("[chat stderr] {}", line);
-                let event_name = format!("chat-error:{}", sid_stderr);
-                let _ = app_stderr.emit(&event_name, &line);
+                let _ = app.emit(&format!("chat-error:{}", sid_stderr), line);
             }
         }
     });
-
-    // Wait for process to complete
-    let exit_status = child.wait().await;
-    let _ = stdout_task.await;
-    let _ = stderr_task.await;
-
-    let success = exit_status.map(|s| s.success()).unwrap_or(false);
-
-    // Clean up from process registry
-    let state = app.state::<ChatProcessState>();
-    state.processes.lock().remove(&session_id);
-
-    let event_name = format!("chat-complete:{}", session_id);
-    let _ = app.emit(
-        &event_name,
-        serde_json::json!({ "success": success }).to_string(),
-    );
+    let success = tokio::select! {
+        status = child.wait() => status.map(|status| status.success()).unwrap_or(false),
+        _ = cancel_rx.changed() => {
+            if let Some(pid) = child.id() {
+                let _ = tokio::task::spawn_blocking(move || kill_process(pid)).await;
+            }
+            let _ = child.kill().await;
+            false
+        }
+    };
+    for task in [&mut stdout_task, &mut stderr_task] {
+        if tokio::time::timeout(std::time::Duration::from_secs(5), &mut *task)
+            .await
+            .is_err()
+        {
+            task.abort();
+            let _ = task.await;
+        }
+    }
+    Ok(success)
 }
-
 fn kill_process(pid: u32) {
     #[cfg(windows)]
     {
@@ -594,12 +404,12 @@ fn kill_process(pid: u32) {
     #[cfg(not(windows))]
     {
         unsafe {
-            libc::kill(pid as i32, libc::SIGTERM);
+            libc::kill(-(pid as i32), libc::SIGTERM);
         }
         // Give it a moment, then force kill
         std::thread::sleep(std::time::Duration::from_millis(500));
         unsafe {
-            libc::kill(pid as i32, libc::SIGKILL);
+            libc::kill(-(pid as i32), libc::SIGKILL);
         }
     }
 }
