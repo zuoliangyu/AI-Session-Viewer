@@ -601,10 +601,12 @@ fn handle_inbound_line(line: &str, pending: &PendingMap, subscribers: &Subscribe
             if list.is_empty() {
                 subs.remove(&thread_id);
             }
-            return;
         }
+        // A late event for an unopened or already closed thread must never
+        // be delivered to unrelated conversations.
+        return;
     }
-    // No threadId match — broadcast to every subscriber and prune dead ones.
+    // Only notifications without a thread id are server-wide broadcasts.
     let keys: Vec<String> = subs.keys().cloned().collect();
     for key in keys {
         if let Some(list) = subs.get_mut(&key) {
@@ -633,6 +635,84 @@ fn dispatch_and_prune(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_subscription(
+        subscribers: &SubscriberMap,
+        thread_id: &str,
+    ) -> mpsc::Receiver<CodexNotification> {
+        let (tx, rx) = mpsc::channel(8);
+        subscribers
+            .lock()
+            .entry(thread_id.to_string())
+            .or_default()
+            .push(tx);
+        rx
+    }
+
+    #[test]
+    fn targeted_notifications_stay_within_their_thread() {
+        let pending = PendingMap::default();
+        let subscribers = SubscriberMap::default();
+        let mut first = test_subscription(&subscribers, "thread-a");
+        let mut second = test_subscription(&subscribers, "thread-a");
+        let mut unrelated = test_subscription(&subscribers, "thread-b");
+
+        for params in [
+            json!({ "threadId": "thread-a", "delta": "private text" }),
+            json!({ "thread": { "id": "thread-a" }, "delta": "private text" }),
+        ] {
+            handle_inbound_line(
+                &json!({ "method": "item/agentMessage/delta", "params": params }).to_string(),
+                &pending,
+                &subscribers,
+            );
+            assert_eq!(first.try_recv().unwrap().params, params);
+            assert_eq!(second.try_recv().unwrap().params, params);
+            assert!(matches!(
+                unrelated.try_recv(),
+                Err(mpsc::error::TryRecvError::Empty)
+            ));
+        }
+    }
+
+    #[test]
+    fn late_completion_for_a_closed_thread_does_not_end_another_thread() {
+        let pending = PendingMap::default();
+        let subscribers = SubscriberMap::default();
+        drop(test_subscription(&subscribers, "closed-thread"));
+        let mut active = test_subscription(&subscribers, "active-thread");
+        let completed = json!({
+            "method": "turn/completed",
+            "params": { "threadId": "closed-thread", "turn": { "id": "old-turn" } },
+        })
+        .to_string();
+
+        // The first event prunes the disconnected bucket. A further event
+        // must still remain thread-specific when that bucket no longer exists.
+        handle_inbound_line(&completed, &pending, &subscribers);
+        assert!(!subscribers.lock().contains_key("closed-thread"));
+        handle_inbound_line(&completed, &pending, &subscribers);
+        assert!(matches!(
+            active.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[test]
+    fn notifications_without_a_thread_id_still_reach_every_thread() {
+        let pending = PendingMap::default();
+        let subscribers = SubscriberMap::default();
+        let mut first = test_subscription(&subscribers, "thread-a");
+        let mut second = test_subscription(&subscribers, "thread-b");
+        handle_inbound_line(
+            &json!({ "method": "error", "params": { "message": "runtime failed" } })
+                .to_string(),
+            &pending,
+            &subscribers,
+        );
+        assert_eq!(first.try_recv().unwrap().turn_outcome(), Some(false));
+        assert_eq!(second.try_recv().unwrap().turn_outcome(), Some(false));
+    }
 
     fn notif(method: &str, params: Value) -> CodexNotification {
         CodexNotification {

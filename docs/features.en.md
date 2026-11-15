@@ -70,6 +70,8 @@ By default the web server rejects client requests to skip permissions or to supp
 
 The app remembers model choices, supports custom model IDs, and attempts to match the historical model when resuming. Use `/model` or Ctrl+K to switch models. Chat settings include CLI paths, API/base-URL overrides, Windows terminal choice, and permission mode.
 
+Codex chat notifications are routed by thread. Late events for closed or unsubscribed threads are not delivered to other conversations.
+
 ## Skills, MCP, and plugins
 
 Skill and MCP previews belong to the selected source and target nodes. Changing either node requires a fresh preview. Node selection stays fixed during synchronization, and stale previews or duplicate submissions cannot start a write.

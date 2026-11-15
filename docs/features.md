@@ -162,6 +162,8 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 - 自动记住上次模型、续聊历史会话时自动匹配原会话模型；`/model` 或 `Ctrl+K` 切换模型
 - Web 服务默认不允许客户端请求「跳过权限」或传入自定义 API Key / Base URL，需服务端显式开启（见上方参数表）
 
+Codex 多窗格对话按线程分发通知；已关闭或未订阅线程的迟到事件不会进入其他会话。
+
 ## Skills 浏览 / 导入 / 删除
 
 侧边栏「Skills」进入独立页面，会话页顶部也内嵌一个可折叠 Skills 面板，统一查看 Claude Code 的三类 skills：
