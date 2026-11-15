@@ -1,0 +1,4 @@
+# Keep vendored release bytes and upstream patches stable across platforms.
+# Preserve upstream whitespace too, including patch context lines.
+glib-0.18.5/** -text -whitespace
+patches/*.patch -text -whitespace

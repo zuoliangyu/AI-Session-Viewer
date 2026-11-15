@@ -1,3 +1,11 @@
 [workspace]
 members = ["src-tauri", "crates/session-core", "crates/session-web"]
+exclude = ["vendor/glib-0.18.5"]
 resolver = "2"
+
+[workspace.package]
+rust-version = "1.91"
+
+[patch.crates-io]
+# Backport the upstream VariantStrIter soundness fix while Tauri uses GTK3.
+glib = { path = "vendor/glib-0.18.5" }

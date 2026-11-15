@@ -4,6 +4,7 @@ version = "3.2.0"
 description = "A desktop app to browse Claude, Codex, and Grok session histories"
 authors = ["zuolan"]
 edition = "2021"
+rust-version.workspace = true
 
 [lib]
 name = "ai_session_viewer_lib"
@@ -14,13 +15,13 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 session-core = { path = "../crates/session-core" }
-tauri = { version = "2", features = [] }
+tauri = { version = "2.12.5", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-notify = "7"
+notify = "8.2.2"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
 parking_lot = "0.12"
@@ -29,6 +30,6 @@ parking_lot = "0.12"
 libc = "0.2"
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
-tauri-plugin-updater = "2"
+tauri-plugin-updater = "2.14.1"
 tauri-plugin-process = "2"
 tauri-plugin-dialog = "2"

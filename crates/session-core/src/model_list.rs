@@ -1,3 +1,4 @@
+use noyalib::compat::serde_yaml as yaml;
 use serde::{Deserialize, Serialize};
 
 use crate::cli_config;
@@ -248,7 +249,7 @@ fn read_omp_models() -> Result<Vec<ModelInfo>, String> {
     };
     let content = std::fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read OMP model config {}: {}", path.display(), e))?;
-    let config: OmpModelsConfig = serde_yml::from_str(&content)
+    let config: OmpModelsConfig = yaml::from_str(&content)
         .map_err(|e| format!("Failed to parse OMP model config {}: {}", path.display(), e))?;
 
     let mut models = Vec::new();
@@ -333,4 +334,31 @@ pub async fn list_models(
     }
 
     fetch_anthropic_models(&resolved_key, &resolved_url).await
+}
+
+#[cfg(test)]
+mod yaml_tests {
+    use super::*;
+
+    #[test]
+    fn omp_models_yaml_keeps_provider_extras_and_optional_names() {
+        let content = r#"
+providers:
+  example:
+    baseUrl: https://example.invalid/v1
+    apiKey: ignored-by-model-list
+    models:
+      - id: model-one
+        name: "Model: One"
+        contextWindow: 200000
+      - id: model-two
+"#;
+        let parsed: OmpModelsConfig = yaml::from_str(content).unwrap();
+        let models = &parsed.providers["example"].models;
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "model-one");
+        assert_eq!(models[0].name.as_deref(), Some("Model: One"));
+        assert_eq!(models[1].id, "model-two");
+        assert_eq!(models[1].name, None);
+    }
 }

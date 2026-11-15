@@ -1,0 +1,31 @@
+From b5a4071e439bef2b5eea76c3aa25e5ae84839e34 Mon Sep 17 00:00:00 2001
+From: Fabio Valentini <decathorpe@gmail.com>
+Date: Sat, 30 Mar 2024 01:38:35 +0100
+Subject: [PATCH] glib: fix UB in VariantStrIter::impl_get
+
+Passing an immutable reference (&p) to a function that mutates the
+data behind the pointer violates Rust's invariants.
+---
+ glib/src/variant_iter.rs | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/glib/src/variant_iter.rs b/glib/src/variant_iter.rs
+index b4061728a441..e0997f651b10 100644
+--- a/glib/src/variant_iter.rs
++++ b/glib/src/variant_iter.rs
+@@ -117,13 +117,13 @@ impl<'a> VariantStrIter<'a> {
+ 
+     fn impl_get(&self, i: usize) -> &'a str {
+         unsafe {
+-            let p: *mut libc::c_char = std::ptr::null_mut();
++            let mut p: *mut libc::c_char = std::ptr::null_mut();
+             let s = b"&s\0";
+             ffi::g_variant_get_child(
+                 self.variant.to_glib_none().0,
+                 i,
+                 s as *const u8 as *const _,
+-                &p,
++                &mut p,
+                 std::ptr::null::<i8>(),
+             );
+             let p = std::ffi::CStr::from_ptr(p);

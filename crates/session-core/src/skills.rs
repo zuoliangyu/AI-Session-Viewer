@@ -8,6 +8,7 @@
 //! Each `SKILL.md` carries a YAML frontmatter block delimited by `---` lines;
 //! we extract `name` and `description` from it (ignoring all other keys).
 
+use noyalib::compat::serde_yaml as yaml;
 use std::collections::HashSet;
 use std::fs;
 use std::io::Read;
@@ -58,7 +59,7 @@ fn read_skill(dir: &Path, scope: &str) -> Option<SkillEntry> {
     let content = raw.strip_prefix('\u{feff}').unwrap_or(&raw);
 
     let fm = extract_frontmatter(content)
-        .and_then(|yaml| serde_yml::from_str::<Frontmatter>(&yaml).ok())
+        .and_then(|frontmatter| yaml::from_str::<Frontmatter>(&frontmatter).ok())
         .unwrap_or_default();
 
     let slug = dir.file_name()?.to_string_lossy().to_string();
@@ -683,7 +684,7 @@ mod tests {
     fn extract_frontmatter_basic() {
         let md = "---\nname: foo\ndescription: bar\n---\n# Body\n";
         let yaml = extract_frontmatter(md).unwrap();
-        let fm: Frontmatter = serde_yml::from_str(&yaml).unwrap();
+        let fm: Frontmatter = yaml::from_str(&yaml).unwrap();
         assert_eq!(fm.name.as_deref(), Some("foo"));
         assert_eq!(fm.description.as_deref(), Some("bar"));
     }
@@ -692,7 +693,7 @@ mod tests {
     fn extract_frontmatter_ignores_extra_and_nested_keys() {
         let md = "---\nname: foo\nversion: 1.0.0\ndescription: \"a: colon, and quotes\"\nmetadata:\n  requires:\n    bins: [\"x\"]\nallowed-tools: Bash, Read\n---\nbody";
         let yaml = extract_frontmatter(md).unwrap();
-        let fm: Frontmatter = serde_yml::from_str(&yaml).unwrap();
+        let fm: Frontmatter = yaml::from_str(&yaml).unwrap();
         assert_eq!(fm.name.as_deref(), Some("foo"));
         assert_eq!(fm.description.as_deref(), Some("a: colon, and quotes"));
     }
@@ -700,6 +701,15 @@ mod tests {
     #[test]
     fn extract_frontmatter_none_without_block() {
         assert!(extract_frontmatter("# Just a heading\n").is_none());
+    }
+
+    #[test]
+    fn frontmatter_keeps_aliases_and_folded_text_after_yaml_migration() {
+        let md = "---\nname: &name safe-skill\ndescription: >-\n  first line\n  second line\nmetadata:\n  alias: *name\n---\nbody";
+        let frontmatter = extract_frontmatter(md).unwrap();
+        let parsed: Frontmatter = yaml::from_str(&frontmatter).unwrap();
+        assert_eq!(parsed.name.as_deref(), Some("safe-skill"));
+        assert_eq!(parsed.description.as_deref(), Some("first line second line"));
     }
 
     #[test]
