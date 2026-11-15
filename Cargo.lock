@@ -772,7 +772,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.10",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -4185,7 +4185,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
- "toml 0.8.2",
+ "toml 1.2.1+spec-1.1.0",
  "toml_edit 0.23.10+spec-1.0.0",
  "uuid",
  "zip",
