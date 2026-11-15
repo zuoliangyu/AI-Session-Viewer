@@ -179,6 +179,8 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 跨机 Skill 备份保存在目标机器应用配置目录的 `ai-session-viewer/skill-backups/`。当前只同步 Claude 全局 Skill；项目 Skill 和 Codex Skill 暂未接入。
 
+Skill 与 MCP 同步预览绑定当前源、目标节点。切换任一节点后必须等待新预览完成；执行同步时固定节点选择，避免旧预览或重复提交写入错误配置。
+
 ## MCP 与插件跨机配置
 
 Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的配置：

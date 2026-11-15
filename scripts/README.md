@@ -33,6 +33,8 @@
 - `node scripts/check-updates.mjs`（Node.js 24+）用模拟桌面 API 运行真实更新状态逻辑，检查自动/手动详情展示、忽略版本、下载进度、失败重试和便携版跳转；不访问网络、不安装更新、不编译。该专项检查单独运行，不改变通用轻量检查的 Node.js 版本要求。
 - `node scripts/check-appimage.mjs` 检查 Tauri CLI 的版本锁定，避免重新引入绝对 `.DirIcon` 符号链接的上游缺陷；两项检查均已纳入 `npm run check:scripts`。
 
+同步预览的定向回归：`node scripts/check-sync-preview.mjs`（Node.js 24+）。使用真实预览守卫和内存请求，检查乱序响应、节点切换、重复提交与卸载失效；不访问节点、不写配置、不编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

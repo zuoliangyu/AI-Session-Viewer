@@ -72,6 +72,8 @@ The app remembers model choices, supports custom model IDs, and attempts to matc
 
 ## Skills, MCP, and plugins
 
+Skill and MCP previews belong to the selected source and target nodes. Changing either node requires a fresh preview. Node selection stays fixed during synchronization, and stale previews or duplicate submissions cannot start a write.
+
 Browse global, project, and plugin skills, view `SKILL.md`, and import ZIP archives. Plugin skills are read-only. Deleting a symbolic-link skill removes the link only; deleting a real skill directory is permanent.
 
 Global Claude skills can be synchronized between two accessible `session-web` nodes after reviewing additions and conflicts. Overwrites are backed up, written files are checked, and failed writes restore the previous version. Backups live in the target's `ai-session-viewer/skill-backups/` configuration directory.

@@ -18,6 +18,7 @@ import {
   type PluginManifestItem,
 } from "../../services/skillSync";
 import { EscapeToClose } from "../common/EscapeToClose";
+import { createSyncPreviewGuard } from "../../services/syncPreview";
 
 type Tab = "mcp" | "plugins";
 
@@ -45,9 +46,24 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  const [previewGuard] = useState(createSyncPreviewGuard);
 
   const source = nodes.find((node) => node.id === sourceId);
   const target = nodes.find((node) => node.id === targetId);
+  const previewReady = previewGuard.canSync(sourceId, targetId);
+
+  const changeNodes = (nextSourceId: string, nextTargetId: string) => {
+    if (previewGuard.isSyncing()) return;
+    previewGuard.invalidate();
+    setSourceManifest(EMPTY_MANIFEST);
+    setTargetManifest(EMPTY_MANIFEST);
+    setSelected(new Set());
+    setSourceId(nextSourceId);
+    setTargetId(nextTargetId);
+  };
+  const close = () => {
+    if (!previewGuard.isSyncing()) onClose();
+  };
   const targetMcp = useMemo(
     () => new Map(targetManifest.mcpServers.map((item) => [mcpKey(item), item])),
     [targetManifest],
@@ -59,6 +75,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
 
   const loadPreview = async () => {
     if (!source || !target || source.id === target.id) return;
+    const requestVersion = previewGuard.begin(source.id, target.id);
     setLoading(true);
     setError(null);
     setResult(null);
@@ -67,6 +84,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
         getNodeConfigManifest(source),
         getNodeConfigManifest(target),
       ]);
+      if (!previewGuard.accept(requestVersion)) return;
       const targetByKey = new Map(
         targetData.mcpServers.map((item) => [mcpKey(item), item]),
       );
@@ -80,17 +98,19 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
         ),
       );
     } catch (cause) {
+      if (!previewGuard.isCurrent(requestVersion)) return;
       setSourceManifest(EMPTY_MANIFEST);
       setTargetManifest(EMPTY_MANIFEST);
       setSelected(new Set());
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setLoading(false);
+      if (previewGuard.isCurrent(requestVersion)) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadPreview();
+    return () => previewGuard.invalidate();
   }, [sourceId, targetId]);
 
   const toggle = (key: string) => {
@@ -113,7 +133,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
   };
 
   const syncMcp = async () => {
-    if (!target) return;
+    if (!source || !target || !previewGuard.canSync(source.id, target.id)) return;
     const servers = sourceManifest.mcpServers.filter((item) => {
       const targetItem = targetMcp.get(mcpKey(item));
       return (
@@ -123,6 +143,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
       );
     });
     if (servers.length === 0) return;
+    if (!previewGuard.tryStartSync(source.id, target.id)) return;
 
     setSyncing(true);
     setError(null);
@@ -148,6 +169,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
         }`,
       );
     } finally {
+      previewGuard.finishSync();
       setSyncing(false);
     }
   };
@@ -155,11 +177,11 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
-      onClick={onClose}
+      onClick={close}
       role="dialog"
       aria-modal="true"
     >
-      <EscapeToClose onClose={onClose} />
+      <EscapeToClose onClose={close} />
       <div
         className="flex max-h-[85vh] w-[48rem] max-w-full flex-col rounded-lg border border-border bg-card shadow-lg"
         onClick={(event) => event.stopPropagation()}
@@ -170,7 +192,8 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
             <h2 className="text-sm font-semibold">{t("MCP / 插件跨机同步")}</h2>
           </div>
           <button
-            onClick={onClose}
+            onClick={close}
+            disabled={syncing}
             className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             title={t("关闭")}
           >
@@ -186,7 +209,8 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
             <div className="flex items-center gap-2 border-b border-border p-4">
               <select
                 value={sourceId}
-                onChange={(event) => setSourceId(event.target.value)}
+                disabled={syncing}
+                onChange={(event) => changeNodes(event.target.value, targetId)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
                 title={t("源机器")}
               >
@@ -197,10 +221,8 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
               <button
-                onClick={() => {
-                  setSourceId(targetId);
-                  setTargetId(sourceId);
-                }}
+                onClick={() => changeNodes(targetId, sourceId)}
+                disabled={syncing}
                 className="rounded p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
                 title={t("交换源机器和目标机器")}
               >
@@ -208,7 +230,8 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
               </button>
               <select
                 value={targetId}
-                onChange={(event) => setTargetId(event.target.value)}
+                disabled={syncing}
+                onChange={(event) => changeNodes(sourceId, event.target.value)}
                 className="min-w-0 flex-1 rounded border border-border bg-background px-2 py-2 text-sm"
                 title={t("目标机器")}
               >
@@ -248,6 +271,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
               <div className="flex items-center justify-between border-b border-border px-4 py-3 text-xs">
                 <button
                   onClick={selectAll}
+                  disabled={syncing || loading || !previewReady}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   {t("全选 / 取消全选")}</button>
@@ -255,6 +279,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
                   <input
                     type="checkbox"
                     checked={overwrite}
+                    disabled={syncing || loading || !previewReady}
                     onChange={(event) => {
                       const checked = event.target.checked;
                       setOverwrite(checked);
@@ -376,7 +401,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
 
             <div className="flex justify-end gap-2 border-t border-border p-4">
               <button
-                onClick={onClose}
+                onClick={close}
                 disabled={syncing}
                 className="rounded border border-border px-3 py-2 text-sm hover:bg-accent disabled:opacity-50"
               >
@@ -384,7 +409,7 @@ export function ConfigSyncDialog({ onClose }: { onClose: () => void }) {
               {tab === "mcp" && (
                 <button
                   onClick={() => void syncMcp()}
-                  disabled={syncing || loading || selected.size === 0}
+                  disabled={syncing || loading || !previewReady || selected.size === 0}
                   className="flex items-center gap-1.5 rounded bg-primary px-3 py-2 text-sm text-primary-foreground hover:opacity-90 disabled:opacity-50"
                 >
                   {syncing ? (
