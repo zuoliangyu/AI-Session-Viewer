@@ -6,6 +6,8 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod usage_cache;
+
 use chrono_tz::Tz;
 use parking_lot::Mutex;
 use rayon::prelude::*;
@@ -328,6 +330,7 @@ pub fn invalidate_sessions_cache() {
     *cache_state().lock() = CodexDiskCache::default();
     clear_message_cache();
     clear_disk_cache();
+    usage_cache::prune_missing();
 }
 
 /// Maximum size for text content blocks sent to frontend (20KB)
@@ -1041,6 +1044,7 @@ pub fn invalidate_paths(changed: &[PathBuf]) {
         .collect();
     for &p in &jsonl {
         clear_message_cache_for_path(p);
+        usage_cache::invalidate(p);
     }
     if jsonl.is_empty() {
         return;
@@ -1926,25 +1930,23 @@ pub fn extract_token_info(path: &Path) -> Option<TokenInfo> {
 /// cumulative `total_token_usage` after each turn, so the per-turn cost is
 /// the delta between consecutive events. The first event's delta equals its
 /// own totals (everything up to that turn).
-fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
-    let Ok(file) = fs::File::open(path) else {
-        return Vec::new();
-    };
+fn parse_usage_file(path: &Path) -> Result<UsageFile, String> {
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
     let reader = BufReader::new(file);
     let mut events: Vec<TokenEvent> = Vec::new();
     let mut model = "unknown".to_string();
     let mut prev_input: u64 = 0;
     let mut prev_output: u64 = 0;
+    let mut session_meta: Option<(String, String)> = None;
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let trimmed = line.trim();
+    for (line_index, line) in reader.lines().enumerate() {
+        let line = line.map_err(|error| error.to_string())?;
+        let trimmed = line.trim_start_matches('\u{feff}').trim();
+        let needs_meta = line_index < SESSION_META_SCAN_LINES && session_meta.is_none();
         if trimmed.is_empty()
             || (!trimmed.contains("\"token_count\"")
-                && !trimmed.contains("\"turn_context\""))
+                && !trimmed.contains("\"turn_context\"")
+                && !(needs_meta && trimmed.contains("\"session_meta\"")))
         {
             continue;
         }
@@ -1955,6 +1957,14 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
         };
 
         let row_type = row.get("type").and_then(|v| v.as_str());
+        if needs_meta && row_type == Some("session_meta") {
+            if let Some(payload) = row.get("payload") {
+                session_meta = Some((
+                    payload.get("id").and_then(Value::as_str).unwrap_or("").to_string(),
+                    payload.get("cwd").and_then(Value::as_str).unwrap_or("").to_string(),
+                ));
+            }
+        }
         if row_type == Some("turn_context") {
             // Provider names (such as "openai") are not model identifiers.
             // Capture each turn's model so /model changes split usage correctly.
@@ -2030,7 +2040,22 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
         });
     }
 
-    events
+    let (session_id, project_id) = session_meta.map(|(id, cwd)| {
+        let project_id = if cwd.is_empty() {
+            virtual_project_id(&extract_date_from_path(path).unwrap_or_else(|| "unknown".to_string()))
+        } else {
+            cwd
+        };
+        (id, project_id)
+    }).unwrap_or_default();
+    Ok(UsageFile { session_id, project_id, events })
+}
+
+/// Time-zone-independent data shared by every Codex cost/statistics endpoint.
+struct UsageFile {
+    session_id: String,
+    project_id: String,
+    events: Vec<TokenEvent>,
 }
 
 struct TokenEvent {
@@ -2040,37 +2065,25 @@ struct TokenEvent {
     output_tokens: u64,
 }
 
-fn request_records_for_file(path: &Path) -> Vec<crate::models::stats::RequestRecord> {
+fn request_records_for_file(path: &Path) -> Result<Vec<crate::models::stats::RequestRecord>, String> {
     use crate::models::pricing;
     use crate::models::stats::RequestRecord;
 
-    let meta = extract_session_meta(path);
-    let session_id = meta.as_ref().map(|m| m.id.clone()).unwrap_or_default();
-    let project_id = meta
-        .as_ref()
-        .map(|m| {
-            if m.cwd.is_empty() {
-                let date = extract_date_from_path(path).unwrap_or_else(|| "unknown".to_string());
-                virtual_project_id(&date)
-            } else {
-                m.cwd.clone()
-            }
-        })
-        .unwrap_or_default();
+    let usage = usage_cache::get(path)?;
     let file_path = path.to_string_lossy().into_owned();
 
-    extract_token_events(path)
-        .into_iter()
+    Ok(usage.events
+        .iter()
         .map(|event| {
             let cost = pricing::compute_cost(&event.model, event.input_tokens, 0, 0, event.output_tokens);
             let is_priced = pricing::is_priced(&event.model);
             RequestRecord {
-                timestamp: event.timestamp,
+                timestamp: event.timestamp.clone(),
                 source: "codex".to_string(),
-                project_id: project_id.clone(),
-                session_id: session_id.clone(),
+                project_id: usage.project_id.clone(),
+                session_id: usage.session_id.clone(),
                 file_path: file_path.clone(),
-                model: event.model,
+                model: event.model.clone(),
                 input_tokens: event.input_tokens,
                 output_tokens: event.output_tokens,
                 cache_read_tokens: 0,
@@ -2082,11 +2095,11 @@ fn request_records_for_file(path: &Path) -> Vec<crate::models::stats::RequestRec
                 message_uuid: None,
             }
         })
-        .collect()
+        .collect())
 }
 
 /// Collect request records for one validated Codex rollout.
-pub fn collect_requests_for_file(path: &Path) -> Vec<crate::models::stats::RequestRecord> {
+pub fn collect_requests_for_file(path: &Path) -> Result<Vec<crate::models::stats::RequestRecord>, String> {
     request_records_for_file(path)
 }
 
@@ -2095,9 +2108,10 @@ pub fn collect_requests_for_file(path: &Path) -> Vec<crate::models::stats::Reque
 /// `input_tokens` server-side), so those fields are 0 here and the cache
 /// hit-rate chart simply has no Codex line.
 pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, String> {
+    usage_cache::prune_missing();
     let mut all = Vec::new();
     for file_path in scan_all_session_files() {
-        all.extend(request_records_for_file(&file_path));
+        all.extend(request_records_for_file(&file_path)?);
     }
 
     Ok(all)
@@ -2106,11 +2120,12 @@ pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, St
 // ── Stats ──
 
 pub fn get_stats(time_zone: Tz) -> Result<TokenUsageSummary, String> {
+    usage_cache::prune_missing();
     let files = scan_all_session_files();
-    Ok(stats_for_files(&files, time_zone))
+    stats_for_files(&files, time_zone)
 }
 
-fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> TokenUsageSummary {
+fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary, String> {
     use crate::models::pricing;
 
     let mut summary = crate::stats::empty_summary();
@@ -2124,8 +2139,8 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> TokenUsageSummary {
         session_count += 1;
 
         let session_date = extract_date_from_path(file_path);
-        let events = extract_token_events(file_path);
-        for ev in events {
+        let usage = usage_cache::get(file_path)?;
+        for ev in &usage.events {
             let model = &ev.model;
             let cost =
                 pricing::compute_cost(model, ev.input_tokens, 0, 0, ev.output_tokens);
@@ -2194,7 +2209,7 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> TokenUsageSummary {
     summary.unpriced_models.sort();
     summary.daily_tokens = daily_tokens;
     summary.session_count = session_count;
-    summary
+    Ok(summary)
 }
 
 #[derive(Default, Clone)]
@@ -2264,14 +2279,14 @@ mod tests {
             model_token_event(),
         ]);
 
-        let records = request_records_for_file(&rollout.0);
+        let records = request_records_for_file(&rollout.0).unwrap();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].model, "gpt-4o");
         assert_eq!(records[1].model, "gpt-4o-mini");
         assert!(records.iter().all(|record| record.is_priced && record.cost_usd > 0.0));
         assert!(records[0].cost_usd > records[1].cost_usd);
 
-        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC);
+        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC).unwrap();
         assert_eq!(summary.tokens_by_model.get("gpt-4o"), Some(&120));
         assert_eq!(summary.tokens_by_model.get("gpt-4o-mini"), Some(&120));
         assert!(!summary.tokens_by_model.contains_key("openai"));
@@ -2293,7 +2308,7 @@ mod tests {
             model_token_event(),
         ]);
 
-        let records = request_records_for_file(&rollout.0);
+        let records = request_records_for_file(&rollout.0).unwrap();
         assert_eq!(records.len(), 3);
         for index in [0, 2] {
             assert_eq!(records[index].model, "unknown");
@@ -2301,9 +2316,39 @@ mod tests {
             assert_eq!(records[index].cost_usd, 0.0);
         }
         assert_eq!(records[1].model, "gpt-4o");
-        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC);
+        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC).unwrap();
         assert_eq!(summary.unpriced_models, vec!["unknown"]);
         assert_eq!(summary.tokens_by_model.get("unknown"), Some(&240));
+    }
+
+    #[test]
+    fn cached_usage_is_shared_by_bills_and_summaries_without_caching_the_time_zone() {
+        let rollout = ModelRollout::new(&[
+            serde_json::json!({"type": "session_meta", "payload": {
+                "id": "shared-usage", "cwd": "/project"
+            }}),
+            serde_json::json!({"type": "turn_context", "payload": {"model": "gpt-4o"}}),
+            model_token_event(),
+        ]);
+        let cached = usage_cache::get(&rollout.0).unwrap();
+        let bill = collect_requests_for_file(&rollout.0.canonicalize().unwrap()).unwrap();
+        let utc = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC).unwrap();
+        let pacific = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::America::Los_Angeles).unwrap();
+        assert_eq!(bill[0].session_id, "shared-usage");
+        assert_eq!(bill[0].project_id, "/project");
+        assert_eq!(utc.total_cost_usd, bill[0].cost_usd);
+        assert_eq!(utc.daily_tokens[0].date, "2026-08-26");
+        assert_eq!(pacific.daily_tokens[0].date, "2026-08-25");
+        assert!(std::sync::Arc::ptr_eq(&cached, &usage_cache::get(&rollout.0).unwrap()));
+    }
+
+    #[test]
+    fn unreadable_usage_is_not_returned_as_a_successful_empty_bill() {
+        let rollout = ModelRollout::new(&[]);
+        fs::write(&rollout.0, [0xff, b'\n']).unwrap();
+        assert!(collect_requests_for_file(&rollout.0).is_err());
+        fs::write(&rollout.0, format!("{}\n", model_token_event())).unwrap();
+        assert_eq!(collect_requests_for_file(&rollout.0).unwrap().len(), 1);
     }
 
     #[test]
@@ -2609,7 +2654,7 @@ mod tests {
             .unwrap();
         write_rollout(&other, "other", r"C:\projects\other");
 
-        let records = request_records_for_file(&target);
+        let records = request_records_for_file(&target).unwrap();
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].session_id, "target");

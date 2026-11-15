@@ -76,6 +76,8 @@ Per-request costs support project, model, and date filters; a row opens the corr
 
 Codex costs use each turn's `turn_context.model` and the built-in price table, including model switches within a session. Usage without a recorded model remains `unknown` / Unpriced; a Provider name is never used as a model identifier.
 
+Codex overviews, request bills, project costs, and session costs share an in-process file cache. The first access parses each file; later requests reparse only changed files, and concurrent readers share one build per file. Directory enumeration and file metadata checks still run. Time-zone aggregations are calculated separately, and the cache rebuilds after restarting. Read failures return errors; retry later if files are changing continuously.
+
 ## In-app chat
 
 Choose **New chat**, select a working directory, and chat through the installed Claude or Codex CLI (on this machine, or on the machine running the web server). Once the first reply finishes, the conversation moves to its session page, where the composer stays docked at the bottom. Replies stream with Markdown and tool viewers for Read, Edit, Write, Bash, Grep, and Glob. Long conversations use virtual scrolling. If the CLI isn't detected, the page links straight to Settings → Chat.

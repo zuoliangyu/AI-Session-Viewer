@@ -67,8 +67,8 @@ pub fn get_request_log(
     page_size: usize,
 ) -> Result<RequestLogPage, String> {
     let time_zone = parse_time_zone(filter.time_zone.as_deref())?;
-    // Codex still goes through the legacy path — its cache layout is
-    // session-shaped, not record-shaped, and the volume is tiny.
+    // Codex shares its per-file usage cache with overview and cost summaries.
+    // Filtering and time-zone bucketing are applied to the current request.
     if filter.source == "codex" {
         let records = codex::collect_requests()?;
         return Ok(paginate_records(
@@ -313,7 +313,7 @@ fn codex_project_costs() -> Result<Vec<ProjectCostEntry>, String> {
 pub fn get_session_cost(source: &str, file_path: &str) -> Result<SessionCostSummary, String> {
     if source == "codex" {
         let path = crate::paths::validate_session_file(source, file_path)?;
-        let records = codex::collect_requests_for_file(&path);
+        let records = codex::collect_requests_for_file(&path)?;
         return Ok(materialise_session_summary(source, file_path, records));
     }
     if source != "claude" {
