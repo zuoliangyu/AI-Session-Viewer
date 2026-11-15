@@ -11,7 +11,7 @@ use tokio::process::{Child, Command};
 use session_core::chat_cli;
 use session_core::cli;
 use session_core::cli_config::{self, CliConfig, ResolvedCliCredentials};
-use session_core::codex_app_server::{CodexAppServer, CodexNotification};
+use session_core::codex_app_server::{CodexAppServer, CodexSubscription};
 use session_core::model_list::{self, ModelInfo};
 
 /// Routing entry for a codex session — bundles the resolved thread_id with
@@ -387,15 +387,18 @@ async fn stream_codex_notifications(
     app: AppHandle,
     event_id: String,
     thread_id: String,
-    rx: &mut tokio::sync::mpsc::Receiver<CodexNotification>,
+    rx: &mut CodexSubscription,
     abort: Arc<tokio::sync::Notify>,
 ) {
-    let mut success = true;
+    let mut success = false;
     loop {
         let notif = tokio::select! {
             maybe = rx.recv() => match maybe {
-                Some(n) => n,
-                None => break,
+                Ok(n) => n,
+                Err(error) => {
+                    let _ = app.emit(&format!("chat-error:{}", event_id), error);
+                    break;
+                }
             },
             _ = abort.notified() => {
                 // turn/start failed and the start_turn task has already

@@ -8,7 +8,7 @@
 //! pruned automatically.
 //!
 //! Higher layers (`commands::chat`, `chat_ws`) call:
-//!   1. `subscribe(thread_id)` → mpsc::Receiver<Notification>
+//!   1. `subscribe(thread_id)` → CodexSubscription
 //!   2. `start_thread()` / `resume_thread()` → thread metadata (incl. id + history)
 //!   3. `start_turn()` to send a user prompt; events stream on the subscription
 //!   4. `interrupt_turn()` to cancel
@@ -83,7 +83,72 @@ type RpcResultSender = oneshot::Sender<Result<Value, String>>;
 type PendingMap = Arc<PlMutex<HashMap<u64, RpcResultSender>>>;
 /// Each thread can have multiple subscribers (e.g. two panes resuming the
 /// same thread). Disconnected senders are pruned during dispatch.
-type SubscriberMap = Arc<PlMutex<HashMap<String, Vec<mpsc::Sender<CodexNotification>>>>>;
+type SubscriberMap = Arc<PlMutex<HashMap<String, Vec<Subscriber>>>>;
+
+struct Subscriber {
+    sender: mpsc::Sender<CodexNotification>,
+    failure: Arc<PlMutex<Option<String>>>,
+}
+
+impl Subscriber {
+    fn fail(&self, reason: &str) {
+        let mut failure = self.failure.lock();
+        if failure.is_none() {
+            *failure = Some(reason.to_string());
+        }
+    }
+}
+
+/// A bounded notification stream whose failure cannot be lost to a full queue.
+pub struct CodexSubscription {
+    receiver: mpsc::Receiver<CodexNotification>,
+    failure: Arc<PlMutex<Option<String>>>,
+}
+
+impl CodexSubscription {
+    pub async fn recv(&mut self) -> Result<CodexNotification, String> {
+        if let Some(reason) = self.failure.lock().clone() {
+            return Err(reason);
+        }
+        let notification = self.receiver.recv().await;
+        // Failure takes priority over buffered output, including when the
+        // producer failed while this consumer was waiting.
+        if let Some(reason) = self.failure.lock().clone() {
+            return Err(reason);
+        }
+        notification.ok_or_else(|| "codex notification stream closed unexpectedly".to_string())
+    }
+}
+
+fn subscription_channel(capacity: usize) -> (Subscriber, CodexSubscription) {
+    let (sender, receiver) = mpsc::channel(capacity);
+    let failure = Arc::new(PlMutex::new(None));
+    (
+        Subscriber {
+            sender,
+            failure: failure.clone(),
+        },
+        CodexSubscription { receiver, failure },
+    )
+}
+
+fn fail_runtime(
+    alive: &AtomicBool,
+    pending: &PendingMap,
+    subscribers: &SubscriberMap,
+    reason: &str,
+) {
+    alive.store(false, Ordering::Relaxed);
+    for (_, sender) in pending.lock().drain() {
+        let _ = sender.send(Err(reason.to_string()));
+    }
+    for (_, list) in subscribers.lock().drain() {
+        for subscriber in list {
+            subscriber.fail(reason);
+            // Dropping the sender wakes consumers even if no output arrives.
+        }
+    }
+}
 
 /// One spawned app-server process plus its plumbing.
 struct Runtime {
@@ -103,11 +168,8 @@ impl Runtime {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
-    fn fail_pending(&self, reason: &str) {
-        let mut pending = self.pending.lock();
-        for (_, sender) in pending.drain() {
-            let _ = sender.send(Err(reason.to_string()));
-        }
+    fn fail(&self, reason: &str) {
+        fail_runtime(&self.alive, &self.pending, &self.subscribers, reason);
     }
 }
 
@@ -197,7 +259,7 @@ impl CodexAppServer {
                 return Ok(rt);
             }
             // Dead child — drop the stale entry and respawn below.
-            rt.fail_pending("codex app-server exited");
+            rt.fail("codex app-server exited");
             guard.pop(&fingerprint);
         }
 
@@ -207,7 +269,7 @@ impl CodexAppServer {
         // we can fail its in-flight requests; otherwise their callers would
         // hang on dropped oneshots until the request timeout.
         if let Some((_evicted_key, evicted_rt)) = guard.push(fingerprint, rt.clone()) {
-            evicted_rt.fail_pending("codex app-server evicted by LRU");
+            evicted_rt.fail("codex app-server evicted by LRU");
             // Dropping the Arc here closes stdin (via the stdin_tx mpsc
             // sender being dropped from the Runtime), which makes the codex
             // CLI exit; the watchdog task then flips `alive=false` and drains
@@ -224,15 +286,18 @@ impl CodexAppServer {
         &self,
         creds: &ResolvedCliCredentials,
         thread_id: &str,
-    ) -> Result<mpsc::Receiver<CodexNotification>, String> {
+    ) -> Result<CodexSubscription, String> {
         let rt = self.ensure(creds).await?;
-        let (tx, rx) = mpsc::channel(SUBSCRIBER_BUFFER);
-        rt.subscribers
-            .lock()
+        let (subscriber, subscription) = subscription_channel(SUBSCRIBER_BUFFER);
+        let mut subscribers = rt.subscribers.lock();
+        if !rt.alive.load(Ordering::Relaxed) {
+            return Err("codex app-server exited before subscribing".to_string());
+        }
+        subscribers
             .entry(thread_id.to_string())
             .or_default()
-            .push(tx);
-        Ok(rx)
+            .push(subscriber);
+        Ok(subscription)
     }
 
     /// Send a request and await its result. Returns the raw `result` value.
@@ -369,7 +434,13 @@ impl CodexAppServer {
 async fn send_request(rt: &Runtime, method: &str, params: Value) -> Result<Value, String> {
     let id = rt.next_id();
     let (tx, rx) = oneshot::channel();
-    rt.pending.lock().insert(id, tx);
+    {
+        let mut pending = rt.pending.lock();
+        if !rt.alive.load(Ordering::Relaxed) {
+            return Err("codex app-server is no longer running".to_string());
+        }
+        pending.insert(id, tx);
+    }
 
     let frame = json!({
         "jsonrpc": "2.0",
@@ -405,6 +476,7 @@ async fn spawn_runtime(
     cmd.stdin(Stdio::piped());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
+    cmd.kill_on_drop(true);
 
     crate::chat_cli::apply_cli_env(&mut cmd, "codex", cli_path, creds)?;
 
@@ -438,6 +510,8 @@ async fn spawn_runtime(
     // Writer task — drains stdin_rx into the child's stdin.
     {
         let alive = alive.clone();
+        let pending = pending.clone();
+        let subscribers = subscribers.clone();
         tokio::spawn(async move {
             let mut writer: ChildStdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
@@ -451,7 +525,7 @@ async fn spawn_runtime(
                     break;
                 }
             }
-            alive.store(false, Ordering::Relaxed);
+            fail_runtime(&alive, &pending, &subscribers, "codex app-server stdin closed");
         });
     }
 
@@ -466,12 +540,7 @@ async fn spawn_runtime(
             while let Ok(Some(line)) = lines.next_line().await {
                 handle_inbound_line(&line, &pending, &subscribers);
             }
-            alive.store(false, Ordering::Relaxed);
-            // Drain any pending requests so callers don't hang.
-            let mut p = pending.lock();
-            for (_, sender) in p.drain() {
-                let _ = sender.send(Err("codex app-server exited".to_string()));
-            }
+            fail_runtime(&alive, &pending, &subscribers, "codex app-server output closed");
         });
     }
 
@@ -483,6 +552,18 @@ async fn spawn_runtime(
             while let Ok(Some(line)) = lines.next_line().await {
                 eprintln!("[codex app-server] {}", line);
             }
+        });
+    }
+
+    // Install the watchdog before initialization so failed handshakes also
+    // reap the child and fail any requests/subscriptions already registered.
+    {
+        let alive = alive.clone();
+        let pending = pending.clone();
+        let subscribers = subscribers.clone();
+        tokio::spawn(async move {
+            let _ = child.wait().await;
+            fail_runtime(&alive, &pending, &subscribers, "codex app-server exited");
         });
     }
 
@@ -522,15 +603,6 @@ async fn spawn_runtime(
     .to_string();
     if rt.stdin_tx.send(init_notif).await.is_err() {
         return Err("codex app-server stdin closed during handshake".to_string());
-    }
-
-    // Watchdog — when child exits, drop runtime so next call respawns.
-    {
-        let alive = rt.alive.clone();
-        tokio::spawn(async move {
-            let _ = child.wait().await;
-            alive.store(false, Ordering::Relaxed);
-        });
     }
 
     Ok(rt)
@@ -618,16 +690,18 @@ fn handle_inbound_line(line: &str, pending: &PendingMap, subscribers: &Subscribe
     }
 }
 
-/// Send `notification` to every sender in `list`, dropping any that the
-/// receiver has already closed. A full channel is treated as "still alive"
-/// so a slow consumer doesn't get silently unsubscribed.
+/// A slow subscriber fails explicitly instead of silently dropping an event
+/// (which may be turn/completed). Other subscribers keep receiving normally.
 fn dispatch_and_prune(
-    list: &mut Vec<mpsc::Sender<CodexNotification>>,
+    list: &mut Vec<Subscriber>,
     notification: &CodexNotification,
 ) {
-    list.retain(|tx| match tx.try_send(notification.clone()) {
+    list.retain(|subscriber| match subscriber.sender.try_send(notification.clone()) {
         Ok(()) => true,
-        Err(mpsc::error::TrySendError::Full(_)) => true,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            subscriber.fail("codex notification buffer overflow; reload the session to recover");
+            false
+        }
         Err(mpsc::error::TrySendError::Closed(_)) => false,
     });
 }
@@ -636,17 +710,74 @@ fn dispatch_and_prune(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn overflowing_subscriber_fails_without_losing_another_subscribers_terminal_event() {
+        let (slow_sender, mut slow) = subscription_channel(1);
+        let (fast_sender, mut fast) = subscription_channel(8);
+        let mut subscribers = vec![slow_sender, fast_sender];
+        dispatch_and_prune(&mut subscribers, &notif("item/started", Value::Null));
+        dispatch_and_prune(&mut subscribers, &notif("turn/completed", Value::Null));
+
+        assert_eq!(subscribers.len(), 1);
+        assert!(slow.recv().await.unwrap_err().contains("buffer overflow"));
+        assert_eq!(fast.recv().await.unwrap().method, "item/started");
+        assert_eq!(fast.recv().await.unwrap().turn_outcome(), Some(true));
+    }
+
+    #[tokio::test]
+    async fn runtime_failure_wakes_pending_requests_and_all_notification_streams() {
+        for reason in [
+            "codex app-server output closed",
+            "codex app-server stdin closed",
+            "codex app-server exited",
+            "codex app-server evicted by LRU",
+        ] {
+            let alive = AtomicBool::new(true);
+            let pending = PendingMap::default();
+            let subscribers = SubscriberMap::default();
+            let (response_tx, response_rx) = oneshot::channel();
+            pending.lock().insert(1, response_tx);
+            let (first_sender, mut first) = subscription_channel(1);
+            let (second_sender, mut second) = subscription_channel(1);
+            // A full queue cannot hide runtime failure behind buffered output.
+            first_sender
+                .sender
+                .try_send(notif("item/started", Value::Null))
+                .unwrap();
+            subscribers.lock().insert("first".into(), vec![first_sender]);
+            subscribers.lock().insert("second".into(), vec![second_sender]);
+
+            fail_runtime(&alive, &pending, &subscribers, reason);
+            assert!(!alive.load(Ordering::Relaxed));
+            assert!(pending.lock().is_empty());
+            assert!(subscribers.lock().is_empty());
+            assert_eq!(response_rx.await.unwrap().unwrap_err(), reason);
+            assert_eq!(first.recv().await.unwrap_err(), reason);
+            assert_eq!(second.recv().await.unwrap_err(), reason);
+            // EOF and the process watchdog can both observe the same exit.
+            fail_runtime(&alive, &pending, &subscribers, "a later failure");
+            assert_eq!(first.recv().await.unwrap_err(), reason);
+        }
+    }
+
+    #[tokio::test]
+    async fn dropping_the_last_sender_is_an_error_not_successful_completion() {
+        let (sender, mut subscription) = subscription_channel(1);
+        drop(sender);
+        assert!(subscription.recv().await.unwrap_err().contains("closed unexpectedly"));
+    }
+
     fn test_subscription(
         subscribers: &SubscriberMap,
         thread_id: &str,
     ) -> mpsc::Receiver<CodexNotification> {
-        let (tx, rx) = mpsc::channel(8);
+        let (subscriber, subscription) = subscription_channel(8);
         subscribers
             .lock()
             .entry(thread_id.to_string())
             .or_default()
-            .push(tx);
-        rx
+            .push(subscriber);
+        subscription.receiver
     }
 
     #[test]

@@ -74,6 +74,8 @@ The app remembers model choices, supports custom model IDs, and attempts to matc
 
 Codex chat notifications are routed by thread. Late events for closed or unsubscribed threads are not delivered to other conversations.
 
+If a Codex notification buffer overflows or app-server exits, affected streams report an error and stop waiting. Reload the session to recover. One slow subscriber does not block healthy subscribers.
+
 ## Skills, MCP, and plugins
 
 Skill and MCP previews belong to the selected source and target nodes. Changing either node requires a fresh preview. Node selection stays fixed during synchronization, and stale previews or duplicate submissions cannot start a write.

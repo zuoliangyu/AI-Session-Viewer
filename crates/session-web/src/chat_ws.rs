@@ -604,12 +604,20 @@ async fn run_codex_chat_via_app_server(
     // a turn/start failure is emitted by the spawned task above; here we
     // just drive the loop to a clean exit so the post-loop `complete`
     // frame still fires.
-    let mut success = true;
+    let mut success = false;
     loop {
         let notif = tokio::select! {
             maybe = rx.recv() => match maybe {
-                Some(n) => n,
-                None => break,
+                Ok(n) => n,
+                Err(error) => {
+                    let message = serde_json::json!({
+                        "type": "error",
+                        "data": error,
+                        "sessionId": &routing_id,
+                    }).to_string();
+                    let _ = tx.send(message).await;
+                    break;
+                }
             },
             _ = abort.notified() => {
                 success = false;

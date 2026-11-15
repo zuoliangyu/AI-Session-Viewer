@@ -166,6 +166,8 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 Codex 多窗格对话按线程分发通知；已关闭或未订阅线程的迟到事件不会进入其他会话。
 
+Codex 通知积压超过缓冲上限或 app-server 退出时，受影响的流会明确报错并结束等待，可重新加载会话恢复。单个慢订阅不会阻塞其他正常订阅。
+
 ## Skills 浏览 / 导入 / 删除
 
 侧边栏「Skills」进入独立页面，会话页顶部也内嵌一个可折叠 Skills 面板，统一查看 Claude Code 的三类 skills：
