@@ -10,6 +10,7 @@
     "dev": "node scripts/generate-icons.mjs && vite",
     "build": "node scripts/sync-version.mjs check && node scripts/generate-icons.mjs && tsc -b && vite build",
     "check:scripts": "node scripts/check-project.mjs",
+    "check:regressions": "node scripts/check-regressions.mjs",
     "sync-version": "node scripts/sync-version.mjs",
     "build:web": "tsc -b && vite build",
     "dev:web": "npm run build:web && cargo run -p session-web",

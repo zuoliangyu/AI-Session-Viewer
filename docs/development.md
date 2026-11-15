@@ -8,7 +8,7 @@
 
 ## 前置要求
 
-- [Node.js](https://nodejs.org/) >= 22（项目统一使用 22.x，仓库提供 `.nvmrc`）
+- [Node.js](https://nodejs.org/) >= 22（常规开发默认 22.x，仓库提供 `.nvmrc`；专项状态回归需要 24+）
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.75
 - 至少使用过以下一种 CLI：
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`~/.claude/projects/` 目录存在）
@@ -88,6 +88,7 @@ docker build -t ai-session-viewer-web .
 
 ```bash
 npm run check:scripts                     # 轻量脚本与 i18n 回归检查
+npm run check:regressions                 # Node.js 24+，状态与并发专项回归，不编译
 cargo clippy --workspace -- -D warnings   # Rust lint
 npx tsc --noEmit                           # TypeScript 类型检查
 ```
@@ -190,6 +191,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 标签触发：`git tag v2.x.0 && git push origin v2.x.0`。GitHub Actions 会自动：
 
 发布工作流先调用同一提交中的 CI 检查，全部通过后才开始打包和发布；检查失败或取消会阻止发布。PR、`main`/`master` 分支提交及手动触发也会运行 CI，标签不会重复触发独立的 CI 工作流。
+
+专项状态回归在独立的 Node.js 24 CI 任务中运行，使用内存 API / WebSocket 和真实状态逻辑，覆盖同步预览、空标签缓存、提问树、消息请求隔离、账单分页、聊天生命周期及消息定位。每个脚本在独立进程执行，避免模拟环境互相影响；它们不替代 Rust/TypeScript 编译和真实界面验证。
 
 1. 在 Windows、macOS（Intel + Apple Silicon）、Linux 上并行构建桌面应用
 2. 构建 Web 服务器 Linux 二进制 + Docker 镜像（推送到 GHCR）

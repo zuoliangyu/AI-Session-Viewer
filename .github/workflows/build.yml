@@ -11,6 +11,18 @@ permissions:
   contents: read
 
 jobs:
+  check-regressions:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - name: Focused regressions (no build)
+        run: npm run check:regressions
+
   check-tauri:
     runs-on: ubuntu-22.04
 

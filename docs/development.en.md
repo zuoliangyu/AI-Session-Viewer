@@ -8,7 +8,7 @@ Local development, builds, tech stack, architecture, and the REST API.
 
 ## Requirements
 
-- Node.js 22 or newer; `.nvmrc` selects the project's Node version.
+- Node.js 22 or newer; `.nvmrc` selects the default development version. Focused state regressions require Node.js 24 or newer.
 - A Rust toolchain compatible with the workspace's Tauri dependencies.
 - Session data from at least one supported CLI.
 
@@ -49,6 +49,7 @@ docker build -t ai-session-viewer-web .
 
 # Lightweight regression checks
 npm run check:scripts
+npm run check:regressions # Node.js 24+, focused state regressions without compilation
 
 # Rust lint and TypeScript validation
 cargo clippy --workspace -- -D warnings
@@ -64,6 +65,8 @@ The interface remains Chinese by default. Providing an English option alone does
 **Translations:** edit both dictionaries in `src/i18n/locales/`. Components use `useTranslation`; utilities share the same i18next instance. Keep placeholders consistent and do not translate user content. See [src/i18n/README.md](../src/i18n/README.md).
 
 **Release checks:** tag releases call the CI workflow from the same commit and wait for all checks to pass before packaging or publishing. Failed or cancelled checks block release. CI also runs for pull requests, pushes to `main`/`master`, and manual runs; tags do not start a duplicate standalone CI run.
+
+An independent Node.js 24 CI job runs focused regressions for sync previews, empty tag caching, question trees, message request isolation, billing pagination, chat lifecycle, and message navigation. The checks exercise real state logic with in-memory APIs and WebSockets, each in a separate process so mocks cannot leak between checks. They do not replace Rust/TypeScript compilation or live UI verification.
 
 ## Architecture
 
