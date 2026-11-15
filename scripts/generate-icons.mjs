@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,10 +20,11 @@ if (existsSync(marker)) {
 
 if (needsRegen) {
   console.log("[generate-icons] Logo changed, regenerating icons...");
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  execFileSync(npx, ["tauri", "icon", logo], {
+  const tauriCli = createRequire(import.meta.url).resolve("@tauri-apps/cli/tauri.js");
+  execFileSync(process.execPath, [tauriCli, "icon", logo], {
     cwd: root,
     stdio: "inherit",
+    windowsHide: true,
   });
   console.log("[generate-icons] Done");
 } else {
