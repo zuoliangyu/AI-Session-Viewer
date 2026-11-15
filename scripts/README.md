@@ -47,6 +47,8 @@
 
 消息定位的定向回归：`node scripts/check-message-navigation.mjs`（Node.js 24+）。使用真实 store 和一万条逻辑消息，覆盖旧链接、任意角色定位、窗口加载、取消/来源切换、失败重试及桌面/Web 参数编码；不编译。四数据源索引与完整解析的一致性另有 Rust 用例，需手动编译运行。
 
+聊天页面的定向回归：`node scripts/check-chat-page-lifecycle.mjs`（Node.js 24+）。验证失败/取消保留、成功回复移交历史、离页取消、延时续聊撤销及旧轮次事件隔离；不启动 CLI、不编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

@@ -20,6 +20,9 @@ import { ScrollArea } from "../ScrollArea";
 import { subscribeToChatWebSocketMessages } from "../../services/webApi";
 import { isActualChatError } from "./chatError";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
+import { chatCompletionSucceeded, historyHasCompletedTurn } from "../../services/chatLifecycle";
+import { useChatPageLifecycle } from "../../hooks/useChatPageLifecycle";
+import { api } from "../../services/api";
 
 declare const __IS_TAURI__: boolean;
 const USE_TAURI_TRANSPORT = __IS_TAURI__ && !isRemoteNodeActive();
@@ -51,6 +54,7 @@ interface ChatDerivedState {
 }
 
 function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
+  const turnId = useChatStore((state) => state.panes[paneId]?.turnId ?? 0);
   const paneStreamId = useChatStore(
     useCallback((state) => state.panes[paneId]?.streamId ?? null, [paneId])
   );
@@ -61,9 +65,13 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
 
   useEffect(() => {
     if (!targetStreamId) return;
+    const isCurrentTurn = () => {
+      const pane = useChatStore.getState().getPaneState(paneId);
+      return pane.turnId === turnId && pane.streamId === targetStreamId && pane.completion === null;
+    };
 
     if (USE_TAURI_TRANSPORT) {
-      const { addStreamLineToPane, setPaneStreaming, setPaneError } = useChatStore.getState();
+      const { addStreamLineToPane, completePane, setPaneError } = useChatStore.getState();
       let cancelled = false;
 
       const setupListeners = async () => {
@@ -73,7 +81,7 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
         const unlistenOutput = await listen<string>(
           `chat-output:${targetStreamId}`,
           (event) => {
-            if (!cancelled) {
+            if (!cancelled && isCurrentTurn()) {
               addStreamLineToPane(paneId, event.payload);
             }
           }
@@ -86,7 +94,7 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
         const unlistenError = await listen<string>(
           `chat-error:${targetStreamId}`,
           (event) => {
-            if (!cancelled && isActualChatError(event.payload)) {
+            if (!cancelled && isCurrentTurn() && isActualChatError(event.payload)) {
               setPaneError(paneId, event.payload);
             }
           }
@@ -99,9 +107,9 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
 
         const unlistenComplete = await listen<string>(
           `chat-complete:${targetStreamId}`,
-          () => {
-            if (!cancelled) {
-              setPaneStreaming(paneId, false);
+          (event) => {
+            if (!cancelled && isCurrentTurn()) {
+              completePane(paneId, targetStreamId, turnId, chatCompletionSucceeded(event.payload));
             }
           }
         );
@@ -131,9 +139,10 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
     }
 
     const unsubscribe = subscribeToChatWebSocketMessages((rawMessage) => {
-      const { addStreamLineToPane, setPaneStreaming, setPaneError } = useChatStore.getState();
+      const { addStreamLineToPane, setPaneStreaming, setPaneError, completePane } = useChatStore.getState();
 
       try {
+        if (!isCurrentTurn()) return;
         const data = JSON.parse(rawMessage);
         const type = typeof data?.type === "string" ? data.type : "";
         const payload =
@@ -169,7 +178,7 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
             setPaneError(paneId, payload);
           }
         } else if (type === "complete" || type === "done") {
-          setPaneStreaming(paneId, false);
+          completePane(paneId, targetStreamId, turnId, chatCompletionSucceeded(data));
         }
       } catch {
         // ignore non-JSON messages
@@ -179,7 +188,7 @@ function usePaneChatStream(paneId: string, streamIdOverride: string | null) {
     return () => {
       unsubscribe();
     };
-  }, [paneId, targetStreamId]);
+  }, [paneId, targetStreamId, turnId]);
 }
 
 function getNormalizedCommandInput(input: string): string {
@@ -353,6 +362,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   const [handoffPending, setHandoffPending] = useState(false);
 
   const appSource = useAppStore((s) => s.source);
+  const sendAfterCancel = useChatPageLifecycle(paneId, `${appSource}:${urlSessionId ?? ""}`);
   const cliLabel = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
   const activeSessionId = urlSessionId ?? sessionId ?? null;
 
@@ -396,20 +406,27 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
   // finished and the CLI has written its session file, continue in the
   // unified session page (history + docked composer) instead of this
   // history-less view. Stays here if the session can't be located.
-  const wasStreamingRef = useRef(false);
   useEffect(() => {
-    const finished = wasStreamingRef.current && !isStreaming;
-    wasStreamingRef.current = isStreaming;
-    if (!finished || urlSessionId || error || !sessionId || sessionId === streamId) return;
-    let cancelled = false;
-    setHandoffPending(true);
-    void locateSession(source, sessionId, projectPath).then((location) => {
-      if (cancelled) return;
+    if (pane.completion !== "success" || urlSessionId || error || !sessionId || sessionId === streamId) {
       setHandoffPending(false);
-      if (location) navigate(sessionPagePath(location), { replace: true });
+      return;
+    }
+    let cancelled = false;
+    const isCurrent = () => !cancelled && useChatStore.getState().getPaneState(paneId).turnId === pane.turnId;
+    setHandoffPending(true);
+    void locateSession(source, sessionId, projectPath).then(async (location) => {
+      if (!isCurrent() || !location) return;
+      const history = await api.getMessages(source, location.filePath, 0, 30, true);
+      if (!isCurrent()) return;
+      if (historyHasCompletedTurn(pane, {
+        source, filePath: location.filePath, messages: history.messages, total: history.total,
+        loadedStart: Math.max(0, history.total - history.messages.length), loading: false,
+      }, 0)) navigate(sessionPagePath(location), { replace: true });
+    }).catch(() => {}).finally(() => {
+      if (isCurrent()) setHandoffPending(false);
     });
     return () => { cancelled = true; };
-  }, [error, isStreaming, navigate, projectPath, sessionId, source, streamId, urlSessionId]);
+  }, [error, navigate, pane, paneId, projectPath, sessionId, source, streamId, urlSessionId]);
 
   // Legacy /chat/:sessionId links open the unified session page when the
   // session exists on disk; otherwise this view keeps working as before.
@@ -476,15 +493,10 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
     const trimmedAnswers = answers.trim();
     if (!trimmedAnswers || !projectPath || !activeSessionId) return;
 
-    if (isStreaming) {
-      await cancelPane(paneId);
-      setTimeout(() => {
-        continueExistingChatInPane(paneId, activeSessionId, projectPath, trimmedAnswers, model);
-      }, 150);
-      return;
-    }
-    continueExistingChatInPane(paneId, activeSessionId, projectPath, trimmedAnswers, model);
-  }, [activeSessionId, cancelPane, continueExistingChatInPane, isStreaming, model, paneId, projectPath]);
+    await sendAfterCancel(() => {
+      void continueExistingChatInPane(paneId, activeSessionId, projectPath, trimmedAnswers, model);
+    });
+  }, [activeSessionId, sendAfterCancel, continueExistingChatInPane, model, paneId, projectPath]);
 
   return (
     <div className="flex flex-col h-full">
@@ -541,6 +553,9 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
       </ScrollArea>
 
       <div className="max-w-4xl mx-auto w-full">
+        {pane.completion === "cancelled" && (
+          <p role="status" className="px-4 py-2 text-sm text-muted-foreground">{t("已取消，输入和已收到的回复已保留。")}</p>
+        )}
         <ChatInput
           paneId={paneId}
           onSend={handleSend}

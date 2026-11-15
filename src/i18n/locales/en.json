@@ -1063,5 +1063,7 @@
   "第 {{page}} 页加载失败：{{message}}": "Could not load page {{page}}: {{message}}",
   "正在定位消息…": "Locating message…",
   "未找到目标消息，消息可能已被删除或会话已变更。": "The target message was not found. It may have been deleted or the session may have changed.",
-  "消息定位失败：{{message}}": "Could not locate message: {{message}}"
+  "消息定位失败：{{message}}": "Could not locate message: {{message}}",
+  "聊天未成功完成，请重试。": "The chat did not complete successfully. Please try again.",
+  "已取消，输入和已收到的回复已保留。": "Cancelled. Your input and received replies have been kept."
 }

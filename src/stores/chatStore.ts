@@ -15,6 +15,7 @@ export const DEFAULT_CHAT_PANE_ID = "default";
 // Resume calls reuse session IDs, so a separate identity protects each
 // startup promise from overwriting a later turn in the same pane.
 const paneChatRequests = new Map<string, symbol>();
+let nextChatTurnId = 0;
 
 interface ChatPaneModelListState {
   modelList: ModelInfo[];
@@ -23,6 +24,10 @@ interface ChatPaneModelListState {
 }
 
 export interface ChatPaneState {
+  /** Distinguishes consecutive turns even when they share a session ID. */
+  turnId: number;
+  turnPromptId: string | null;
+  completion: "success" | "cancelled" | "error" | null;
   isActive: boolean;
   /**
    * The session id displayed to the user (URL, resume, etc). Updated mid-stream
@@ -110,6 +115,7 @@ interface ChatState {
   setPaneState: (paneId: string, updater: ChatPaneStateUpdater) => void;
   clearPane: (paneId: string) => void;
   cancelPane: (paneId: string) => Promise<void>;
+  completePane: (paneId: string, streamId: string, turnId: number, success: boolean) => void;
   startNewChatInPane: (
     paneId: string,
     projectPath: string,
@@ -161,6 +167,9 @@ function createChatPaneState(
   overrides: Partial<ChatPaneState> = {}
 ): ChatPaneState {
   return {
+    turnId: 0,
+    turnPromptId: null,
+    completion: null,
     isActive: false,
     sessionId: null,
     streamId: null,
@@ -885,8 +894,9 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   cancelPane: async (paneId) => {
     const pane = get().getPaneState(paneId);
+    if (!pane.streamId || pane.completion !== null) return;
     paneChatRequests.delete(paneId);
-    get().setPaneStreaming(paneId, false);
+    get().setPaneState(paneId, { isStreaming: false, completion: "cancelled" });
     // Cancel by streamId — the routing key the backend uses for this turn.
     // Falls back to sessionId only if streamId hasn't been set yet (e.g. very
     // early failure before the start handshake).
@@ -898,6 +908,16 @@ export const useChatStore = create<ChatState>((set, get) => {
         console.error("Failed to cancel chat:", e);
       }
     }
+  },
+
+  completePane: (paneId, streamId, turnId, success) => {
+    const pane = get().getPaneState(paneId);
+    if (pane.streamId !== streamId || pane.turnId !== turnId || pane.completion !== null) return;
+    get().setPaneState(paneId, {
+      isStreaming: false,
+      completion: success && !pane.error ? "success" : "error",
+      error: !success && !pane.error ? t("聊天未成功完成，请重试。") : pane.error,
+    });
   },
 
   fetchModelList: async (paneId) => {
@@ -1028,6 +1048,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     const pane = state.getPaneState(paneId);
     const overrides = getSourceOverrides(state, pane.source);
     const pendingSessionId = generateUUID();
+    const promptId = generateUUID();
     const request = Symbol();
     paneChatRequests.set(paneId, request);
     const isCurrentRequest = () => paneChatRequests.get(paneId) === request
@@ -1037,6 +1058,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     // by streamId, not sessionId, so the mid-stream sessionId swap (Claude
     // system init / Codex thread/start) never reroutes the live stream.
     get().setPaneState(paneId, {
+      turnId: ++nextChatTurnId,
+      turnPromptId: promptId,
+      completion: null,
       isActive: true,
       sessionId: pendingSessionId,
       streamId: pendingSessionId,
@@ -1046,7 +1070,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       error: null,
       messages: [
         {
-          id: generateUUID(),
+          id: promptId,
           role: "user",
           content: [{ type: "text", text: prompt }],
           timestamp: new Date().toISOString(),
@@ -1078,6 +1102,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         sessionId: null,
         streamId: null,
         isStreaming: false,
+        completion: "error",
         error: e instanceof Error ? e.message : String(e),
       });
     } finally {
@@ -1095,12 +1120,16 @@ export const useChatStore = create<ChatState>((set, get) => {
     const state = get();
     const pane = state.getPaneState(paneId);
     const overrides = getSourceOverrides(state, pane.source);
+    const promptId = generateUUID();
     const request = Symbol();
     paneChatRequests.set(paneId, request);
     const isCurrentRequest = () => paneChatRequests.get(paneId) === request
       && get().getPaneState(paneId).streamId === sessionId;
     localStorage.setItem("chat_lastUsedModel", model);
     get().setPaneState(paneId, {
+      turnId: ++nextChatTurnId,
+      turnPromptId: promptId,
+      completion: null,
       isActive: true,
       isStreaming: true,
       sessionId,
@@ -1111,7 +1140,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       messages: [
         ...pane.messages,
         {
-          id: generateUUID(),
+          id: promptId,
           role: "user",
           content: [{ type: "text", text: prompt }],
           timestamp: new Date().toISOString(),
@@ -1121,6 +1150,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
 
     try {
+      await waitForNextPaint();
+      if (!get().getPaneState(paneId).isStreaming || !isCurrentRequest()) return;
       await api.continueChat({
         source: pane.source,
         sessionId,
@@ -1135,6 +1166,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (!isCurrentRequest()) return;
       get().setPaneState(paneId, {
         isStreaming: false,
+        completion: "error",
         error: e instanceof Error ? e.message : String(e),
       });
     } finally {
@@ -1497,7 +1529,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     // stream parser, so leftover events from the old turn would be parsed
     // wrong (e.g. Codex notifications fed to the Claude parser produce
     // garbled messages).
-    if (pane.isStreaming) {
+    if (pane.streamId && pane.completion === null) {
       void get().cancelPane(paneId);
     }
     // Reset the chat history along with the source change. Previous messages

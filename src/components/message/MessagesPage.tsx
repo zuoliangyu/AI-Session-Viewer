@@ -24,6 +24,9 @@ import { TimelineDots } from "./TimelineDots";
 import { MessageTOCSidebar } from "./MessageTOCSidebar";
 import { loadAllOlderMessages } from "../../services/messageLoading";
 import { getFocusedMessageWindow, navigateToMessage, readMessageTarget } from "../../services/messageNavigation";
+import { chatCompletionSucceeded } from "../../services/chatLifecycle";
+import { useChatPageLifecycle } from "../../hooks/useChatPageLifecycle";
+import { useChatHistoryHandoff } from "../../hooks/useChatHistoryHandoff";
 import { JumpToPercentControl } from "./JumpToPercentControl";
 import { SessionPositionRail, type RailMarker } from "./SessionPositionRail";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
@@ -203,6 +206,7 @@ function isActualChatError(line: string): boolean {
 function handlePaneWebChatMessage(
   paneId: string,
   targetStreamId: string | null | undefined,
+  turnId: number,
   rawMessage: string
 ): void {
   const {
@@ -210,6 +214,7 @@ function handlePaneWebChatMessage(
     getPaneState,
     setPaneError,
     setPaneStreaming,
+    completePane,
   } = useChatStore.getState();
 
   try {
@@ -228,6 +233,7 @@ function handlePaneWebChatMessage(
           ? data.session_id
           : null;
     const pane = getPaneState(paneId);
+    if (pane.turnId !== turnId || pane.completion !== null) return;
     const routingKey = pane.streamId ?? targetStreamId ?? null;
 
     // Strict per-stream routing: a frame must carry our routing key (the
@@ -258,7 +264,7 @@ function handlePaneWebChatMessage(
     }
 
     if (type === "complete" || type === "done") {
-      setPaneStreaming(paneId, false);
+      completePane(paneId, routingKey, turnId, chatCompletionSucceeded(data));
     }
   } catch {
     // ignore non-JSON frames
@@ -266,6 +272,7 @@ function handlePaneWebChatMessage(
 }
 
 function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
+  const turnId = useChatStore((state) => state.panes[paneId]?.turnId ?? 0);
   const paneStreamId = useChatStore(
     useCallback((state) => state.panes[paneId]?.streamId ?? null, [paneId])
   );
@@ -277,10 +284,14 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
 
   useEffect(() => {
     if (!targetStreamId) return;
+    const isCurrentTurn = () => {
+      const pane = useChatStore.getState().getPaneState(paneId);
+      return pane.turnId === turnId && pane.streamId === targetStreamId && pane.completion === null;
+    };
 
     if (USE_TAURI_TRANSPORT) {
       const addStreamLineToPane = useChatStore.getState().addStreamLineToPane;
-      const setPaneStreaming = useChatStore.getState().setPaneStreaming;
+      const completePane = useChatStore.getState().completePane;
       const setPaneError = useChatStore.getState().setPaneError;
       let cancelled = false;
 
@@ -291,7 +302,7 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
         const unlistenOutput = await listen<string>(
           `chat-output:${targetStreamId}`,
           (event) => {
-            if (!cancelled) {
+            if (!cancelled && isCurrentTurn()) {
               addStreamLineToPane(paneId, event.payload);
             }
           }
@@ -304,7 +315,7 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
         const unlistenError = await listen<string>(
           `chat-error:${targetStreamId}`,
           (event) => {
-            if (!cancelled && event.payload && isActualChatError(event.payload)) {
+            if (!cancelled && isCurrentTurn() && event.payload && isActualChatError(event.payload)) {
               setPaneError(paneId, event.payload);
             }
           }
@@ -317,9 +328,9 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
 
         const unlistenComplete = await listen<string>(
           `chat-complete:${targetStreamId}`,
-          () => {
-            if (!cancelled) {
-              setPaneStreaming(paneId, false);
+          (event) => {
+            if (!cancelled && isCurrentTurn()) {
+              completePane(paneId, targetStreamId, turnId, chatCompletionSucceeded(event.payload));
             }
           }
         );
@@ -349,13 +360,13 @@ function usePaneChatStream(paneId: string, streamIdOverride?: string | null) {
     }
 
     const unsubscribe = subscribeToChatWebSocketMessages((rawMessage) => {
-      handlePaneWebChatMessage(paneId, targetStreamId, rawMessage);
+      handlePaneWebChatMessage(paneId, targetStreamId, turnId, rawMessage);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [paneId, targetStreamId]);
+  }, [paneId, targetStreamId, turnId]);
 }
 
 export function MessagesPage() {
@@ -472,6 +483,7 @@ export function MessagesPage() {
   }, []);
   const [questionIndex, setQuestionIndex] = useState<QuestionIndexEntry[]>([]);
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
+  const sendAfterCancel = useChatPageLifecycle(mainPaneId, `${source}:${filePath}`);
   const activePaneId = useChatStore((state) => state.activePaneId);
 
   // Chat store for inline continue-chat
@@ -480,14 +492,13 @@ export function MessagesPage() {
     detectCli,
     continueExistingChatInPane,
     cancelPane,
-    clearPane,
     setPaneProjectPath,
     setPaneModel,
     setPaneSource,
     setActivePane,
     fetchModelList: fetchChatModelList,
   } = useChatStore(
-    useShallow((state) => ({ availableClis: state.availableClis, detectCli: state.detectCli, continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, clearPane: state.clearPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane, fetchModelList: state.fetchModelList })),
+    useShallow((state) => ({ availableClis: state.availableClis, detectCli: state.detectCli, continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane, fetchModelList: state.fetchModelList })),
   );
   const mainChatPane = useChatStore(useCallback((state) => state.panes[mainPaneId], [mainPaneId]));
 
@@ -544,6 +555,13 @@ export function MessagesPage() {
   const chatStreaming = mainChatPane?.isStreaming ?? false;
   const chatError = mainChatPane?.error ?? null;
   const chatModel = mainChatPane?.model ?? sessionModel ?? "";
+  const refreshChatHistory = useCallback(
+    () => refreshInBackground(true, false, { reason: "chat-complete" }),
+    [refreshInBackground],
+  );
+  useChatHistoryHandoff(mainPaneId, mainChatPane, {
+    source, filePath, messages, total: messagesTotal, loadedStart, loading: messagesLoading,
+  }, refreshChatHistory);
 
   useEffect(() => {
     setPaneProjectPath(mainPaneId, chatProjectPath);
@@ -558,13 +576,6 @@ export function MessagesPage() {
       setPaneModel(mainPaneId, sessionModel);
     }
   }, [filePath, mainPaneId, sessionModel, setPaneModel, source]);
-
-  // Clear chat state when leaving the page / switching sessions
-  useEffect(() => {
-    return () => {
-      clearPane(mainPaneId);
-    };
-  }, [clearPane, mainPaneId]);
 
   useEffect(() => {
     if (!filePath) return;
@@ -1080,28 +1091,6 @@ export function MessagesPage() {
     }
   }, [chatMessages, chatStreaming]);
 
-  // When an in-page chat stream completes, the JSONL on disk is freshly written
-  // but fs-change debounce + backend cache may delay the main message list
-  // refresh. Explicitly trigger a background refresh and hand the conversation
-  // over to the historical list so users don't have to reload the page.
-  const prevStreamingRef = useRef(false);
-  useEffect(() => {
-    if (prevStreamingRef.current && !chatStreaming && chatMessages.length > 0) {
-      const refreshTimer = setTimeout(() => {
-        void refreshInBackground(true, false, { reason: "chat-complete" });
-      }, 300);
-      const clearTimer = setTimeout(() => {
-        clearPane(mainPaneId);
-      }, 1500);
-      prevStreamingRef.current = chatStreaming;
-      return () => {
-        clearTimeout(refreshTimer);
-        clearTimeout(clearTimer);
-      };
-    }
-    prevStreamingRef.current = chatStreaming;
-  }, [chatStreaming, chatMessages.length, clearPane, mainPaneId, refreshInBackground]);
-
   const handleSendChat = (prompt: string) => {
     if (!resolvedSessionId) return;
     continueExistingChatInPane(
@@ -1115,15 +1104,10 @@ export function MessagesPage() {
 
   const handleSubmitAnswers = useCallback(async (answers: string) => {
     if (!resolvedSessionId || !chatProjectPath) return;
-    if (chatStreaming) {
-      await cancelPane(mainPaneId);
-      setTimeout(() => {
-        void continueExistingChatInPane(mainPaneId, resolvedSessionId, chatProjectPath, answers, chatModel);
-      }, 150);
-      return;
-    }
-    void continueExistingChatInPane(mainPaneId, resolvedSessionId, chatProjectPath, answers, chatModel);
-  }, [cancelPane, chatModel, chatProjectPath, chatStreaming, continueExistingChatInPane, mainPaneId, resolvedSessionId]);
+    await sendAfterCancel(() => {
+      void continueExistingChatInPane(mainPaneId, resolvedSessionId, chatProjectPath, answers, chatModel);
+    });
+  }, [sendAfterCancel, chatModel, chatProjectPath, continueExistingChatInPane, mainPaneId, resolvedSessionId]);
 
   const availableSplitSessions = sessions.filter(
     (item) => item.filePath !== filePath && !splitFilePaths.includes(item.filePath)
@@ -1519,6 +1503,9 @@ export function MessagesPage() {
                     </div>
                   </div>
                 )}
+                {viewMode === "messages" && mainChatPane?.completion === "cancelled" && (
+                  <p role="status" className="px-6 py-2 text-sm text-muted-foreground">{t("已取消，输入和已收到的回复已保留。")}</p>
+                )}
                 {viewMode === "messages" && chatError && (
                   <div className="max-w-4xl mx-auto px-6">
                     <div className="flex items-center gap-2 py-2 text-sm text-destructive">
@@ -1669,16 +1656,16 @@ function SplitSessionPane({
   const [total, setTotal] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const paneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
+  const sendAfterCancel = useChatPageLifecycle(paneId, `${source}:${filePath}`);
   const {
     continueExistingChatInPane,
     cancelPane,
-    clearPane,
     setPaneProjectPath,
     setPaneModel,
     setPaneSource,
     setActivePane,
   } = useChatStore(
-    useShallow((state) => ({ continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, clearPane: state.clearPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane })),
+    useShallow((state) => ({ continueExistingChatInPane: state.continueExistingChatInPane, cancelPane: state.cancelPane, setPaneProjectPath: state.setPaneProjectPath, setPaneModel: state.setPaneModel, setPaneSource: state.setPaneSource, setActivePane: state.setActivePane })),
   );
   const paneState = useChatStore(useCallback((state) => state.panes[paneId], [paneId]));
   const activePaneId = useChatStore((state) => state.activePaneId);
@@ -1771,12 +1758,6 @@ function SplitSessionPane({
   }, [filePath, paneId, sessionModel, setPaneModel, source]);
 
   useEffect(() => {
-    return () => {
-      clearPane(paneId);
-    };
-  }, [clearPane, paneId]);
-
-  useEffect(() => {
     if (!initialScrollDoneRef.current && messages.length > 0 && !loading) {
       requestAnimationFrame(() => {
         if (containerRef.current) {
@@ -1825,15 +1806,10 @@ function SplitSessionPane({
 
   const handleSubmitAnswers = useCallback(async (answers: string) => {
     if (!resolvedSessionId || !chatProjectPath) return;
-    if (chatStreaming) {
-      await cancelPane(paneId);
-      setTimeout(() => {
-        void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, answers, chatModel);
-      }, 150);
-      return;
-    }
-    void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, answers, chatModel);
-  }, [cancelPane, chatModel, chatProjectPath, chatStreaming, continueExistingChatInPane, paneId, resolvedSessionId]);
+    await sendAfterCancel(() => {
+      void continueExistingChatInPane(paneId, resolvedSessionId, chatProjectPath, answers, chatModel);
+    });
+  }, [sendAfterCancel, chatModel, chatProjectPath, continueExistingChatInPane, paneId, resolvedSessionId]);
 
   return (
     <div
@@ -1928,6 +1904,9 @@ function SplitSessionPane({
               </div>
             </div>
           </div>
+        )}
+        {paneState?.completion === "cancelled" && (
+          <p role="status" className="px-6 py-2 text-sm text-muted-foreground">{t("已取消，输入和已收到的回复已保留。")}</p>
         )}
         {chatError && (
           <div className="px-6">

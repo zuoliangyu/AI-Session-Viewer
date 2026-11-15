@@ -76,6 +76,7 @@ const socket = MockWebSocket.instances.at(-1);
 await waitFor(() => socket.sent.some((frame) => frame.sessionId === "cancel-before-handshake"));
 await api.cancelChat("cancel-before-handshake");
 assert.ok(socket.sent.some((frame) => frame.action === "cancel" && frame.sessionId === "cancel-before-handshake"));
+await assert.rejects(api.continueChat(params("cancel-before-handshake")), /Chat already active/);
 socket.receive({ type: "complete", success: false, sessionId: "cancel-before-handshake" });
 assert.equal(await beforeHandshake, "cancel-before-handshake");
 
@@ -160,8 +161,10 @@ for (const lateOutcome of ["reject", "resolve"]) {
 }
 
 const oldResume = state().continueExistingChatInPane("resume", "same-session", "/mock", "old", "model");
+await waitFor(() => continueCalls.length === 1);
 await state().cancelPane("resume");
 const newResume = state().continueExistingChatInPane("resume", "same-session", "/mock", "new", "model");
+await waitFor(() => continueCalls.length === 2);
 continueCalls[0].reject(new Error("stale resume failure"));
 await oldResume;
 assert.equal(state().getPaneState("resume").isStreaming, true);

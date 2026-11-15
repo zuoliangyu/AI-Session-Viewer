@@ -92,6 +92,8 @@ If a Codex notification buffer overflows or app-server exits, affected streams r
 
 Cancellation requested during startup is retained. A Codex task interrupts only its own turn in the original runtime; each thread in that runtime permits one active send task. Disconnecting a web chat ends its active streams in the UI, while the server cancels and waits for the connection's tasks to exit. Detached background chat is not supported. Cancellation failures or missing CLI stop confirmations return errors.
 
+Failed or cancelled chats retain their input, received content, and error information. A successful live reply is cleared only after it appears in the historical message window; failed refreshes or older history windows keep that reply visible. Leaving a chat page or switching sessions cancels its active task and any delayed follow-up that has not been sent.
+
 ## Skills, MCP, and plugins
 
 Skill and MCP previews belong to the selected source and target nodes. Changing either node requires a fresh preview. Node selection stays fixed during synchronization, and stale previews or duplicate submissions cannot start a write.
