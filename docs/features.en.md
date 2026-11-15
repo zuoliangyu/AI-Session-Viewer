@@ -84,6 +84,8 @@ Plugin declarations are preview-only. Plugin caches, installation directories, a
 
 ## Codex provider sync
 
+Sync, switch, and clone operations save all required backups before changing source data and stop if backup creation fails. Switching preserves the original `config.toml`, including its absence, so restoration can return to the implicit default. Later write failures may still require restoring the backup; changes across files are not one automatically rolled-back transaction.
+
 After changing providers, old rollouts and SQLite metadata may still reference the previous provider and disappear from Codex Desktop or `/resume`. Provider sync aligns rollout headers, SQLite threads, and global-state paths, optionally updating `model_provider` in `config.toml`.
 
 Changes are backed up to `~/.codex/backups_state/provider-sync/`; restoration can select configuration, database, sessions, and global state separately. Encrypted history may still fail to resume across providers with `invalid_encrypted_content`. Use the original provider when reliable resume is required.

@@ -20,6 +20,9 @@ pub struct BackupMetadata {
     pub target_provider: String,
     pub created_at: String,
     pub db_files: Vec<String>,
+    /// None for older backups or operations that did not change config.toml.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_existed: Option<bool>,
     pub changed_session_files: Vec<String>,
     /// `repair` for config-only repairs; older backups default to `sync`.
     #[serde(default = "default_kind")]
@@ -45,12 +48,42 @@ pub fn create_backup_dir(codex_home: &Path) -> Result<PathBuf, String> {
     let root = backups_root(codex_home);
     let mut dir = root.join(&slug);
     let mut suffix = 0u32;
-    while dir.exists() {
-        suffix += 1;
-        dir = root.join(format!("{}-{}", slug, suffix));
+    fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    loop {
+        match fs::create_dir(&dir) {
+            Ok(()) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                suffix += 1;
+                dir = root.join(format!("{}-{}", slug, suffix));
+            }
+            Err(error) => return Err(error.to_string()),
+        }
     }
-    fs::create_dir_all(dir.join("db")).map_err(|e| e.to_string())?;
+    fs::create_dir(dir.join("db")).map_err(|e| e.to_string())?;
     Ok(dir)
+}
+
+/// Missing optional files are fine; unreadable or uncopyable files are not.
+/// Callers must finish every required backup before changing source data.
+pub fn copy_existing(source: &Path, destination: &Path) -> Result<bool, String> {
+    match fs::symlink_metadata(source) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(format!("读取备份源 {} 失败：{error}", source.display())),
+    }
+    fs::copy(source, destination)
+        .map_err(|error| format!("备份 {} 失败：{error}", source.display()))?;
+    Ok(true)
+}
+
+pub fn copy_database(codex_home: &Path, backup_dir: &Path) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for name in ["state_5.sqlite", "state_5.sqlite-shm", "state_5.sqlite-wal"] {
+        if copy_existing(&codex_home.join(name), &backup_dir.join("db").join(name))? {
+            files.push(name.to_string());
+        }
+    }
+    Ok(files)
 }
 
 pub fn list_backups(codex_home: &Path) -> Vec<BackupSummary> {

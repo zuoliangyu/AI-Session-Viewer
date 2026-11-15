@@ -218,22 +218,18 @@ pub fn run_repair(
     let codex_home = get_codex_home()?;
     let config_path = codex_home.join("config.toml");
     let backup_dir = backup::create_backup_dir(&codex_home)?;
-    if config_path.exists() {
-        fs::copy(&config_path, backup_dir.join("config.toml"))
-            .map_err(|e| format!("备份 config.toml 失败：{e}"))?;
-    }
+    let config_existed = backup::copy_existing(&config_path, &backup_dir.join("config.toml"))?;
     let metadata = BackupMetadata {
         namespace: backup::NAMESPACE.to_string(),
         codex_home: codex_home.to_string_lossy().into_owned(),
         target_provider: ids.join(", "),
         created_at: Utc::now().to_rfc3339(),
         db_files: Vec::new(),
+        config_existed: Some(config_existed),
         changed_session_files: Vec::new(),
         kind: "repair".to_string(),
     };
-    let metadata_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("serialize metadata: {}", e))?;
-    fs::write(backup_dir.join("metadata.json"), metadata_json).map_err(|e| e.to_string())?;
+    write_backup_metadata(&backup_dir, &metadata)?;
 
     if let Err(error) = config::append_compat_providers(&config_path, &ids, template.as_deref()) {
         let _ = fs::remove_dir_all(&backup_dir);
@@ -262,7 +258,9 @@ pub fn run_sync(target_override: Option<String>, keep: usize) -> Result<SyncResu
     let codex_home = get_codex_home()?;
     let config_path = codex_home.join("config.toml");
     let target = target_override.unwrap_or_else(|| config::read_current_provider(&config_path).0);
-    sync_to_target(&codex_home, &config_path, &target, keep, false)
+    let result = sync_to_target(&codex_home, &config_path, &target, keep, false)?;
+    crate::provider::codex::invalidate_sessions_cache();
+    Ok(result)
 }
 
 pub fn run_switch(new_provider: String, keep: usize) -> Result<SyncResult, String> {
@@ -271,9 +269,8 @@ pub fn run_switch(new_provider: String, keep: usize) -> Result<SyncResult, Strin
     if new_provider.trim().is_empty() {
         return Err("provider id cannot be empty".into());
     }
-    config::set_root_provider(&config_path, &new_provider)?;
-    let mut result = sync_to_target(&codex_home, &config_path, &new_provider, keep, true)?;
-    result.config_updated = true;
+    let result = sync_to_target(&codex_home, &config_path, &new_provider, keep, true)?;
+    crate::provider::codex::invalidate_sessions_cache();
     Ok(result)
 }
 
@@ -306,22 +303,19 @@ pub fn run_clone(
 
     // Back up the DB before inserting rows, so a bad clone is recoverable.
     let backup_dir = backup::create_backup_dir(&codex_home)?;
-    let mut db_files: Vec<String> = Vec::new();
-    if sqlite_path.exists() {
-        let target_path = backup_dir.join("db").join("state_5.sqlite");
-        if fs::copy(&sqlite_path, &target_path).is_ok() {
-            db_files.push("state_5.sqlite".to_string());
-        }
-        for ext in ["sqlite-shm", "sqlite-wal"] {
-            let src = codex_home.join(format!("state_5.{ext}"));
-            if src.exists() {
-                let dest = backup_dir.join("db").join(format!("state_5.{ext}"));
-                if fs::copy(&src, &dest).is_ok() {
-                    db_files.push(format!("state_5.{ext}"));
-                }
-            }
-        }
-    }
+    let db_files = backup::copy_database(&codex_home, &backup_dir)?;
+    let mut metadata = BackupMetadata {
+        namespace: backup::NAMESPACE.to_string(),
+        codex_home: codex_home.to_string_lossy().into_owned(),
+        target_provider: target_provider.clone(),
+        created_at: Utc::now().to_rfc3339(),
+        db_files,
+        config_existed: None,
+        changed_session_files: Vec::new(),
+        kind: "sync".to_string(),
+    };
+    // Publish a restorable DB backup before the first clone changes it.
+    write_backup_metadata(&backup_dir, &metadata)?;
 
     let mut cloned = 0u32;
     let mut skipped: Vec<String> = Vec::new();
@@ -385,22 +379,12 @@ pub fn run_clone(
         cloned += 1;
     }
 
-    let now: DateTime<Utc> = Utc::now();
-    let metadata = BackupMetadata {
-        namespace: backup::NAMESPACE.to_string(),
-        codex_home: codex_home.to_string_lossy().into_owned(),
-        target_provider: target_provider.clone(),
-        created_at: now.to_rfc3339(),
-        db_files,
-        changed_session_files: created_files,
-        kind: "sync".to_string(),
-    };
-    if let Ok(json) = serde_json::to_string_pretty(&metadata) {
-        let _ = fs::write(backup_dir.join("metadata.json"), json);
-    }
+    metadata.changed_session_files = created_files;
+    let metadata_result = write_backup_metadata(&backup_dir, &metadata);
 
     let _ = backup::prune_backups(&codex_home, keep.max(1));
     crate::provider::codex::invalidate_sessions_cache();
+    metadata_result?;
 
     Ok(CloneResult {
         backup_dir: backup_dir.to_string_lossy().into_owned(),
@@ -412,12 +396,33 @@ pub fn run_clone(
     })
 }
 
+fn write_backup_metadata(dir: &Path, metadata: &BackupMetadata) -> Result<(), String> {
+    use std::io::Write;
+
+    let json = serde_json::to_string_pretty(metadata)
+        .map_err(|error| format!("序列化备份元数据失败：{error}"))?;
+    let temporary = dir.join(format!("metadata-{}.tmp", Uuid::new_v4()));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|error| format!("创建备份元数据失败：{error}"))?;
+    let result = file.write_all(json.as_bytes()).and_then(|_| file.sync_all());
+    drop(file);
+    let result = result.and_then(|_| fs::rename(&temporary, dir.join("metadata.json")));
+    if let Err(error) = result {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("保存备份元数据失败：{error}"));
+    }
+    Ok(())
+}
+
 fn sync_to_target(
     codex_home: &Path,
     config_path: &Path,
     target: &str,
     keep: usize,
-    config_already_changed: bool,
+    switch_config: bool,
 ) -> Result<SyncResult, String> {
     let sessions_dir = codex_home.join("sessions");
     let archived_dir = codex_home.join("archived_sessions");
@@ -450,38 +455,15 @@ fn sync_to_target(
 
     let backup_dir = backup::create_backup_dir(codex_home)?;
     let sqlite_path = sqlite_state::db_path(codex_home);
-    let mut db_files: Vec<String> = Vec::new();
-
-    if sqlite_path.exists() {
-        let target_path = backup_dir.join("db").join("state_5.sqlite");
-        if fs::copy(&sqlite_path, &target_path).is_ok() {
-            db_files.push("state_5.sqlite".to_string());
-        }
-        for ext in ["sqlite-shm", "sqlite-wal"] {
-            let src = codex_home.join(format!("state_5.{}", ext));
-            if src.exists() {
-                let dest = backup_dir.join("db").join(format!("state_5.{}", ext));
-                if fs::copy(&src, &dest).is_ok() {
-                    db_files.push(format!("state_5.{}", ext));
-                }
-            }
-        }
-    }
-
-    if config_path.exists() {
-        let _ = fs::copy(config_path, backup_dir.join("config.toml"));
-    }
+    let db_files = backup::copy_database(codex_home, &backup_dir)?;
+    let config_existed = backup::copy_existing(config_path, &backup_dir.join("config.toml"))?;
     let global_state_p = global_state::global_state_path(codex_home);
-    if global_state_p.exists() {
-        let _ = fs::copy(&global_state_p, backup_dir.join(".codex-global-state.json"));
-    }
+    backup::copy_existing(&global_state_p, &backup_dir.join(".codex-global-state.json"))?;
     let global_state_bak = codex_home.join(".codex-global-state.json.bak");
-    if global_state_bak.exists() {
-        let _ = fs::copy(
-            &global_state_bak,
-            backup_dir.join(".codex-global-state.json.bak"),
-        );
-    }
+    backup::copy_existing(
+        &global_state_bak,
+        &backup_dir.join(".codex-global-state.json.bak"),
+    )?;
 
     let backup_items: Vec<SessionMetaBackupItem> = to_rewrite
         .iter()
@@ -511,12 +493,16 @@ fn sync_to_target(
         target_provider: target.to_string(),
         created_at: now.to_rfc3339(),
         db_files,
+        config_existed: Some(config_existed),
         changed_session_files: backup_items.iter().map(|i| i.path.clone()).collect(),
         kind: "sync".to_string(),
     };
-    let metadata_json = serde_json::to_string_pretty(&metadata)
-        .map_err(|e| format!("serialize metadata: {}", e))?;
-    fs::write(backup_dir.join("metadata.json"), metadata_json).map_err(|e| e.to_string())?;
+    write_backup_metadata(&backup_dir, &metadata)?;
+
+    // Every backup must succeed before changing the provider.
+    if switch_config {
+        config::set_root_provider(config_path, target)?;
+    }
 
     let updated_sqlite_rows = if sqlite_path.exists() {
         sqlite_state::update_threads(
@@ -548,15 +534,13 @@ fn sync_to_target(
 
     let _ = backup::prune_backups(codex_home, keep.max(1));
 
-    crate::provider::codex::invalidate_sessions_cache();
-
     Ok(SyncResult {
         backup_dir: backup_dir.to_string_lossy().into_owned(),
         target_provider: target.to_string(),
         updated_rollouts,
         updated_sqlite_rows,
         global_state_updated,
-        config_updated: config_already_changed,
+        config_updated: switch_config,
         skipped_locked,
     })
 }
@@ -564,6 +548,16 @@ fn sync_to_target(
 pub fn run_restore(backup_dir: &str, opts: RestoreOptions) -> Result<RestoreResult, String> {
     let codex_home = get_codex_home()?;
     let dir = PathBuf::from(backup_dir);
+    let result = restore_backup(&codex_home, &dir, opts)?;
+    crate::provider::codex::invalidate_sessions_cache();
+    Ok(result)
+}
+
+fn restore_backup(
+    codex_home: &Path,
+    dir: &Path,
+    opts: RestoreOptions,
+) -> Result<RestoreResult, String> {
     let meta_text = fs::read_to_string(dir.join("metadata.json"))
         .map_err(|e| format!("read metadata.json: {}", e))?;
     let metadata: BackupMetadata =
@@ -577,7 +571,13 @@ pub fn run_restore(backup_dir: &str, opts: RestoreOptions) -> Result<RestoreResu
 
     if opts.include_config {
         let src = dir.join("config.toml");
-        if src.exists() {
+        if metadata.config_existed == Some(false) {
+            match fs::remove_file(codex_home.join("config.toml")) {
+                Ok(()) => restored_files += 1,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("恢复缺省 config.toml 失败：{error}")),
+            }
+        } else if metadata.config_existed == Some(true) || src.exists() {
             fs::copy(&src, codex_home.join("config.toml")).map_err(|e| e.to_string())?;
             restored_files += 1;
         }
@@ -627,8 +627,6 @@ pub fn run_restore(backup_dir: &str, opts: RestoreOptions) -> Result<RestoreResu
         }
     }
 
-    crate::provider::codex::invalidate_sessions_cache();
-
     Ok(RestoreResult {
         restored_files,
         restored_sessions,
@@ -638,4 +636,107 @@ pub fn run_restore(backup_dir: &str, opts: RestoreOptions) -> Result<RestoreResu
 pub fn run_prune_backups(keep: usize) -> Result<u32, String> {
     let codex_home = get_codex_home()?;
     backup::prune_backups(&codex_home, keep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestHome(PathBuf);
+
+    impl TestHome {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("asv-provider-backup-{}", Uuid::new_v4()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestHome {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn config_only() -> RestoreOptions {
+        RestoreOptions {
+            include_config: true,
+            include_db: false,
+            include_sessions: false,
+            include_global_state: false,
+        }
+    }
+
+    #[test]
+    fn switch_backup_restores_original_config_bytes() {
+        let home = TestHome::new();
+        let config_path = home.0.join("config.toml");
+        let original = "# Keep this comment\nmodel_provider = \"old\"\nmodel = \"gpt-5\"\n";
+        fs::write(&config_path, original).unwrap();
+
+        let result = sync_to_target(&home.0, &config_path, "new", 5, true).unwrap();
+        assert_eq!(config::read_current_provider(&config_path).0, "new");
+        assert_eq!(
+            fs::read_to_string(Path::new(&result.backup_dir).join("config.toml")).unwrap(),
+            original
+        );
+        restore_backup(&home.0, Path::new(&result.backup_dir), config_only()).unwrap();
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), original);
+    }
+
+    #[test]
+    fn switch_backup_restores_absent_config() {
+        let home = TestHome::new();
+        let config_path = home.0.join("config.toml");
+
+        let result = sync_to_target(&home.0, &config_path, "new", 5, true).unwrap();
+        assert!(config_path.is_file());
+        restore_backup(&home.0, Path::new(&result.backup_dir), config_only()).unwrap();
+        assert!(!config_path.exists());
+        assert_eq!(config::read_current_provider(&config_path), ("openai".to_string(), true));
+    }
+
+    #[test]
+    fn failed_backup_leaves_config_database_and_rollout_unchanged() {
+        let home = TestHome::new();
+        let config_path = home.0.join("config.toml");
+        let config = "model_provider = \"old\"\n";
+        fs::write(&config_path, config).unwrap();
+        let database = home.0.join("state_5.sqlite");
+        fs::write(&database, b"unchanged database").unwrap();
+        let sessions = home.0.join("sessions");
+        fs::create_dir(&sessions).unwrap();
+        let rollout_path = sessions.join("rollout-test.jsonl");
+        let rollout = "{\"type\":\"session_meta\",\"payload\":{\"id\":\"test\",\"model_provider\":\"old\",\"cwd\":\"/project\"}}\n";
+        fs::write(&rollout_path, rollout).unwrap();
+        // A directory cannot be copied as the global-state backup file.
+        fs::create_dir(home.0.join(".codex-global-state.json")).unwrap();
+
+        let error = sync_to_target(&home.0, &config_path, "new", 5, true).unwrap_err();
+        assert!(error.contains("备份"));
+        assert_eq!(fs::read_to_string(&config_path).unwrap(), config);
+        assert_eq!(fs::read(&database).unwrap(), b"unchanged database");
+        assert_eq!(fs::read_to_string(&rollout_path).unwrap(), rollout);
+        assert!(backup::list_backups(&home.0).is_empty());
+    }
+
+    #[test]
+    fn database_backup_failure_is_not_ignored() {
+        let home = TestHome::new();
+        fs::write(home.0.join("state_5.sqlite"), b"database").unwrap();
+        fs::create_dir(home.0.join("state_5.sqlite-wal")).unwrap();
+        let dir = backup::create_backup_dir(&home.0).unwrap();
+        assert!(backup::copy_database(&home.0, &dir).is_err());
+    }
+
+    #[test]
+    fn old_backup_metadata_remains_readable() {
+        let metadata: BackupMetadata = serde_json::from_value(serde_json::json!({
+            "namespace": "provider-sync", "codexHome": "/codex",
+            "targetProvider": "old", "createdAt": "2026-01-01T00:00:00Z",
+            "dbFiles": [], "changedSessionFiles": []
+        }))
+        .unwrap();
+        assert_eq!(metadata.config_existed, None);
+    }
 }

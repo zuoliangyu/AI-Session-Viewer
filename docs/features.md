@@ -200,6 +200,8 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 
 ## Codex Provider 同步
 
+同步、切换及克隆必须先成功保存所需备份，再修改源数据；备份失败会中止操作。切换备份保留修改前的 `config.toml`，并记录其原先不存在的状态，恢复时可回到隐式默认配置。多文件写入失败后仍需从备份恢复，不承诺跨文件自动事务回滚。
+
 仅 Codex 数据源可见。切换 Codex 供应商后，老 rollout 文件和 `state_5.sqlite` 还指向旧 provider，导致 Codex Desktop / `/resume` 看不到历史会话。本工具一键追平：
 
 - **状态总览**：按 provider 列出 `~/.codex/sessions/`、`~/.codex/archived_sessions/`、SQLite `threads` 表的分布与不一致计数，并扫出含 `encrypted_content` 的危险会话
