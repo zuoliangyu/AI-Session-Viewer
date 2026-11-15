@@ -16,6 +16,7 @@ const checks = [
   "check-request-log-pagination.mjs",
   "check-chat-lifecycle.mjs",
   "check-message-navigation.mjs",
+  "check-markdown-links.mjs",
   "check-chat-page-lifecycle.mjs",
 ];
 

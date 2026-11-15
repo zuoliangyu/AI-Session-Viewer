@@ -1,11 +1,12 @@
 import { t } from "../../i18n/index.js";
 import { useTranslation } from "react-i18next";
-import { Children, isValidElement, memo, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Children, isValidElement, memo, useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { cleanMessageText, wrapAsciiArt } from "./utils";
+import { openMarkdownExternalLink, safeMarkdownHref } from "../../services/markdownLinks";
 
 interface MarkdownContentProps {
   content: string;
@@ -133,7 +134,29 @@ function MarkdownPre({ children }: { children?: ReactNode }) {
   );
 }
 
+function MarkdownLink({ href, title, children }: { href?: string; title?: string; children?: ReactNode }) {
+  const { t } = useTranslation();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [href]);
+  const safeHref = safeMarkdownHref(href);
+  if (!safeHref) return <span>{children}</span>;
+  const external = !safeHref.startsWith("#");
+  const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!__IS_TAURI__ || !external || (event.type === "auxclick" && event.button !== 1)) return;
+    event.preventDefault();
+    setFailed(false);
+    void openMarkdownExternalLink(safeHref).catch((error: unknown) => {
+      setFailed(true);
+      console.error("Failed to open external Markdown link", error);
+    });
+  };
+  return <><a href={safeHref} title={title} target={external && !__IS_TAURI__ ? "_blank" : undefined}
+    rel={external ? "noopener noreferrer" : undefined} onClick={handleClick} onAuxClick={handleClick}>{children}</a>
+    {failed && <span role="alert" className="ml-1 text-destructive">{t("无法打开链接，请稍后重试")}</span>}</>;
+}
+
 const MARKDOWN_COMPONENTS = {
+  a: MarkdownLink,
   code: MarkdownCode,
   pre: MarkdownPre,
   table({ children }: { children?: ReactNode }) {

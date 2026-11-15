@@ -33,7 +33,9 @@
 - `node scripts/check-updates.mjs`（Node.js 24+）用模拟桌面 API 运行真实更新状态逻辑，检查自动/手动详情展示、忽略版本、下载进度、失败重试和便携版跳转；不访问网络、不安装更新、不编译。该专项检查单独运行，不改变通用轻量检查的 Node.js 版本要求。
 - `node scripts/check-appimage.mjs` 检查 Tauri CLI 的版本锁定，避免重新引入绝对 `.DirIcon` 符号链接的上游缺陷；两项检查均已纳入 `npm run check:scripts`。
 
-以下 8 项状态与并发定向回归可用 `npm run check:regressions` 一次运行（Node.js 24+），CI 使用独立任务运行并纳入发布门禁。每项在独立进程中执行，避免模拟环境互相影响；`npm run check:scripts` 仍兼容 Node.js 22。此入口不执行构建或类型检查。
+以下 9 项定向回归可用 `npm run check:regressions` 一次运行（Node.js 24+），CI 使用独立任务运行并纳入发布门禁。每项在独立进程中执行，避免模拟环境互相影响；`npm run check:scripts` 仍兼容 Node.js 22。此入口不执行构建或类型检查。
+
+会话链接安全回归：`node scripts/check-markdown-links.mjs`（Node.js 24+）。验证危险协议、相对路径、凭据与控制字符过滤、锚点保留和系统浏览器调用；不实际打开链接、不编译。
 
 同步预览的定向回归：`node scripts/check-sync-preview.mjs`（Node.js 24+）。使用真实预览守卫和内存请求，检查乱序响应、节点切换、重复提交与卸载失效；不访问节点、不写配置、不编译。
 

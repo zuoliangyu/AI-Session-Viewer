@@ -95,6 +95,12 @@ npx tsc --noEmit                           # TypeScript 类型检查
 
 > Linux 上如果 `cargo check --workspace` / `cargo clippy --workspace` 报 `glib`、`gobject`、`gio`、`libsoup` 等原生库缺失，通常不是 Rust 代码错误，而是桌面端 Tauri 依赖未安装完整。请先按上面的 Linux 桌面依赖说明补齐环境后再检查；如果你当前只开发 Web 服务器，可先只验证 `session-web` 相关目标。
 
+## 会话链接与桌面导航
+
+会话 Markdown 中的 HTTP(S) 和 `mailto:` 链接在桌面端交给系统默认应用打开，Web 端在新标签页打开并隔离 `opener`。页内锚点保留；文件、脚本、自定义协议及相对路径链接仅显示文字，不作为应用路由执行。桌面主 WebView 额外限制为完整匹配的应用来源；开发模式仅额外允许 `devUrl` 指定的协议、主机和端口，避免远程页面获得本地 IPC 权限。
+
+`node scripts/check-markdown-links.mjs` 使用内存模拟验证链接过滤与系统浏览器调用，不实际打开链接。Rust 导航限制用例位于 `src-tauri/src/navigation.rs`，需手动编译运行。
+
 ## 技术栈
 
 | 层级 | 技术 |

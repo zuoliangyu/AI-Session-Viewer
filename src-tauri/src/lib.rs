@@ -1,4 +1,5 @@
 mod commands;
+mod navigation;
 mod watcher;
 
 use commands::chat::ChatProcessState;
@@ -9,6 +10,7 @@ pub fn run() {
     session_core::scan_progress::configure_rayon_pool();
 
     tauri::Builder::default()
+        .plugin(navigation::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())

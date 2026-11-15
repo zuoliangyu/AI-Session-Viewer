@@ -68,6 +68,12 @@ The interface remains Chinese by default. Providing an English option alone does
 
 An independent Node.js 24 CI job runs focused regressions for sync previews, empty tag caching, question trees, message request isolation, billing pagination, chat lifecycle, and message navigation. The checks exercise real state logic with in-memory APIs and WebSockets, each in a separate process so mocks cannot leak between checks. They do not replace Rust/TypeScript compilation or live UI verification.
 
+## Conversation links and desktop navigation
+
+Markdown HTTP(S) and `mailto:` links open in the system default application on desktop and in a new tab with opener isolation on the web. In-page anchors remain available. File, script, custom-protocol and relative-path links render as text instead of application routes. The desktop WebView only accepts exact application origins; development additionally permits the exact scheme, host and port configured in `devUrl`, preventing remote pages from gaining local IPC access.
+
+`node scripts/check-markdown-links.mjs` verifies filtering and system-browser calls with in-memory mocks. It does not open real links. Rust navigation tests in `src-tauri/src/navigation.rs` require manual compilation.
+
 ## Architecture
 
 | Layer | Technology |

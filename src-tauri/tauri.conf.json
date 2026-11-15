@@ -39,6 +39,9 @@
     ]
   },
   "plugins": {
+    "shell": {
+      "open": "(?:https?://|mailto:)[^\\s\\x00-\\x1f\\x7f]+"
+    },
     "updater": {
       "endpoints": [
         "https://github.com/zuoliangyu/AI-Session-Viewer/releases/latest/download/latest.json"
