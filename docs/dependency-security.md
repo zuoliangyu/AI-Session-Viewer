@@ -38,4 +38,6 @@ CI 在普通检查、发布前以及每日定时运行依赖审计。Dependabot 
 
 ## 验证边界
 
-本次完成依赖解析、在线审计、补丁完整性、Node 轻量回归与配置检查；遵守项目约束，未执行 Rust/TypeScript 编译、构建或 Rust 测试。请维护者手动运行 `cargo clippy --workspace -- -D warnings`、`npx tsc --noEmit`，并验证 Linux 桌面、数据库同步、ZIP 导入导出、更新流程与外链打开。系统 WebView/WebKit 和已发布容器镜像的完整漏洞扫描不在锁文件审计范围内。
+首次修复完成了依赖解析、在线审计、补丁完整性、Node 轻量回归与配置检查，未执行编译。随后经用户明确授权，在 Windows 本机运行 `cargo clippy --workspace --locked -- -D warnings` 和 `npx --no-install tsc --noEmit`，修正发现的问题后两项均通过，消息导航定向回归也通过；Rust 工具链为 1.96.1。
+
+尚未执行全量 Rust 测试、生产打包或跨平台编译。Linux 桌面的 GLib 回补、数据库同步、ZIP 导入导出、更新流程与实际外链打开仍需相应平台验证。系统 WebView/WebKit 和已发布容器镜像的完整漏洞扫描不在锁文件审计范围内。

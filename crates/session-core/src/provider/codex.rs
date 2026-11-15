@@ -1944,9 +1944,9 @@ fn parse_usage_file(path: &Path) -> Result<UsageFile, String> {
         let trimmed = line.trim_start_matches('\u{feff}').trim();
         let needs_meta = line_index < SESSION_META_SCAN_LINES && session_meta.is_none();
         if trimmed.is_empty()
-            || (!trimmed.contains("\"token_count\"")
-                && !trimmed.contains("\"turn_context\"")
-                && !(needs_meta && trimmed.contains("\"session_meta\"")))
+            || !(trimmed.contains("\"token_count\"")
+                || trimmed.contains("\"turn_context\"")
+                || (needs_meta && trimmed.contains("\"session_meta\"")))
         {
             continue;
         }

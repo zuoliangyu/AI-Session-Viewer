@@ -35,7 +35,7 @@ impl NavigationIndex {
             }
         }
         for (index, message) in messages.iter().enumerate() {
-            if message.uuid.as_ref().map_or(true, String::is_empty) {
+            if message.uuid.as_ref().is_none_or(String::is_empty) {
                 locations
                     .entry(format!("{}-{index}", message.role))
                     .or_insert(index);
