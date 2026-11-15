@@ -54,6 +54,23 @@ const sessionCostsInFlight = new Map<
 >();
 let crossProjectTagsVersion = 0;
 let crossProjectTagsInFlight: Promise<void> | null = null;
+let messagesRequestVersion = 0;
+let searchRequestVersion = 0;
+
+function beginMessagesRequest(state: AppState) {
+  return {
+    source: state.source,
+    filePath: state.selectedFilePath,
+    generation: state.messagesGeneration,
+    version: ++messagesRequestVersion,
+  };
+}
+
+function isCurrentMessagesRequest(state: AppState, request: ReturnType<typeof beginMessagesRequest>) {
+  return request.version === messagesRequestVersion &&
+    request.generation === state.messagesGeneration &&
+    request.source === state.source && request.filePath === state.selectedFilePath;
+}
 
 function resetCrossProjectTags() {
   crossProjectTagsVersion += 1;
@@ -269,8 +286,9 @@ async function traceMessagesRequest<T extends PaginatedMessages | RangeMessages>
 function requestInitialMessages(
   source: string,
   filePath: string,
+  generation: number,
 ): Promise<TracedMessageResult<PaginatedMessages>> {
-  const key = `${source}\u0000${normalizeFilePath(filePath)}`;
+  const key = `${generation}\u0000${source}\u0000${normalizeFilePath(filePath)}`;
   const existing = initialMessagesInFlight.get(key);
   if (existing) {
     recordPerfDiagnostic("messages.request_deduplicated", undefined, {
@@ -328,6 +346,8 @@ interface AppState {
 
   // Messages — progressive (windowed) loading
   messages: DisplayMessage[];
+  /** Changes when navigation or a jump replaces the loaded window. */
+  messagesGeneration: number;
   messagesLoading: boolean;
   /** Initial message load failure for `selectedFilePath`; cleared on reselect. */
   messagesError: string | null;
@@ -446,6 +466,7 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   source: readStoredSource(),
   setSource: (s) => {
+    searchRequestVersion += 1;
     try {
       localStorage.setItem(SOURCE_STORAGE_KEY, s);
     } catch {
@@ -460,6 +481,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionsLoading: false,
       sessionsError: null,
       messages: [],
+      messagesGeneration: get().messagesGeneration + 1,
+      messagesTotal: 0,
+      loadedStart: 0,
+      loadedEnd: 0,
+      messagesHasMore: false,
+      messagesHasNewer: false,
       messagesLoading: false,
       messagesError: null,
       selectedProject: null,
@@ -524,6 +551,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedFilePath: null,
 
   messages: [],
+  messagesGeneration: 0,
   messagesLoading: false,
   messagesError: null,
   messagesTotal: 0,
@@ -609,6 +637,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       sessionsError: null,
       selectedFilePath: null,
       messages: [],
+      messagesGeneration: get().messagesGeneration + 1,
+      messagesLoading: false,
+      messagesError: null,
       messagesTotal: 0,
       loadedStart: 0,
       loadedEnd: 0,
@@ -668,10 +699,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const currentBeforeRequest = get();
     const alreadyLoadingSameSession =
       currentBeforeRequest.selectedFilePath === filePath &&
-      currentBeforeRequest.messagesLoading;
+      currentBeforeRequest.messagesLoading && currentBeforeRequest.messages.length === 0;
     if (!alreadyLoadingSameSession) {
       set({
         selectedFilePath: filePath,
+        messagesGeneration: currentBeforeRequest.messagesGeneration + 1,
         messagesLoading: true,
         messagesError: null,
         messages: [],
@@ -682,18 +714,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasNewer: false,
       });
     }
+    const request = beginMessagesRequest(get());
     try {
       // Initial load: the tail window — same code path as before, just
       // with a smaller page size. The result tells us `total`, which we
       // use to seed loadedStart / loadedEnd.
-      const response = await requestInitialMessages(requestSource, filePath);
+      const response = await requestInitialMessages(requestSource, filePath, request.generation);
       const result = response.result;
-      if (
-        get().source !== requestSource ||
-        get().selectedFilePath !== filePath
-      ) {
-        return;
-      }
+      if (!isCurrentMessagesRequest(get(), request)) return;
       const loadedStart = Math.max(0, result.total - result.messages.length);
       const loadedEnd = result.total;
       const current = get();
@@ -736,11 +764,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         total: result.total,
       });
     } catch (e) {
-      console.error("Failed to load messages:", e);
-      if (
-        get().source === requestSource &&
-        get().selectedFilePath === filePath
-      ) {
+      if (isCurrentMessagesRequest(get(), request)) {
+        console.error("Failed to load messages:", e);
         set({ messagesLoading: false, messagesError: errorMessage(e) });
       }
     }
@@ -774,6 +799,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           sessions: [],
           invalidSessions: [],
           messages: [],
+          messagesGeneration: state.messagesGeneration + 1,
+          messagesLoading: false,
           messagesTotal: 0,
           loadedStart: 0,
           loadedEnd: 0,
@@ -814,6 +841,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const requestEnd = state.loadedStart;
     const requestStart = Math.max(0, requestEnd - MAIN_MESSAGES_PAGE_SIZE);
+    const request = beginMessagesRequest(state);
     set({ messagesLoading: true });
     try {
       const response = await traceMessagesRequest(
@@ -833,10 +861,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       const result = response.result;
       const current = get();
-      if (
-        current.source !== state.source ||
-        current.selectedFilePath !== state.selectedFilePath
-      ) {
+      if (!isCurrentMessagesRequest(current, request)) return;
+      if (current.loadedStart !== state.loadedStart || current.loadedEnd !== state.loadedEnd) {
         set({ messagesLoading: false });
         return;
       }
@@ -848,7 +874,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       // backwards (empty slice, or start >= where we already were), force
       // messagesHasMore off so an outer loop ("加载全部") doesn't spin.
       const madeProgress =
-        result.messages.length > 0 && newStart < current.loadedStart;
+        result.messages.length > 0 && newStart < current.loadedStart &&
+        result.end === current.loadedStart && result.end - newStart === result.messages.length;
       if (!madeProgress) {
         console.warn(
           "loadMoreMessages: backend returned no progress",
@@ -888,6 +915,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         total,
       });
     } catch (e) {
+      if (!isCurrentMessagesRequest(get(), request)) return;
       console.error("Failed to load more messages:", e);
       // Treat hard failure as "no more" so an outer loop doesn't retry forever.
       set({ messagesHasMore: false, messagesLoading: false });
@@ -913,6 +941,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       state.messagesTotal,
       state.loadedEnd + MAIN_MESSAGES_PAGE_SIZE,
     );
+    const request = beginMessagesRequest(state);
     set({ messagesLoading: true });
     try {
       const response = await traceMessagesRequest(
@@ -932,17 +961,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       const result = response.result;
       const current = get();
-      if (
-        current.source !== state.source ||
-        current.selectedFilePath !== state.selectedFilePath
-      ) {
+      if (!isCurrentMessagesRequest(current, request)) return;
+      if (current.loadedStart !== state.loadedStart || current.loadedEnd !== state.loadedEnd) {
         set({ messagesLoading: false });
         return;
       }
       const total = result.total;
       const newEnd = result.end;
       const madeProgress =
-        result.messages.length > 0 && newEnd > current.loadedEnd;
+        result.messages.length > 0 && newEnd > current.loadedEnd &&
+        result.start === current.loadedEnd && newEnd - result.start === result.messages.length;
       if (!madeProgress) {
         console.warn(
           "loadNewerMessages: backend returned no progress",
@@ -982,6 +1010,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         total,
       });
     } catch (e) {
+      if (!isCurrentMessagesRequest(get(), request)) return;
       console.error("Failed to load newer messages:", e);
       set({ messagesHasNewer: false, messagesLoading: false });
     }
@@ -1006,7 +1035,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    set({ messagesLoading: true });
+    set({ messagesLoading: true, messagesGeneration: state.messagesGeneration + 1 });
+    const request = beginMessagesRequest(get());
     try {
       const response = await traceMessagesRequest(
         "jump",
@@ -1025,12 +1055,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       );
       const result = response.result;
       const current = get();
-      if (
-        current.source !== state.source ||
-        current.selectedFilePath !== state.selectedFilePath
-      ) {
-        return;
-      }
+      if (!isCurrentMessagesRequest(current, request)) return;
       const newTotal = result.total;
       markPendingMessageCommit({
         requestId: response.requestId,
@@ -1054,22 +1079,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         total: newTotal,
       });
     } catch (e) {
+      if (!isCurrentMessagesRequest(get(), request)) return;
       console.error("Failed to jump to message:", e);
       set({ messagesLoading: false });
     }
   },
 
   search: async (query: string) => {
-    const scope = get().searchScope;
+    const { source, searchScope: scope } = get();
+    const version = ++searchRequestVersion;
+    const isCurrent = () => version === searchRequestVersion && get().source === source &&
+      get().searchQuery === query && get().searchScope === scope;
     set({ searchQuery: query, searchLoading: true });
     if (!query.trim()) {
       set({ searchResults: [], searchLoading: false });
       return;
     }
     try {
-      const results = await api.globalSearch(get().source, query, 50, scope);
+      const results = await api.globalSearch(source, query, 50, scope);
+      if (!isCurrent()) return;
       set({ searchResults: results, searchLoading: false });
     } catch (e) {
+      if (!isCurrent()) return;
       console.error("Failed to search:", e);
       set({ searchLoading: false });
     }
@@ -1195,12 +1226,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       selectedFilePath: null,
       sessions: [],
       messages: [],
+      messagesGeneration: get().messagesGeneration + 1,
+      messagesLoading: false,
+      messagesError: null,
+      messagesTotal: 0,
+      loadedStart: 0,
+      loadedEnd: 0,
+      messagesHasMore: false,
+      messagesHasNewer: false,
     });
   },
 
   reloadLatestMessages: async () => {
     const { source: currentSource, selectedFilePath } = get();
     if (!selectedFilePath) return;
+    set({ messagesGeneration: get().messagesGeneration + 1, messagesLoading: true });
+    const request = beginMessagesRequest(get());
     try {
       const response = await traceMessagesRequest(
         "reload",
@@ -1220,12 +1261,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ),
       );
       const result = response.result;
-      if (
-        get().source !== currentSource ||
-        get().selectedFilePath !== selectedFilePath
-      ) {
-        return;
-      }
+      if (!isCurrentMessagesRequest(get(), request)) return;
       const loadedStart = Math.max(0, result.total - result.messages.length);
       const current = get();
       const unchanged =
@@ -1266,6 +1302,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch {
       // silent
+    } finally {
+      if (isCurrentMessagesRequest(get(), request)) set({ messagesLoading: false });
     }
   },
 
@@ -1366,6 +1404,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
       return;
     }
+    const request = beginMessagesRequest(get());
     try {
       const response = await traceMessagesRequest(
         "background",
@@ -1388,8 +1427,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const result = response.result;
       const after = get();
       if (
-        after.source !== currentSource ||
-        after.selectedFilePath !== selectedFilePath ||
+        !isCurrentMessagesRequest(after, request) ||
         after.loadedEnd < after.messagesTotal ||
         after.messagesLoading
       ) {

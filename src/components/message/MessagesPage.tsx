@@ -22,6 +22,7 @@ import { ThreadSummaryView } from "./ThreadSummaryView";
 import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
 import { MessageTOCSidebar } from "./MessageTOCSidebar";
+import { loadAllOlderMessages } from "../../services/messageLoading";
 import { JumpToPercentControl } from "./JumpToPercentControl";
 import { SessionPositionRail, type RailMarker } from "./SessionPositionRail";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
@@ -451,7 +452,7 @@ export function MessagesPage() {
   const [splitFilePaths, setSplitFilePaths] = useState<string[]>([]);
   const [showSplitPicker, setShowSplitPicker] = useState(false);
   const [loadingAll, setLoadingAll] = useState(false);
-  const loadAllAbortRef = useRef(false);
+  const loadAllAbortRef = useRef<AbortController | null>(null);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
   const [viewMode, setViewMode] = useState<"messages" | "thread" | "trajectory">("messages");
   const [tocCollapsed, setTocCollapsed] = useState<boolean>(
@@ -670,45 +671,31 @@ export function MessagesPage() {
   // The button is intentionally manual (not auto on mount) since very long
   // sessions can be 10k+ messages and rendering them all is expensive.
   const handleLoadAll = useCallback(async () => {
-    if (loadingAll) {
+    if (loadAllAbortRef.current) {
       // Second click cancels an in-flight load-all run.
-      loadAllAbortRef.current = true;
+      loadAllAbortRef.current.abort();
       return;
     }
+    const controller = new AbortController();
+    loadAllAbortRef.current = controller;
     setLoadingAll(true);
-    loadAllAbortRef.current = false;
     try {
-      // Read latest store state on each iteration to know if we still need
-      // more pages. Cap iterations defensively.
-      for (let i = 0; i < 500; i += 1) {
-        if (loadAllAbortRef.current) break;
-        const state = useAppStore.getState();
-        if (!state.messagesHasMore || state.messagesLoading) {
-          if (state.messagesLoading) {
-            // Yield until the in-flight request settles.
-            await new Promise((r) => setTimeout(r, 80));
-            continue;
-          }
-          break;
-        }
-        const before = state.loadedStart;
-        await state.loadMoreMessages();
-        const after = useAppStore.getState().loadedStart;
-        if (after >= before) {
-          // No-progress guard: if loadMoreMessages didn't actually advance
-          // the window backwards (e.g. backend returned an empty slice or
-          // the request errored), stop instead of spinning to i=500.
-          console.error(
-            `handleLoadAll: no progress at iter ${i} (loadedStart stayed at ${before}), aborting`,
-          );
-          break;
-        }
-      }
+      await loadAllOlderMessages(useAppStore.getState, controller.signal);
     } finally {
-      setLoadingAll(false);
-      loadAllAbortRef.current = false;
+      if (loadAllAbortRef.current === controller) {
+        loadAllAbortRef.current = null;
+        setLoadingAll(false);
+      }
     }
-  }, [loadingAll]);
+  }, []);
+
+  useEffect(() => {
+    setLoadingAll(false);
+    return () => {
+      loadAllAbortRef.current?.abort();
+      loadAllAbortRef.current = null;
+    };
+  }, [source, filePath]);
 
   const updateScrollButtonState = useCallback((nextShowScrollUp: boolean, nextShowScrollDown: boolean) => {
     const current = scrollButtonStateRef.current;
@@ -793,12 +780,15 @@ export function MessagesPage() {
       // Optimistically move the thumb so the rail feels responsive.
       positionPercentRef.current = p;
       setPositionPercent(p);
-      await jumpToMessageIndex(target);
+      const pendingJump = jumpToMessageIndex(target);
+      const generation = useAppStore.getState().messagesGeneration;
+      await pendingJump;
       // Wait for the new window to render, then position the viewport. 0%/100%
       // snap to the exact top/bottom; mid-session lands on the target (the
       // window is centered on it).
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
+          if (useAppStore.getState().messagesGeneration !== generation) return;
           const viewport = containerRef.current;
           if (!viewport) return;
           if (p <= 0) {
@@ -928,14 +918,18 @@ export function MessagesPage() {
   }, []);
 
   const handleQuestionSelect = useCallback(async (messageId: string) => {
+    if (useAppStore.getState().messagesLoading) return;
     const question = questionIndex.find((entry) => entry.messageId === messageId);
     if (!question) return;
 
     setViewMode("messages");
 
-    await jumpToMessageIndex(question.messageIndex);
+    const pendingJump = jumpToMessageIndex(question.messageIndex);
+    const generation = useAppStore.getState().messagesGeneration;
+    await pendingJump;
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        if (useAppStore.getState().messagesGeneration !== generation) return;
         const element = containerRef.current?.querySelector(
           `[data-message-index="${question.messageIndex}"]`,
         );
@@ -1318,6 +1312,7 @@ export function MessagesPage() {
             <div className="message-directory" onKeyDown={(event) => { if (event.key === "Escape") { handleToggleToc(true); document.getElementById("message-directory-toggle")?.focus(); } }}>
               <MessageTOCSidebar
                 items={questionTocItems}
+                disabled={messagesLoading}
                 activeId={activeUserMsgId}
                 onSelect={(id) => { handleQuestionSelect(id); if (window.matchMedia("(max-width: 1279px)").matches) handleToggleToc(true); }}
                 collapsed={tocCollapsed}
@@ -1544,6 +1539,7 @@ export function MessagesPage() {
       {!showJumpControls && questionTocItems.length > 1 && viewMode === "messages" && !matchedOnly && !tocCollapsed && (
         <TimelineDots
           dots={questionTocItems}
+          disabled={messagesLoading}
           activeId={activeUserMsgId}
           onDotClick={handleQuestionSelect}
         />

@@ -12,9 +12,10 @@ interface Props {
   dots: TimelineDot[];
   activeId: string | null;
   onDotClick: (id: string) => void;
+  disabled?: boolean;
 }
 
-export function TimelineDots({ dots, activeId, onDotClick }: Props) {
+export function TimelineDots({ dots, activeId, onDotClick, disabled = false }: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   if (dots.length === 0) return null;
@@ -37,6 +38,7 @@ export function TimelineDots({ dots, activeId, onDotClick }: Props) {
             >
               <button
                 onClick={() => onDotClick(dot.id)}
+                disabled={disabled}
                 onMouseEnter={() => setHoveredId(dot.id)}
                 onMouseLeave={() => setHoveredId(null)}
                 className={`w-2 h-2 rounded-full transition-all duration-200 block ${

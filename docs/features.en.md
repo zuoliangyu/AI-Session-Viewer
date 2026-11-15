@@ -34,6 +34,8 @@ Session cards show the first prompt or alias, message count, branch, and creatio
 
 ## Reading conversations
 
+Pagination and jumps validate both session and window identity before applying results. Load all stays with its original session and stops on navigation or window replacement. Directory jumps are disabled while messages load.
+
 Markdown, syntax highlighting, tool calls/results, and collapsible thinking/reasoning blocks are supported. The latest 30 messages load first; earlier messages load on demand without losing the scroll position. Large blocks initially use plain-text previews, with Markdown rendering available explicitly.
 
 The reader provides message, question-summary, and Codex trace views. Display options control timestamps, model names, expansion, and split panes. The Details menu contains session metadata, costs, and resume commands. The question index starts collapsed and remembers your preference.
@@ -55,6 +57,8 @@ Fork buttons appear below user questions and in the question summary. Forking cr
 `POST /api/sessions/fork` accepts `{ source, originalFilePath, userMsgUuid }` and returns `{ newSessionId, newFilePath, projectPath, projectId }`. Existing authentication and source-specific path validation apply.
 
 ## Search and statistics
+
+Clearing a search or changing its source/scope invalidates older requests, so late responses cannot overwrite the current results.
 
 Claude statistics invalidate cached files by length and high-resolution modification time, including appends within one second. Files changing during a scan are retried on a later refresh. Older statistics caches rebuild once after upgrading; original sessions are unchanged.
 

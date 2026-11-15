@@ -79,9 +79,10 @@ export function SessionPositionRail({
       pointerIdRef.current = null;
       const finalPercent = percentFromClientY(e.clientY);
       setDragging(false);
+      if (disabled) return;
       onJump(finalPercent);
     },
-    [onJump, percentFromClientY]
+    [disabled, onJump, percentFromClientY]
   );
 
   const onPointerCancel = useCallback((e: PointerEvent<HTMLDivElement>) => {
@@ -125,6 +126,7 @@ export function SessionPositionRail({
             <button
               key={marker.id}
               type="button"
+              disabled={disabled}
               aria-label={marker.preview}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {

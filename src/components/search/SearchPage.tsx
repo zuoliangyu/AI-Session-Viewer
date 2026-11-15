@@ -46,7 +46,7 @@ export function SearchPage() {
   } = useAppStore(
     useShallow((state) => ({ source: state.source, searchResults: state.searchResults, searchLoading: state.searchLoading, search: state.search, searchScope: state.searchScope, setSearchScope: state.setSearchScope, crossProjectTags: state.crossProjectTags, globalTagFilter: state.globalTagFilter, loadCrossProjectTags: state.loadCrossProjectTags, setGlobalTagFilter: state.setGlobalTagFilter, timeZone: state.timeZone })),
   );
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => useAppStore.getState().searchQuery);
   const [searchMode, setSearchMode] = useState<SearchMode>("messages");
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [copiedFilePath, setCopiedFilePath] = useState<string | null>(null);
@@ -71,10 +71,21 @@ export function SearchPage() {
     void loadCrossProjectTags();
   }, [source, loadCrossProjectTags]);
 
+  useEffect(() => {
+    setQuery(useAppStore.getState().searchQuery);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [source]);
+
   const handleSearch = useCallback(
     (value: string) => {
       setQuery(value);
       if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (!value.trim()) {
+        void search(value);
+        return;
+      }
       debounceRef.current = setTimeout(() => {
         search(value);
       }, 300);

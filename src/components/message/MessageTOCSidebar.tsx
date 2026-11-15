@@ -14,6 +14,7 @@ interface Props {
   items: TOCItem[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  disabled?: boolean;
   collapsed: boolean;
   onToggleCollapsed: (collapsed: boolean) => void;
 }
@@ -22,6 +23,7 @@ export function MessageTOCSidebar({
   items,
   activeId,
   onSelect,
+  disabled = false,
   collapsed,
   onToggleCollapsed,
 }: Props) {
@@ -84,6 +86,7 @@ export function MessageTOCSidebar({
               key={item.id}
               type="button"
               data-toc-id={item.id}
+              disabled={disabled}
               onClick={() => onSelect(item.id)}
               title={item.preview}
               className={`mb-1 flex w-full items-start gap-2 rounded-md border-l-[3px] px-2 py-1.5 text-left text-sm transition-colors border-transparent ${
