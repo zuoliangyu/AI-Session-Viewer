@@ -22,7 +22,9 @@ The viewer reads local session files. Browsing does not upload them to a cloud s
 
 **Interface language:** Chinese is the default on every system. To use English, click **设置 (Settings)** in the lower-left corner, open **显示设置 (Display)**, and select **English** under **界面语言 / Language**. The change takes effect immediately and is remembered after restarting. Session content and custom names are not translated.
 
-**What's new in v3.2.0:** the recycle bin's orphan-directory scan now supports **Codex**, removing empty date folders left behind after rollouts are archived or deleted. Deleting a Codex project now creates **a single recycle-bin entry** that restores as a whole. On Linux, resuming a session passes arguments to xterm correctly and supports GNOME Console (`kgx`), and session folders created after the app starts are picked up by the file watcher. Failed deletes keep the dialog open with the error, and recycle-bin rollbacks are safer. Thanks to [@AquanSpring](https://github.com/AquanSpring) for the contribution. Since v3.1.x, **move project** relocates projects on this machine and **session transfer** moves sessions between computers. See [CHANGELOG.md](./CHANGELOG.md#320---2026-10-23).
+**What's new in v3.3.0:** long conversations load focused message windows, statistics reuse unchanged files, and request bills support pagination and pricing by each turn's actual model. Fixes cover stale responses after source changes, chat cancellation and disconnects, sync previews, and concurrent metadata saves. Security dependencies are updated, desktop navigation is restricted, and automated dependency audits and release checks are in place. See [CHANGELOG.md](./CHANGELOG.md#330---2026-11-15).
+
+**Upgrade notes:** building from source requires **Rust ≥ 1.91**. Web and email links in desktop conversations open in the system default application; file, custom-protocol, and relative-path links render as text. Windows Clippy, TypeScript, and focused lightweight regressions have passed; Linux/macOS compilation and production packaging remain unverified.
 
 > ⚠️ **Upgrading from 2.x:** 3.0.0 contains breaking changes (web bind address, token requirement, chat scope). See [CHANGELOG.md](./CHANGELOG.md#300---2026-09-30).
 
@@ -96,13 +98,14 @@ Full details are in [docs/features.en.md](./docs/features.en.md).
 | [Features](./docs/features.en.md) | Full description of each feature |
 | [Web server and deployment](./docs/deployment.en.md) | Options, Docker, security, multiple machines |
 | [Development](./docs/development.en.md) | Local setup, builds, tech stack, architecture, REST API, release, roadmap |
+| [Dependency security](./docs/dependency-security.md) | Security updates, the official GLib backport, automated audits, and validation scope (Chinese) |
 | [CHANGELOG](./CHANGELOG.md) | Release history |
 
 ## Releases and contributing
 
 The version in `package.json` is authoritative. Run `npm run sync-version` to synchronize Cargo manifests and Tauri configuration. Pushing a version tag triggers desktop packages, the Linux web executable, Docker images, updater signatures, and the release manifest.
 
-Issues and pull requests are welcome. See [CHANGELOG.md](./CHANGELOG.md) for release history and the [Chinese README](./README.md#路线图) for the feature checklist.
+Issues and pull requests are welcome. See [CHANGELOG.md](./CHANGELOG.md) for release history and the [feature guide](./docs/features.en.md) for the feature checklist.
 
 ## License
 

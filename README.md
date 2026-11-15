@@ -28,7 +28,9 @@
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
-> **What's New（v3.2.0）**：回收站「扫描孤儿目录」支持 **Codex**，一键清理 rollout 归档或删除后遗留的空日期目录；删除 Codex 项目时整个项目合并为**一条回收站记录**，可整体还原。Linux 续聊修复 xterm 参数并支持 GNOME Console（`kgx`），应用启动后才创建的会话目录也会自动加入文件监听；删除失败时保留对话框并显示原因，回收站移动失败时回滚更稳妥。感谢 [@AquanSpring](https://github.com/AquanSpring) 的贡献。v3.1.x 起支持本机**项目搬家**与跨机**会话迁移**。详见 [CHANGELOG.md](./CHANGELOG.md#320---2026-10-23)。
+> **What's New（v3.3.0）**：长会话按窗口定位，统计缓存增量更新，账单支持分页并按每轮实际模型计费；修复切换来源后的旧请求覆盖、聊天取消与断线、同步预览和元数据并发保存问题。全面更新安全依赖，限制桌面导航，加入自动依赖审计与发布前检查。详见 [CHANGELOG.md](./CHANGELOG.md#330---2026-11-15)。
+>
+> **升级提示**：源码构建需要 **Rust ≥ 1.91**。桌面会话中的网页和邮件链接交给系统默认应用打开；文件、自定义协议及相对路径链接仅显示文字。已通过 Windows Clippy、TypeScript 与相关轻量回归，Linux/macOS 编译和生产打包仍待验证。
 >
 > ⚠️ **从 2.x 升级**：3.0.0 包含不兼容变更（Web 默认监听地址、令牌、续聊范围），详见 [CHANGELOG.md](./CHANGELOG.md#300---2026-09-30)。
 
@@ -97,6 +99,7 @@
 | [功能详解](./docs/features.md) | 每项功能的完整说明 |
 | [Web 服务器与部署](./docs/deployment.md) | 参数、Docker、安全、多机节点 |
 | [开发指南](./docs/development.md) | 本地开发、构建、技术栈、架构、REST API、发布、路线图 |
+| [依赖安全维护](./docs/dependency-security.md) | 安全更新、GLib 官方补丁、自动审计与验证范围 |
 | [CHANGELOG](./CHANGELOG.md) | 版本历史 |
 
 ## Star History
