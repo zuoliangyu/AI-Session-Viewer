@@ -456,7 +456,9 @@ export function MessagesPage() {
   const sessionLoadRef = useRef<Promise<void>>(Promise.resolve());
   const [targetRetry, setTargetRetry] = useState(0);
   const [targetState, setTargetState] = useState<
-    | { status: "idle" | "loading" | "missing" }
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "missing" }
     | { status: "error"; message: string }
     | { status: "found"; messageIndex: number; generation: number }
   >({ status: "idle" });
@@ -916,18 +918,18 @@ export function MessagesPage() {
   // Current-window anchors drive active-state detection and the sticky context card.
   const userDots = useMemo(() => {
     let userIndex = 0;
-    return displayedMessages
+    return displayedWindow.messages
       .map((msg, index) => {
         if (msg.role !== "user") return null;
         return {
-          id: msg.uuid || `user-${loadedStart + index}`,
+          id: msg.uuid || `user-${displayedWindow.offset + index}`,
           index: userIndex++,
           preview: extractUserQuestionPreview(msg),
           timestamp: msg.timestamp ? formatTime(msg.timestamp, timeZone) : null,
         };
       })
       .filter(Boolean) as Array<{ id: string; index: number; preview: string; timestamp: string | null }>;
-  }, [displayedMessages, loadedStart, timeZone, t]);
+  }, [displayedWindow, timeZone, t]);
 
   const questionTocItems = useMemo(
     () => questionIndex.map((question, index) => ({

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
+import { readFile } from "node:fs/promises";
+import { registerHooks, stripTypeScriptTypes } from "node:module";
+import ts from "typescript";
 import {
   buildSessionMessageUrl, getDisplayMessageId, getFocusedMessageWindow,
   navigateToMessage, readMessageTarget,
@@ -128,6 +130,27 @@ try {
   assert.equal(getDisplayMessageId(synthetic, 99), "user-99");
   const syntheticWindow = [makeMessage(98), synthetic, makeMessage(100)];
   assert.equal(getFocusedMessageWindow(syntheticWindow, 98, "user-99").offset, 99);
+
+  // Execute the page's real anchor derivation, including its memo dependencies.
+  // A focused slice starts after the loaded window but must retain the same ID.
+  const pageSource = await readFile(new URL("../src/components/message/MessagesPage.tsx", import.meta.url), "utf8");
+  const pageAst = ts.createSourceFile("MessagesPage.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  let anchorDeclaration;
+  const findAnchors = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "userDots") anchorDeclaration = node;
+    ts.forEachChild(node, findAnchors);
+  };
+  findAnchors(pageAst);
+  assert.ok(anchorDeclaration, "MessagesPage must expose its current-window anchor derivation");
+  const deriveAnchors = new Function("displayedWindow", "loadedStart", "timeZone", "t", "extractUserQuestionPreview", "formatTime", "useMemo",
+    `${stripTypeScriptTypes(`function derive() { const ${anchorDeclaration.getText(pageAst)}; return userDots; }`)} return derive();`);
+  const anchorsFor = (window) => deriveAnchors(window, 98, "UTC", (key) => key,
+    (message) => message.content[0].text, (timestamp) => timestamp, (callback) => callback());
+  const fullAnchors = anchorsFor({ messages: syntheticWindow, offset: 98 });
+  const focusedAnchors = anchorsFor(getFocusedMessageWindow(syntheticWindow, 98, "user-99"));
+  assert.deepEqual(focusedAnchors, fullAnchors);
+  assert.equal(focusedAnchors[0].id, getDisplayMessageId(synthetic, 99));
+  assert.deepEqual(anchorsFor(getFocusedMessageWindow(syntheticWindow, 98, "missing")), []);
 
   openWindow();
   const missing = navigate("deleted-id");
