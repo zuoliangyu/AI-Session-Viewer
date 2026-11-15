@@ -310,7 +310,7 @@ fn json_argument_text(value: &Value) -> String {
         .unwrap_or_else(|| serde_json::to_string(value).unwrap_or_default())
 }
 
-fn display_blocks(content: &Value) -> Vec<DisplayContentBlock> {
+fn display_blocks(content: &Value, navigation_only: bool) -> Vec<DisplayContentBlock> {
     match content {
         Value::String(text) => trim_to_nonempty(Some(text))
             .map(|text| vec![DisplayContentBlock::Text { text }])
@@ -337,11 +337,15 @@ fn display_blocks(content: &Value) -> Vec<DisplayContentBlock> {
                                 .or_else(|| block.get("toolName"))
                                 .and_then(Value::as_str),
                         )?;
-                        let input = block
-                            .get("arguments")
-                            .or_else(|| block.get("input"))
-                            .map(json_argument_text)
-                            .unwrap_or_default();
+                        let input = if navigation_only {
+                            String::new()
+                        } else {
+                            block
+                                .get("arguments")
+                                .or_else(|| block.get("input"))
+                                .map(json_argument_text)
+                                .unwrap_or_default()
+                        };
                         Some(DisplayContentBlock::ToolUse { id, name, input })
                     }
                     _ => None,
@@ -353,13 +357,17 @@ fn display_blocks(content: &Value) -> Vec<DisplayContentBlock> {
 }
 
 fn display_message_from_entry(entry: &Value) -> Option<DisplayMessage> {
+    project_message_from_entry(entry, false)
+}
+
+fn project_message_from_entry(entry: &Value, navigation_only: bool) -> Option<DisplayMessage> {
     if entry.get("type").and_then(Value::as_str) != Some("message") {
         return None;
     }
     let message = entry.get("message")?;
     let role = message.get("role")?.as_str()?;
     let (role, model, content) = match role {
-        "user" => ("user", None, display_blocks(message.get("content")?)),
+        "user" => ("user", None, display_blocks(message.get("content")?, navigation_only)),
         "assistant" => (
             "assistant",
             message
@@ -367,7 +375,7 @@ fn display_message_from_entry(entry: &Value) -> Option<DisplayMessage> {
                 .or_else(|| message.get("modelId"))
                 .and_then(Value::as_str)
                 .map(ToString::to_string),
-            display_blocks(message.get("content")?),
+            display_blocks(message.get("content")?, navigation_only),
         ),
         "toolResult" => {
             let tool_use_id = trim_to_nonempty(
@@ -469,6 +477,38 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
         .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
         .collect();
     Ok(display_messages(entries))
+}
+
+pub(crate) fn parse_navigation_messages(
+    path: &Path,
+) -> Result<Vec<crate::models::message::NavigationMessage>, String> {
+    use crate::models::message::NavigationMessage;
+
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut parents_by_id = HashMap::new();
+    let mut messages = Vec::new();
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        let Ok(entry) = serde_json::from_str::<Value>(&line) else { continue };
+        if let (Some(id), Some(parent)) = (
+            trim_to_nonempty(entry.get("id").and_then(Value::as_str)),
+            trim_to_nonempty(entry.get("parentId").and_then(Value::as_str)),
+        ) {
+            parents_by_id.insert(id, parent);
+        }
+        if let Some(message) = project_message_from_entry(&entry, true) {
+            messages.push(NavigationMessage::from_display(&message));
+        }
+    }
+    let visible_ids = messages.iter().filter_map(|message| message.uuid.clone()).collect();
+    for message in &mut messages {
+        message.parent_uuid = nearest_visible_parent(
+            message.uuid.as_deref().and_then(|id| parents_by_id.get(id).map(String::as_str)),
+            &parents_by_id,
+            &visible_ids,
+        );
+    }
+    Ok(messages)
 }
 
 fn file_modified_iso(path: &Path) -> Option<String> {
@@ -634,6 +674,7 @@ pub fn rebuild_projects_cache() -> Result<Vec<ProjectEntry>, String> {
 
 pub fn invalidate_sessions_cache() {
     *sessions_cache().lock() = None;
+    crate::navigation::clear_cache();
 }
 
 pub fn invalidate_paths(paths: &[PathBuf]) {

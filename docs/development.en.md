@@ -90,6 +90,8 @@ The web API uses `source=claude|codex|grok|omp` where applicable. Authenticated 
 | GET | `/api/projects`, `/api/sessions` | List projects and sessions |
 | DELETE | `/api/sessions` | Delete a session |
 | GET | `/api/messages` | Paginated messages (`filePath`, `page`, `pageSize`, `fromEnd`) |
+| GET | `/api/messages/questions` | Compact question index (`source`, `filePath`) |
+| GET | `/api/messages/location` | Locate any message role (`source`, `filePath`, `messageId`); returns `{ messageIndex: number \| null }`, with `null` for missing IDs |
 | POST | `/api/sessions/fork` | Fork a session |
 | PUT | `/api/sessions/meta` | Update alias and tags |
 | GET | `/api/trajectory` | Codex trace records |

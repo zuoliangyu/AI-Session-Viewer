@@ -154,6 +154,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/sessions` | `source, projectId` | 获取会话列表 |
 | DELETE | `/api/sessions` | `filePath` | 删除会话 |
 | GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
+| GET | `/api/messages/questions` | `source, filePath` | 精简提问目录（与消息绝对索引一致） |
+| GET | `/api/messages/location` | `source, filePath, messageId` | 返回 `{ messageIndex: number \| null }`；支持任意消息角色，未找到为 `null` |
 | GET | `/api/trajectory` | `source, filePath, maxRecords?, beforeRecord?` | 加载 Codex Turn / Step 轨迹与事件账本 |
 | GET | `/api/export` | `source, filePath, format` | 导出会话为 JSON / Markdown / HTML |
 | GET | `/api/scan-progress` | — | 冷启动扫描进度 |

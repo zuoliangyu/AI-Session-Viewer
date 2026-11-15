@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::Json;
 use serde::Deserialize;
 use session_core::models::message::{
-    question_index, PaginatedMessages, QuestionIndexEntry, RangeMessages,
+    PaginatedMessages, QuestionIndexEntry, RangeMessages,
 };
 use session_core::provider::{claude, codex, grok, omp};
 
@@ -98,19 +98,32 @@ pub async fn get_question_index(
     let resolved_path = resolve_session_file_path(&source, &params.file_path)
         .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
 
-    let result = tokio::task::spawn_blocking(move || {
-        let messages = match source.as_str() {
-            "claude" => claude::parse_all_messages(&resolved_path),
-            "codex" => codex::parse_all_messages(&resolved_path),
-            "grok" => grok::parse_all_messages(&resolved_path),
-            "omp" => omp::parse_all_messages(&resolved_path),
-            _ => Err(format!("Unknown source: {source}")),
-        }?;
-        Ok(question_index(&messages))
-    })
+    let result = tokio::task::spawn_blocking(move || session_core::navigation::question_index(&source, &resolved_path))
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
 
     Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageLocationQuery {
+    pub source: String,
+    pub file_path: String,
+    pub message_id: String,
+}
+
+pub async fn get_message_location(
+    Query(params): Query<MessageLocationQuery>,
+) -> Result<Json<session_core::navigation::MessageLocation>, (StatusCode, String)> {
+    let resolved_path = resolve_session_file_path(&params.source, &params.file_path)
+        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    tokio::task::spawn_blocking(move || {
+        session_core::navigation::message_location(&params.source, &resolved_path, &params.message_id)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map(Json)
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
 }

@@ -6,6 +6,7 @@ import type {
   RangeMessages,
   Trajectory,
   QuestionIndexEntry,
+  MessageLocation,
   SearchResult,
   TokenUsageSummary,
   RequestLogPage,
@@ -287,6 +288,14 @@ export async function getQuestionIndex(
   filePath: string,
 ): Promise<QuestionIndexEntry[]> {
   return apiFetch("/api/messages/questions", { source, filePath });
+}
+
+export async function getMessageLocation(
+  source: string,
+  filePath: string,
+  messageId: string,
+): Promise<MessageLocation> {
+  return apiFetch("/api/messages/location", { source, filePath, messageId });
 }
 
 export async function getTrajectory(

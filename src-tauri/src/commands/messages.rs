@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use serde_json::json;
 use session_core::models::message::{
-    question_index, PaginatedMessages, QuestionIndexEntry, RangeMessages,
+    PaginatedMessages, QuestionIndexEntry, RangeMessages,
 };
 use session_core::paths::validate_session_file;
 use session_core::provider::{claude, codex, grok, omp};
@@ -152,17 +152,21 @@ pub async fn get_question_index(
     file_path: String,
 ) -> Result<Vec<QuestionIndexEntry>, String> {
     let path = validate_session_file(&source, &file_path)?;
-    let source_for_parse = source.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let messages = match source_for_parse.as_str() {
-            "claude" => claude::parse_all_messages(&path),
-            "codex" => codex::parse_all_messages(&path),
-            "grok" => grok::parse_all_messages(&path),
-            "omp" => omp::parse_all_messages(&path),
-            _ => Err(format!("Unknown source: {source_for_parse}")),
-        }?;
-        Ok(question_index(&messages))
-    })
+    tauri::async_runtime::spawn_blocking(move || session_core::navigation::question_index(&source, &path))
     .await
     .map_err(|error| format!("提问目录解析任务失败: {error}"))?
+}
+
+#[tauri::command]
+pub async fn get_message_location(
+    source: String,
+    file_path: String,
+    message_id: String,
+) -> Result<session_core::navigation::MessageLocation, String> {
+    let path = validate_session_file(&source, &file_path)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        session_core::navigation::message_location(&source, &path, &message_id)
+    })
+    .await
+    .map_err(|error| format!("消息位置解析任务失败: {error}"))?
 }

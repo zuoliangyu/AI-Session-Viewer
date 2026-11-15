@@ -45,6 +45,8 @@
 
 聊天生命周期的定向回归：`node scripts/check-chat-lifecycle.mjs`（Node.js 24+）。用内存 WebSocket 和真实状态逻辑检查双流断线、启动期取消、旧连接及旧启动响应隔离；不连接服务器、不启动 CLI、不编译。
 
+消息定位的定向回归：`node scripts/check-message-navigation.mjs`（Node.js 24+）。使用真实 store 和一万条逻辑消息，覆盖旧链接、任意角色定位、窗口加载、取消/来源切换、失败重试及桌面/Web 参数编码；不编译。四数据源索引与完整解析的一致性另有 Rust 用例，需手动编译运行。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

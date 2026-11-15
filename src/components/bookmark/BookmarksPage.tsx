@@ -7,6 +7,7 @@ import { Star, Trash2, MessageSquare, FolderOpen } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
 import { EmptyState, LoadingState } from "../common/StateViews";
+import { buildSessionMessageUrl } from "../../services/messageNavigation";
 
 
 export function BookmarksPage() {
@@ -37,12 +38,7 @@ export function BookmarksPage() {
   }, [filtered]);
 
   const handleClick = (b: (typeof filtered)[0]) => {
-    const base = `/projects/${encodeURIComponent(b.projectId)}/session/${encodeURIComponent(b.filePath)}`;
-    if (b.messageId) {
-      navigate(`${base}?scrollTo=${encodeURIComponent(b.messageId)}`);
-    } else {
-      navigate(base);
-    }
+    navigate(buildSessionMessageUrl(b.projectId, b.filePath, b.messageId));
   };
 
   return (

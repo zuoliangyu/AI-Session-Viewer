@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { formatDateOnly } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
+import { buildSessionMessageUrl } from "../../services/messageNavigation";
 import { EmptyState } from "../common/StateViews";
 import { TagLoadError } from "../common/TagLoadError";
 
@@ -113,18 +114,10 @@ export function SearchPage() {
     filePath: string,
     matchedMessageId?: string | null,
   ) => {
-    const encodedProjectId = encodeURIComponent(projectId);
-    const encodedFilePath = encodeURIComponent(filePath);
-    const params = new URLSearchParams();
-    if (matchedMessageId) {
-      params.set("scrollTo", matchedMessageId);
-      params.set("matchedOnly", "1");
-    }
-    if (query.trim()) {
-      params.set("searchQuery", query.trim());
-    }
-    const suffix = params.toString() ? `?${params.toString()}` : "";
-    return `/projects/${encodedProjectId}/session/${encodedFilePath}${suffix}`;
+    return buildSessionMessageUrl(projectId, filePath, matchedMessageId, {
+      matchedOnly: true,
+      searchQuery: query.trim(),
+    });
   };
 
   const handleResultClick = (result: (typeof searchResults)[0]) => {

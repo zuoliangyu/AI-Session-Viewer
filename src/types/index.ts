@@ -113,6 +113,11 @@ export interface QuestionIndexEntry {
   hasTool: boolean;
 }
 
+export interface MessageLocation {
+  /** Absolute DisplayMessage index, or null when the ID no longer exists. */
+  messageIndex: number | null;
+}
+
 export interface PaginatedMessages {
   messages: DisplayMessage[];
   total: number;

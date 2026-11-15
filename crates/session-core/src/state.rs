@@ -102,11 +102,13 @@ fn cache_key(path: &Path) -> String {
 
 pub fn clear_message_cache() {
     global_message_cache().lock().clear();
+    crate::navigation::clear_cache();
 }
 
 pub fn clear_message_cache_for_path(path: &Path) {
     let key = cache_key(path);
     let _ = global_message_cache().lock().pop(&key);
+    crate::navigation::clear_cache_for_path(path);
 }
 
 pub fn file_modified_key(path: &Path) -> Result<u64, String> {

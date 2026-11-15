@@ -414,6 +414,10 @@ Set --token / ASV_TOKEN, bind to 127.0.0.1, or pass --allow-no-auth to override.
             "/api/messages/questions",
             get(routes::messages::get_question_index),
         )
+        .route(
+            "/api/messages/location",
+            get(routes::messages::get_message_location),
+        )
         .route("/api/trajectory", get(routes::trajectory::get_trajectory))
         .route("/api/export", get(routes::export::export_session))
         .route(

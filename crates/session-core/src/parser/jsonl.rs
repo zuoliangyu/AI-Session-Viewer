@@ -251,6 +251,54 @@ fn parse_all_messages_uncached(path: &Path) -> Result<Vec<DisplayMessage>, Strin
     Ok(messages)
 }
 
+pub(crate) fn parse_navigation_messages(
+    path: &Path,
+) -> Result<Vec<crate::models::message::NavigationMessage>, String> {
+    use crate::models::message::{preview_texts, NavigationMessage};
+
+    let file = File::open(path).map_err(|error| error.to_string())?;
+    let mut messages = Vec::new();
+    for line in BufReader::new(file).lines() {
+        let line = line.map_err(|error| error.to_string())?;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || SKIP_TYPE_MARKERS.iter().any(|marker| trimmed.contains(marker)) {
+            continue;
+        }
+        let Ok(record) = serde_json::from_str::<RawRecord>(trimmed) else { continue };
+        if !record_is_displayable(&record) {
+            continue;
+        }
+        let Some(message) = record.message else { continue };
+        let (texts, only_tool_results, has_tool) = match &message.content {
+            ContentValue::Text(text) => (vec![text.as_str()], false, false),
+            ContentValue::Blocks(blocks) => (
+                blocks.iter().filter_map(|block| match block {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                }).collect(),
+                blocks.iter().all(|block| match block {
+                    ContentBlock::ToolResult { .. } | ContentBlock::Unknown => true,
+                    ContentBlock::Text { text } => text.trim().is_empty(),
+                    ContentBlock::Thinking { thinking } => thinking.trim().is_empty(),
+                    ContentBlock::ToolUse { .. } => false,
+                }),
+                blocks.iter().any(|block| matches!(block, ContentBlock::ToolUse { .. })),
+            ),
+        };
+        let role = if message.role == "user" && only_tool_results { "tool" } else { &message.role };
+        messages.push(NavigationMessage {
+            uuid: record.uuid,
+            parent_uuid: record.parent_uuid,
+            role: role.to_string(),
+            timestamp: record.timestamp,
+            model: message.model,
+            preview: preview_texts(texts.into_iter(), if role == "user" { 200 } else { 220 }),
+            has_tool,
+        });
+    }
+    Ok(messages)
+}
+
 fn display_message_from_record(record: RawRecord) -> Option<DisplayMessage> {
     if record.record_type != "user" && record.record_type != "assistant" {
         return None;

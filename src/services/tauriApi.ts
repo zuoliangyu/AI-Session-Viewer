@@ -5,6 +5,7 @@ import type {
   PaginatedMessages,
   RangeMessages,
   QuestionIndexEntry,
+  MessageLocation,
   Trajectory,
   SearchResult,
   TokenUsageSummary,
@@ -110,6 +111,14 @@ export async function getQuestionIndex(
   filePath: string,
 ): Promise<QuestionIndexEntry[]> {
   return invoke<QuestionIndexEntry[]>("get_question_index", { source, filePath });
+}
+
+export async function getMessageLocation(
+  source: string,
+  filePath: string,
+  messageId: string,
+): Promise<MessageLocation> {
+  return invoke<MessageLocation>("get_message_location", { source, filePath, messageId });
 }
 
 export async function getTrajectory(

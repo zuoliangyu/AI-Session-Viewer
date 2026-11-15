@@ -58,6 +58,10 @@ Fork buttons appear below user questions and in the question summary. Forking cr
 
 ## Search and statistics
 
+Bookmarks, search results, and billing rows use `?scrollTo=` message links; legacy billing `#m=` links remain supported. User, assistant, and tool messages can be located by absolute index, loading only a nearby 31-message window when needed. Missing targets and read failures offer feedback and retry. Legacy bookmarks without UUIDs that stored a page-relative position cannot reliably recover their original target.
+
+Question navigation and message lookup share a separate compact index containing bounded previews, question relationships, and ID positions. Navigation requests do not populate the full-message cache. Indexes invalidate on file length or high-resolution modification time changes, concurrent requests for a session share a scan, and the cache holds up to 20 sessions.
+
 Clearing a search or changing its source/scope invalidates older requests, so late responses cannot overwrite the current results.
 
 Claude statistics invalidate cached files by length and high-resolution modification time, including appends within one second. Files changing during a scan are retried on a later refresh. Older statistics caches rebuild once after upgrading; original sessions are unchanged.

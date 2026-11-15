@@ -217,6 +217,24 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
         .collect())
 }
 
+pub(crate) fn parse_navigation_messages(
+    path: &Path,
+) -> Result<Vec<crate::models::message::NavigationMessage>, String> {
+    use crate::models::message::NavigationMessage;
+
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut messages = Vec::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|error| error.to_string())?;
+        let Ok(row) = serde_json::from_str::<Value>(&line) else { continue };
+        let Some(message) = display_message_from_row(&row) else { continue };
+        let mut message = NavigationMessage::from_display(&message);
+        message.uuid = Some(crate::fork::line_message_id(index, &row));
+        messages.push(message);
+    }
+    Ok(messages)
+}
+
 fn text_message_count(messages: &[DisplayMessage]) -> u32 {
     messages
         .iter()
@@ -443,6 +461,7 @@ pub fn rebuild_projects_cache() -> Result<Vec<ProjectEntry>, String> {
 
 pub fn invalidate_sessions_cache() {
     *sessions_cache().lock() = None;
+    crate::navigation::clear_cache();
 }
 
 fn changed_session_dirs(paths: &[PathBuf]) -> HashSet<PathBuf> {
@@ -465,6 +484,9 @@ fn changed_session_dirs(paths: &[PathBuf]) -> HashSet<PathBuf> {
 /// already warm. A cold snapshot is reconciled lazily against the disk cache.
 pub fn invalidate_paths(paths: &[PathBuf]) {
     let changed_dirs = changed_session_dirs(paths);
+    for dir in &changed_dirs {
+        crate::navigation::clear_cache_for_path(&dir.join(CHAT_HISTORY_FILE));
+    }
     if changed_dirs.is_empty() {
         return;
     }

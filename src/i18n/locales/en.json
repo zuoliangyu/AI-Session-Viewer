@@ -1060,5 +1060,8 @@
   "第 {{page}} / {{pages}} 页": "Page {{page}} of {{pages}}",
   "显示第 {{start}}–{{end}} 条，共 {{total}} 条": "Showing {{start}}–{{end}} of {{total}} requests",
   "正在加载第 {{page}} 页…": "Loading page {{page}}…",
-  "第 {{page}} 页加载失败：{{message}}": "Could not load page {{page}}: {{message}}"
+  "第 {{page}} 页加载失败：{{message}}": "Could not load page {{page}}: {{message}}",
+  "正在定位消息…": "Locating message…",
+  "未找到目标消息，消息可能已被删除或会话已变更。": "The target message was not found. It may have been deleted or the session may have changed.",
+  "消息定位失败：{{message}}": "Could not locate message: {{message}}"
 }

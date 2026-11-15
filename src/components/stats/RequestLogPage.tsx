@@ -15,6 +15,7 @@ import { useAppStore } from "../../stores/appStore";
 import type { RequestLogFilter, RequestRecord } from "../../types";
 import { formatShortDateTime } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
+import { buildSessionMessageUrl } from "../../services/messageNavigation";
 
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -148,15 +149,8 @@ export function RequestLogPage() {
   const rangeEnd = requestLog.length ? rangeStart + requestLog.length - 1 : 0;
 
   const handleRowClick = (record: RequestRecord) => {
-    // Deep-link to the session message view. Hash includes the message uuid
-    // so MessagesPage can highlight + scroll there.
     if (!record.projectId || !record.filePath) return;
-    const fragment = record.messageUuid ? `#m=${record.messageUuid}` : "";
-    navigate(
-      `/projects/${encodeURIComponent(record.projectId)}/session/${encodeURIComponent(
-        record.filePath,
-      )}${fragment}`,
-    );
+    navigate(buildSessionMessageUrl(record.projectId, record.filePath, record.messageUuid));
   };
 
   return (

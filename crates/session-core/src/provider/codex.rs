@@ -1410,13 +1410,50 @@ fn parse_all_messages_uncached(path: &Path) -> Result<Vec<DisplayMessage>, Strin
             Ok(v) => v,
             Err(_) => continue,
         };
-        apply_history_event(&row, &mut messages, &mut turn_starts);
+        apply_history_event(&row, &mut messages, &mut turn_starts, |message| message.role == "user");
         if let Some(mut message) = display_message_from_row(&row) {
             message.uuid = Some(crate::fork::line_message_id(line_index, &row));
             messages.push(message);
         }
     }
 
+    Ok(messages)
+}
+
+pub(crate) fn parse_navigation_messages(
+    path: &Path,
+) -> Result<Vec<crate::models::message::NavigationMessage>, String> {
+    use crate::models::message::NavigationMessage;
+
+    let file = fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut messages = Vec::new();
+    let mut turn_starts = Vec::new();
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|error| error.to_string())?;
+        let Ok(row) = serde_json::from_str::<Value>(line.trim()) else { continue };
+        apply_history_event(&row, &mut messages, &mut turn_starts, |message: &NavigationMessage| message.role == "user");
+        let mut message = if row.get("type").and_then(Value::as_str) == Some("response_item")
+            && matches!(row.pointer("/payload/type").and_then(Value::as_str), Some("function_call" | "function_call_output"))
+        {
+            let has_tool = row.pointer("/payload/type").and_then(Value::as_str) == Some("function_call");
+            // These rows always display, but navigation never needs to pretty
+            // print potentially enormous tool arguments or result bodies.
+            NavigationMessage {
+                uuid: None,
+                parent_uuid: None,
+                role: if has_tool { "assistant" } else { "tool" }.to_string(),
+                timestamp: row.get("timestamp").and_then(Value::as_str).map(str::to_string),
+                model: None,
+                preview: String::new(),
+                has_tool,
+            }
+        } else {
+            let Some(message) = display_message_from_row(&row) else { continue };
+            NavigationMessage::from_display(&message)
+        };
+        message.uuid = Some(crate::fork::line_message_id(line_index, &row));
+        messages.push(message);
+    }
     Ok(messages)
 }
 
@@ -1506,10 +1543,11 @@ fn parse_tail_messages(
         .ok_or_else(|| "Failed to paginate tail messages".to_string())
 }
 
-fn apply_history_event(
+fn apply_history_event<T>(
     row: &Value,
-    messages: &mut Vec<DisplayMessage>,
+    messages: &mut Vec<T>,
     starts: &mut Vec<(String, usize)>,
+    is_user: impl Fn(&T) -> bool,
 ) {
     if row.get("type").and_then(Value::as_str) != Some("event_msg") {
         return;
@@ -1547,7 +1585,7 @@ fn apply_history_event(
                     .iter()
                     .enumerate()
                     .rev()
-                    .filter(|(_, m)| m.role == "user")
+                    .filter(|(_, message)| is_user(message))
                     .nth(count - 1)
                     .map_or(0, |(index, _)| index)
             };

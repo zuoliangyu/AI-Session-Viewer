@@ -9,6 +9,7 @@ pub mod fork;
 pub mod metadata;
 pub mod model_list;
 pub mod models;
+pub mod navigation;
 pub mod parser;
 pub mod paths;
 mod persistence;

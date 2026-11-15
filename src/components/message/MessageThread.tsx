@@ -12,6 +12,7 @@ import { useExpandAllControl } from "../common/ExpandAllContext";
 import { getUserMessageId, type ThreadDisplayNode } from "./threading";
 import { useSessionFork } from "./useSessionFork";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
+import { getDisplayMessageId } from "../../services/messageNavigation";
 
 declare const __IS_TAURI__: boolean;
 
@@ -446,7 +447,7 @@ export const MessageThread = memo(function MessageThread({
   const roots = useMemo<ThreadDisplayNode[]>(
     () =>
       messages.map((message, originalIndex) => ({
-        id: message.uuid || `${message.role}-${originalIndex}`,
+        id: getDisplayMessageId(message, messageOffset + originalIndex),
         originalIndex,
         message,
         children: [],
@@ -458,7 +459,7 @@ export const MessageThread = memo(function MessageThread({
         parentSource: null,
         forkUserMessageId: null,
       })),
-    [messages],
+    [messages, messageOffset],
   );
   const isThreaded = false;
   // Map each user-message id (uuid or fallback) to its 0-based ordinal so
@@ -470,11 +471,11 @@ export const MessageThread = memo(function MessageThread({
     let i = 0;
     messages.forEach((msg, idx) => {
       if (msg.role !== "user") return;
-      map.set(getUserMessageId(msg, idx), i);
+      map.set(getUserMessageId(msg, messageOffset + idx), i);
       i += 1;
     });
     return map;
-  }, [messages]);
+  }, [messages, messageOffset]);
   const flatNodes = useMemo(() => flattenThreadNodes(roots), [roots]);
   const toolResults = useMemo<ToolResultLookup>(() => {
     const map: ToolResultLookup = new Map();
@@ -509,7 +510,7 @@ export const MessageThread = memo(function MessageThread({
     const messageLayout = isThreaded ? "thread" : "default";
 
     if (msg.role === "user") {
-      const msgId = getUserMessageId(msg, node.originalIndex);
+      const msgId = getUserMessageId(msg, messageOffset + node.originalIndex);
       const bookmarked = sessionId ? isBookmarked(sessionId, msgId) : false;
       const canFork = !!msg.uuid;
       const canResume = __IS_TAURI__ && !isRemoteNodeActive() && !!sessionId && !!projectPath;

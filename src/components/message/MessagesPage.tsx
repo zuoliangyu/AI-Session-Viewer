@@ -23,6 +23,7 @@ import { SelectionReplyButton } from "./SelectionReplyButton";
 import { TimelineDots } from "./TimelineDots";
 import { MessageTOCSidebar } from "./MessageTOCSidebar";
 import { loadAllOlderMessages } from "../../services/messageLoading";
+import { getFocusedMessageWindow, navigateToMessage, readMessageTarget } from "../../services/messageNavigation";
 import { JumpToPercentControl } from "./JumpToPercentControl";
 import { SessionPositionRail, type RailMarker } from "./SessionPositionRail";
 import { ChatInput, type ChatInputHandle } from "../chat/ChatInput";
@@ -364,7 +365,7 @@ export function MessagesPage() {
   const projectId = params.projectId || "";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const scrollToMessageId = searchParams.get("scrollTo");
+  const scrollToMessageId = readMessageTarget(location.search, location.hash);
   const matchedOnly = searchParams.get("matchedOnly") === "1";
 
   // React Router already decodes the wildcard param. Decoding again corrupts
@@ -441,6 +442,13 @@ export function MessagesPage() {
   const prevScrollHeightRef = useRef<number>(0);
   const isLoadingOlderRef = useRef(false);
   const scrolledTargetRef = useRef<string | null>(null);
+  const sessionLoadRef = useRef<Promise<void>>(Promise.resolve());
+  const [targetRetry, setTargetRetry] = useState(0);
+  const [targetState, setTargetState] = useState<
+    | { status: "idle" | "loading" | "missing" }
+    | { status: "error"; message: string }
+    | { status: "found"; messageIndex: number; generation: number }
+  >({ status: "idle" });
   const [expandVersion, setExpandVersion] = useState(0);
   const [allExpanded, setAllExpanded] = useState<boolean>(
     () => localStorage.getItem("messagesAllExpanded") === "true"
@@ -574,10 +582,10 @@ export function MessagesPage() {
         await selectProject(projectId);
       }
       if (!cancelled) {
-        selectSession(filePath);
+        await selectSession(filePath);
       }
     };
-    load();
+    sessionLoadRef.current = load();
 
     return () => {
       cancelled = true;
@@ -606,12 +614,36 @@ export function MessagesPage() {
   }, [filePath, source]);
 
   useEffect(() => {
-    if (!matchedOnly || !scrollToMessageId || messagesLoading) return;
-    const found = messages.some((msg) => msg.uuid === scrollToMessageId);
-    if (!found && messagesHasMore) {
-      loadMoreMessages();
+    scrolledTargetRef.current = null;
+    if (!scrollToMessageId || !filePath) {
+      setTargetState({ status: "idle" });
+      return;
     }
-  }, [matchedOnly, scrollToMessageId, messages, messagesHasMore, messagesLoading, loadMoreMessages]);
+    const controller = new AbortController();
+    setTargetState({ status: "loading" });
+    setViewMode("messages");
+    isLoadingOlderRef.current = false;
+    void (async () => {
+      await sessionLoadRef.current;
+      if (controller.signal.aborted) return;
+      const current = useAppStore.getState();
+      if (current.source !== source || current.selectedFilePath !== filePath) return;
+      const result = await navigateToMessage(
+        useAppStore.getState,
+        api.getMessageLocation,
+        scrollToMessageId,
+        controller.signal,
+      );
+      if (!controller.signal.aborted) {
+        setTargetState(result.status === "cancelled" ? { status: "idle" } : result);
+      }
+    })().catch((error) => {
+      if (!controller.signal.aborted) {
+        setTargetState({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    });
+    return () => controller.abort();
+  }, [source, filePath, projectId, scrollToMessageId, matchedOnly, targetRetry]);
 
   // Auto-scroll to bottom on initial load
   useEffect(() => {
@@ -630,25 +662,32 @@ export function MessagesPage() {
     }
   }, [messages, messagesLoading, initialScrollDone, scrollToMessageId]);
 
-  // Scroll to specific message when scrollTo param is set
+  // Every role has an absolute index anchor, including deferred messages.
   useEffect(() => {
-    if (!scrollToMessageId || !initialScrollDone || messagesLoading) return;
+    if (!scrollToMessageId || targetState.status !== "found" || messagesLoading || viewMode !== "messages") return;
     if (scrolledTargetRef.current === scrollToMessageId) return;
-    requestAnimationFrame(() => {
-      const el = containerRef.current?.querySelector(
-        `[data-user-msg-id="${scrollToMessageId}"]`
-      );
-      if (el) {
+    let secondFrame = 0;
+    let highlightTimer: ReturnType<typeof setTimeout> | undefined;
+    let element: Element | null | undefined;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const current = useAppStore.getState();
+        if (current.source !== source || current.selectedFilePath !== filePath || current.messagesGeneration !== targetState.generation) return;
+        element = containerRef.current?.querySelector(`[data-message-index="${targetState.messageIndex}"]`);
+        if (!element) return;
         scrolledTargetRef.current = scrollToMessageId;
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
-        // Flash highlight
-        el.classList.add("ring-2", "ring-warning/50", "rounded-lg");
-        setTimeout(() => {
-          el.classList.remove("ring-2", "ring-warning/50", "rounded-lg");
-        }, 2000);
-      }
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        element.classList.add("ring-2", "ring-warning/50", "rounded-lg");
+        highlightTimer = setTimeout(() => element?.classList.remove("ring-2", "ring-warning/50", "rounded-lg"), 2000);
+      });
     });
-  }, [scrollToMessageId, initialScrollDone, messagesLoading]);
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      cancelAnimationFrame(secondFrame);
+      clearTimeout(highlightTimer);
+      element?.classList.remove("ring-2", "ring-warning/50", "rounded-lg");
+    };
+  }, [source, filePath, scrollToMessageId, targetState, messagesLoading, viewMode]);
 
   // Preserve scroll position after prepending older messages
   useEffect(() => {
@@ -737,6 +776,8 @@ export function MessagesPage() {
       }
     }
 
+    if (matchedOnly || targetState.status === "loading") return;
+
     // Load older messages when scrolling near top
     const canScroll = scrollHeight > clientHeight + 24;
     if (!messagesLoading && messagesHasMore && canScroll && scrollTop < 200) {
@@ -749,6 +790,8 @@ export function MessagesPage() {
       requestNewerMessages();
     }
   }, [
+    matchedOnly,
+    targetState.status,
     messagesHasMore,
     messagesHasNewer,
     messagesLoading,
@@ -810,12 +853,10 @@ export function MessagesPage() {
     [jumpToMessageIndex]
   );
 
-  const displayedMessages = useMemo(() => {
-    if (!matchedOnly || !scrollToMessageId) return messages;
-    const idx = messages.findIndex((msg) => msg.uuid === scrollToMessageId);
-    if (idx === -1) return messages;
-    return buildFocusedMessages(messages, idx);
-  }, [messages, matchedOnly, scrollToMessageId]);
+  const displayedWindow = useMemo(() => {
+    if (!matchedOnly || !scrollToMessageId) return { messages, offset: loadedStart };
+    return getFocusedMessageWindow(messages, loadedStart, scrollToMessageId);
+  }, [messages, loadedStart, matchedOnly, scrollToMessageId]);
 
   useLayoutEffect(() => {
     if (!PERF_DIAGNOSTICS_ENABLED || messages.length === 0) return;
@@ -1112,7 +1153,7 @@ export function MessagesPage() {
   );
   const messageThread = (
     <MessageThread
-      messages={displayedMessages}
+      messages={displayedWindow.messages}
       source={source}
       showTimestamp={showTimestamp}
       showModel={showModel}
@@ -1124,7 +1165,7 @@ export function MessagesPage() {
       projectPath={chatProjectPath}
       viewportRef={containerRef}
       priorityMessageId={scrollToMessageId}
-      messageOffset={loadedStart}
+      messageOffset={displayedWindow.offset}
     />
   );
   const measuredMessageThread = PERF_DIAGNOSTICS_ENABLED ? (
@@ -1239,6 +1280,17 @@ export function MessagesPage() {
         </div>
       )}
 
+      {targetState.status === "loading" && (
+        <div role="status" className="mx-4 mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />{t("正在定位消息…")}
+        </div>
+      )}
+      {(targetState.status === "missing" || targetState.status === "error") && (
+        <div role="alert" className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-border p-3 text-sm">
+          <span className="text-muted-foreground">{targetState.status === "missing" ? t("未找到目标消息，消息可能已被删除或会话已变更。") : t("消息定位失败：{{message}}", { message: targetState.message })}</span>
+          <button onClick={() => setTargetRetry((value) => value + 1)} className="shrink-0 text-primary underline">{t("重试")}</button>
+        </div>
+      )}
       {matchedOnly && scrollToMessageId && (
         <div className="mx-4 mt-2 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-4 py-2 text-sm">
           <span className="text-muted-foreground">{t("当前仅显示匹配消息片段")}</span>
@@ -1431,7 +1483,10 @@ export function MessagesPage() {
                   <ErrorState
                     title={t("消息加载失败")}
                     message={messagesError}
-                    onRetry={() => selectSession(filePath)}
+                    onRetry={() => {
+                      sessionLoadRef.current = selectSession(filePath);
+                      setTargetRetry((value) => value + 1);
+                    }}
                   />
                 ) : !messagesLoading && messages.length === 0 && messagesTotal === 0 && chatMessages.length === 0 ? (
                   <EmptyState
@@ -1577,32 +1632,6 @@ export function MessagesPage() {
       )}
     </div>
   );
-}
-
-function buildFocusedMessages(messages: DisplayMessage[], targetIndex: number): DisplayMessage[] {
-  if (targetIndex < 0 || targetIndex >= messages.length) return messages;
-
-  let start = targetIndex;
-  let end = targetIndex;
-  const target = messages[targetIndex];
-
-  if (target.role !== "user") {
-    for (let i = targetIndex - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        start = i;
-        break;
-      }
-    }
-  }
-
-  for (let i = targetIndex + 1; i < messages.length; i++) {
-    if (messages[i].role === "user") {
-      break;
-    }
-    end = i;
-  }
-
-  return messages.slice(start, end + 1);
 }
 
 function SplitSessionPane({

@@ -1067,7 +1067,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
 
-    set({ messagesLoading: true, messagesGeneration: state.messagesGeneration + 1 });
+    set({ messagesLoading: true, messagesError: null, messagesGeneration: state.messagesGeneration + 1 });
     const request = beginMessagesRequest(get());
     try {
       const response = await traceMessagesRequest(
@@ -1113,7 +1113,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       if (!isCurrentMessagesRequest(get(), request)) return;
       console.error("Failed to jump to message:", e);
-      set({ messagesLoading: false });
+      set({ messagesLoading: false, messagesError: e instanceof Error ? e.message : String(e) });
     }
   },
 

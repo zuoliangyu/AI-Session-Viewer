@@ -31,6 +31,7 @@ pub fn run() {
             commands::messages::get_messages,
             commands::messages::get_messages_range,
             commands::messages::get_question_index,
+            commands::messages::get_message_location,
             commands::perf::report_perf_events,
             commands::trajectory::get_trajectory,
             commands::export::export_session,
