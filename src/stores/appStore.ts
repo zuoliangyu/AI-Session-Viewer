@@ -52,6 +52,17 @@ const sessionCostsInFlight = new Map<
   string,
   Promise<SessionCostSummary | null>
 >();
+let crossProjectTagsVersion = 0;
+let crossProjectTagsInFlight: Promise<void> | null = null;
+
+function resetCrossProjectTags() {
+  crossProjectTagsVersion += 1;
+  crossProjectTagsInFlight = null;
+  return {
+    crossProjectTagsStatus: "idle" as const,
+    crossProjectTagsError: null,
+  };
+}
 
 export interface BackgroundRefreshContext {
   reason?: "interval" | "file-watcher" | "chat-complete" | "action";
@@ -363,6 +374,8 @@ interface AppState {
 
   // Cross-project tags
   crossProjectTags: Record<string, string[]>;
+  crossProjectTagsStatus: "idle" | "loading" | "loaded" | "error";
+  crossProjectTagsError: string | null;
   globalTagFilter: string[];
 
   // Bookmarks
@@ -416,7 +429,7 @@ interface AppState {
   ) => Promise<void>;
   loadAllTags: () => Promise<void>;
   setTagFilter: (tags: string[]) => void;
-  loadCrossProjectTags: () => Promise<void>;
+  loadCrossProjectTags: (force?: boolean) => Promise<void>;
   setGlobalTagFilter: (tags: string[]) => void;
   loadBookmarks: () => Promise<void>;
   addBookmark: (bookmark: Omit<Bookmark, "id" | "createdAt">) => Promise<void>;
@@ -469,6 +482,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       allTags: [],
       tagFilter: [],
       crossProjectTags: {},
+      ...resetCrossProjectTags(),
       globalTagFilter: [],
     });
   },
@@ -543,6 +557,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   tagFilter: [],
 
   crossProjectTags: {},
+  crossProjectTagsStatus: "idle",
+  crossProjectTagsError: null,
   globalTagFilter: [],
 
   bookmarks: [],
@@ -733,6 +749,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteSession: async (filePath: string, sessionId?: string) => {
     const { source, selectedProject } = get();
     await api.deleteSession(filePath, source, selectedProject || undefined, sessionId);
+    if (get().source === source) set(resetCrossProjectTags());
     set((state) => ({
       sessions: state.sessions.filter((s) => s.filePath !== filePath),
       // 损坏 / 空会话也可能在这里被删（清理对话框走这条路径），同步清掉。
@@ -745,6 +762,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deleteProject: async (projectId: string, level?: DeleteLevel) => {
     const { source } = get();
     await api.deleteProject(source, projectId, level || "sessionOnly");
+    if (get().source === source) set(resetCrossProjectTags());
     // 在 await 完成后重新读取 selectedProject，避免竞态
     set((state) => {
       const filtered = state.projects.filter((p) => p.id !== projectId);
@@ -1448,6 +1466,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const session = sessions.find(s => s.sessionId === sessionId);
     const filePath = session?.filePath ?? null;
     await api.updateSessionMeta(source, selectedProject, sessionId, alias, tags, filePath);
+    if (get().source === source) set(resetCrossProjectTags());
     // Update local state
     set((state) => ({
       sessions: state.sessions.map((s) =>
@@ -1481,16 +1500,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ tagFilter: tags });
   },
 
-  loadCrossProjectTags: async () => {
-    const source = get().source;
-    try {
-      const crossProjectTags = await api.getCrossProjectTags(source);
-      // Drop stale result if the user switched source while waiting.
-      if (get().source !== source) return;
-      set({ crossProjectTags });
-    } catch (e) {
-      console.error("Failed to load cross-project tags:", e);
+  loadCrossProjectTags: async (force = false) => {
+    const { source, crossProjectTagsStatus } = get();
+    if (crossProjectTagsStatus === "loading") {
+      return crossProjectTagsInFlight ?? undefined;
     }
+    // Empty is a valid loaded result. Failed requests wait for explicit retry.
+    if (!force && crossProjectTagsStatus !== "idle") return;
+    const version = ++crossProjectTagsVersion;
+    set({ crossProjectTagsStatus: "loading", crossProjectTagsError: null });
+    const request = (async () => {
+      try {
+        const crossProjectTags = await api.getCrossProjectTags(source);
+        if (version !== crossProjectTagsVersion) return;
+        set({ crossProjectTags, crossProjectTagsStatus: "loaded" });
+      } catch (e) {
+        if (version !== crossProjectTagsVersion) return;
+        set({ crossProjectTagsStatus: "error", crossProjectTagsError: errorMessage(e) });
+      } finally {
+        if (version === crossProjectTagsVersion) crossProjectTagsInFlight = null;
+      }
+    })();
+    crossProjectTagsInFlight = request;
+    return request;
   },
 
   setGlobalTagFilter: (tags: string[]) => {
@@ -1547,6 +1579,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   restoreItem: async (id: string) => {
     await api.restoreRecycledItem(id);
+    set(resetCrossProjectTags());
     set((state) => ({
       recycledItems: state.recycledItems.filter((item) => item.id !== id),
     }));

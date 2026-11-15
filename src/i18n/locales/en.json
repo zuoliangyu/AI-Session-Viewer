@@ -1053,5 +1053,6 @@
   "选择要搬家的项目目录": "Choose the project directory to move",
   "配置与索引文件已备份到：": "Config and index files backed up to: ",
   "项目搬家": "Move project",
-  "预览影响": "Preview changes"
+  "预览影响": "Preview changes",
+  "标签加载失败：{{message}}": "Could not load tags: {{message}}"
 }

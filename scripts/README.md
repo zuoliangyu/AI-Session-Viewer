@@ -35,6 +35,8 @@
 
 同步预览的定向回归：`node scripts/check-sync-preview.mjs`（Node.js 24+）。使用真实预览守卫和内存请求，检查乱序响应、节点切换、重复提交与卸载失效；不访问节点、不写配置、不编译。
 
+标签加载的定向回归：`node scripts/check-cross-project-tags.mjs`（Node.js 24+）。使用真实 store 和内存 API，检查空结果缓存、请求合并、显式重试与跨来源旧响应隔离；不编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

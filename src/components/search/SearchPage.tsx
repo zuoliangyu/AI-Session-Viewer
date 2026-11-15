@@ -16,6 +16,7 @@ import {
 import { formatDateOnly } from "../../utils/dateTime";
 import { useShallow } from "zustand/react/shallow";
 import { EmptyState } from "../common/StateViews";
+import { TagLoadError } from "../common/TagLoadError";
 
 type SearchMode = "messages" | "sessions";
 type SearchScope = "all" | "content" | "session" | "tags";
@@ -67,10 +68,8 @@ export function SearchPage() {
   }, []);
 
   useEffect(() => {
-    if (Object.keys(crossProjectTags).length === 0) {
-      loadCrossProjectTags();
-    }
-  }, [source, crossProjectTags, loadCrossProjectTags]);
+    void loadCrossProjectTags();
+  }, [source, loadCrossProjectTags]);
 
   const handleSearch = useCallback(
     (value: string) => {
@@ -271,6 +270,7 @@ export function SearchPage() {
         </div>
       </div>
 
+      <TagLoadError />
       {allGlobalTags.length > 0 && (
         <details className="workspace-filter"><summary>{t("标签筛选")}{globalTagFilter.length > 0 ? t(" · 已选 ") + globalTagFilter.length : ""}</summary>
         <div className="flex flex-wrap items-center gap-2">

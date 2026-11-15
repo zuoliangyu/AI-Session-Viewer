@@ -56,6 +56,8 @@ Fork buttons appear below user questions and in the question summary. Forking cr
 
 ## Search and statistics
 
+An empty cross-project tag result is cached instead of triggering repeated requests. Tag read failures offer an explicit Retry action, and changing sources clears the previous source's tag loading state.
+
 Search across projects by message content, session names, and tags. Switch between individual matches and results grouped by session. Selecting a result jumps to the matching message.
 
 Token and cost statistics currently support **Claude and Codex**. They include input/output/cache tokens, USD costs, cache hit rates, daily/hourly trends, model usage, and the top ten projects by cost. Models without pricing are marked **Unpriced**.

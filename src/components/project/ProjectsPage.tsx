@@ -29,6 +29,7 @@ import { useShallow } from "zustand/react/shallow";
 import { EmptyState } from "../common/StateViews";
 import { PageHeader } from "../common/PageHeader";
 import { EscapeToClose } from "../common/EscapeToClose";
+import { TagLoadError } from "../common/TagLoadError";
 
 export function ProjectsPage() {
   const { t } = useTranslation();
@@ -75,7 +76,7 @@ export function ProjectsPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshInBackground(true, true);
+      await Promise.all([refreshInBackground(true, true), loadCrossProjectTags(true)]);
     } finally {
       setRefreshing(false);
     }
@@ -249,6 +250,7 @@ export function ProjectsPage() {
       />
 
       {/* Global tag filter bar */}
+      <TagLoadError />
       {allGlobalTags.length > 0 && (
         <details className="workspace-filter"><summary>{t("标签筛选")}{globalTagFilter.length > 0 ? t(" · 已选 ") + globalTagFilter.length : ""}</summary>
         <div className="flex flex-wrap items-center gap-2">
