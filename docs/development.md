@@ -9,7 +9,7 @@
 ## 前置要求
 
 - [Node.js](https://nodejs.org/) >= 22（常规开发默认 22.x，仓库提供 `.nvmrc`；专项状态回归需要 24+）
-- [Rust](https://www.rust-lang.org/tools/install) >= 1.75
+- [Rust](https://www.rust-lang.org/tools/install) >= 1.91（workspace 统一声明；安全依赖升级后的最低版本）
 - 至少使用过以下一种 CLI：
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`~/.claude/projects/` 目录存在）
   - [Codex CLI](https://github.com/openai/codex)（`~/.codex/sessions/` 目录存在）
@@ -85,6 +85,8 @@ docker build -t ai-session-viewer-web .
 ```
 
 ## 代码检查
+
+依赖安全审计使用 `node scripts/audit-dependencies.mjs`，只读取锁文件、校验本地补丁并联网查询公告，不安装依赖或编译。审计范围、GLib 官方补丁及剩余停维提示见 [依赖安全维护](./dependency-security.md)。
 
 ```bash
 npm run check:scripts                     # 轻量脚本与 i18n 回归检查

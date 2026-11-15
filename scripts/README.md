@@ -53,6 +53,12 @@
 
 聊天页面的定向回归：`node scripts/check-chat-page-lifecycle.mjs`（Node.js 24+）。验证失败/取消保留、成功回复移交历史、离页取消、延时续聊撤销及旧轮次事件隔离；不启动 CLI、不编译。
 
+## 依赖安全审计
+
+`node scripts/audit-dependencies.mjs` 读取根锁文件，执行 npm 审计、查询 OSV 的 Rust 公告，并校验 GLib 官方回补的完整文件摘要。需要 Node.js 24/npm 和网络，不安装依赖、不编译。漏洞、未知来源、网络失败、补丁不一致或过期例外均返回失败；停维提示保持可见。CI 每日及普通检查/发布前运行，详见 [依赖安全维护](../docs/dependency-security.md)。
+
+`node scripts/check-dependency-audit.mjs` 和 `node scripts/check-vendored-patches.mjs` 分别验证异常响应/分页/精确例外规则，以及源码篡改/新增文件/补丁失配/配置遗漏；两者均不联网或编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

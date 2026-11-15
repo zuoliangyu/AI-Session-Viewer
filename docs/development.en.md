@@ -9,7 +9,7 @@ Local development, builds, tech stack, architecture, and the REST API.
 ## Requirements
 
 - Node.js 22 or newer; `.nvmrc` selects the default development version. Focused state regressions require Node.js 24 or newer.
-- A Rust toolchain compatible with the workspace's Tauri dependencies.
+- Rust 1.91 or newer, declared by the workspace for the updated security dependencies.
 - Session data from at least one supported CLI.
 
 Desktop platform dependencies:
@@ -36,6 +36,8 @@ Use `npx tauri dev` for desktop development: it starts both the Rust backend and
 Windows provides `./menu.ps1`; Linux/macOS provide `./menu.sh`. Script details are in [scripts/README.md](../scripts/README.md). For web development, use `npm run dev:web`.
 
 ## Build and validate manually
+
+Run `node scripts/audit-dependencies.mjs` for dependency security checks. It reads lockfiles, verifies the vendored patch and queries advisories without installing dependencies or compiling. See [dependency security maintenance](./dependency-security.md) for scope, the GLib backport and the remaining maintenance warning.
 
 ```bash
 # Desktop packages
