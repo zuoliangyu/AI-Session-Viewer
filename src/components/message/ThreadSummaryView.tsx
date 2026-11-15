@@ -11,6 +11,7 @@ import type { QuestionIndexEntry } from "../../types";
 import { formatTime } from "./utils";
 import { useAppStore } from "../../stores/appStore";
 import { useSessionFork } from "./useSessionFork";
+import { questionDepths } from "./questionDepths";
 
 interface ThreadSummaryViewProps {
   questions: QuestionIndexEntry[];
@@ -40,6 +41,7 @@ function flattenQuestionIndex(
   timeZone: string,
 ): UserThreadItem[] {
   const byMessageIndex = new Map(questions.map((question) => [question.messageIndex, question]));
+  const depths = questionDepths(questions);
   const childCounts = new Map<number, number>();
   const items: UserThreadItem[] = [];
 
@@ -50,17 +52,6 @@ function flattenQuestionIndex(
       : childCounts.get(parentMessageIndex) ?? 0;
     if (parentMessageIndex !== null) {
       childCounts.set(parentMessageIndex, branchIndex + 1);
-    }
-
-    let depth = 0;
-    let ancestor = parentMessageIndex;
-    const visited = new Set<number>();
-    while (ancestor !== null && !visited.has(ancestor)) {
-      visited.add(ancestor);
-      const parent = byMessageIndex.get(ancestor);
-      if (!parent) break;
-      depth += 1;
-      ancestor = parent.parentMessageIndex;
     }
 
     items.push({
@@ -77,7 +68,7 @@ function flattenQuestionIndex(
       parentMessageId: parentMessageIndex === null
         ? null
         : byMessageIndex.get(parentMessageIndex)?.messageId ?? null,
-      depth,
+      depth: depths.get(question.messageIndex) ?? 0,
       branchIndex,
       branchCount: 0,
     });
