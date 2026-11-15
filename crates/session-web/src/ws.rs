@@ -1,7 +1,7 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{event::ModifyKind, Config, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,10 +15,13 @@ use crate::{check_ws_origin, require_ws_auth, AllowedOrigins, AppToken, WsTicket
 /// so use a longer debounce to avoid flooding clients.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(1000);
 const MAX_BATCH_DURATION: Duration = Duration::from_secs(2);
+const WATCH_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::{claude, codex, grok, omp};
-use session_core::watcher_batch::{collect_until_quiet, is_session_file_change};
+use session_core::watcher_batch::{
+    collect_until_quiet, is_session_file_change, sync_root_watches, RootWatchAction, RootWatchState,
+};
 
 /// Shared broadcast sender for file change events
 pub type FsChangeTx = Arc<broadcast::Sender<Vec<String>>>;
@@ -60,92 +63,84 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
         }
     };
 
-    // Watch Claude projects directory
-    if let Some(dir) = get_projects_dir() {
-        if dir.exists() {
-            if let Err(e) = watcher.watch(&dir, RecursiveMode::Recursive) {
-                tracing::warn!("Failed to watch Claude directory: {}", e);
-            }
-        }
-    }
+    let directories = [
+        get_projects_dir(),
+        codex::get_sessions_dir(),
+        grok::get_sessions_dir(),
+        omp::get_sessions_dir(),
+    ];
+    let mut watched = [RootWatchState::default(); 4];
+    let mut changed = HashSet::new();
+    let mut invalidated = HashSet::new();
 
-    // Watch Codex sessions directory
-    if let Some(dir) = codex::get_sessions_dir() {
-        if dir.exists() {
-            if let Err(e) = watcher.watch(&dir, RecursiveMode::Recursive) {
-                tracing::warn!("Failed to watch Codex directory: {}", e);
-            }
-        }
-    }
-    if let Some(dir) = grok::get_sessions_dir() {
-        if dir.exists() {
-            let _ = watcher.watch(&dir, RecursiveMode::Recursive);
-        }
-    }
-    if let Some(dir) = omp::get_sessions_dir() {
-        if dir.exists() {
-            let _ = watcher.watch(&dir, RecursiveMode::Recursive);
-        }
-    }
-
-    while let Ok(first) = notify_rx.recv() {
-        let events = collect_until_quiet(first, DEBOUNCE_DURATION, MAX_BATCH_DURATION, |timeout| {
-            notify_rx.recv_timeout(timeout)
-        });
-        let mut changed = HashSet::new();
-        for event in events {
-            match event {
-                Ok(event) => {
-                    changed.extend(event.paths.into_iter().filter(|path| {
-                        is_session_file_change(path)
-                    }));
-                }
-                Err(error) => tracing::warn!("Watch error: {error}"),
-            }
-        }
+    loop {
+        let changed_roots = sync_root_watches(
+            &directories,
+            &mut watched,
+            &invalidated,
+            |path, action| match action {
+                RootWatchAction::Watch => match watcher.watch(path, RecursiveMode::Recursive) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        tracing::warn!("Failed to watch {:?}: {}", path, error);
+                        false
+                    }
+                },
+                RootWatchAction::Unwatch => watcher.unwatch(path).is_ok(),
+            },
+        );
+        invalidated.clear();
+        changed.extend(changed_roots.iter().cloned());
 
         if !changed.is_empty() {
-            let paths: Vec<PathBuf> = changed.into_iter().collect();
-            // Surgically update only the affected projects/files (same
-            // path-partitioned approach as the Tauri watcher) instead of
-            // wiping the whole cache on every change.
-            if let Some(dir) = get_projects_dir() {
+            let paths: Vec<PathBuf> = changed.drain().collect();
+            // Ordinary file events stay incremental. A changed root needs a
+            // full provider refresh for files missed while it was unwatched.
+            if let Some(dir) = &directories[0] {
                 let claude_paths: Vec<std::path::PathBuf> = paths
                     .iter()
-                    .filter(|p| p.starts_with(&dir))
+                    .filter(|p| p.starts_with(dir))
                     .cloned()
                     .collect();
-                if !claude_paths.is_empty() {
+                if changed_roots.contains(dir) {
+                    claude::invalidate_cache();
+                } else if !claude_paths.is_empty() {
                     claude::invalidate_paths(&claude_paths);
                 }
             }
-            if let Some(dir) = codex::get_sessions_dir() {
+            if let Some(dir) = &directories[1] {
                 let codex_paths: Vec<std::path::PathBuf> = paths
                     .iter()
-                    .filter(|p| p.starts_with(&dir))
+                    .filter(|p| p.starts_with(dir))
                     .cloned()
                     .collect();
-                if !codex_paths.is_empty() {
+                if changed_roots.contains(dir) {
+                    codex::invalidate_sessions_cache();
+                } else if !codex_paths.is_empty() {
                     codex::invalidate_paths(&codex_paths);
                 }
             }
-            if let Some(dir) = grok::get_sessions_dir() {
+            if let Some(dir) = &directories[2] {
                 let grok_paths: Vec<PathBuf> = paths
                     .iter()
-                    .filter(|path| path.starts_with(&dir))
+                    .filter(|path| path.starts_with(dir))
                     .cloned()
                     .collect();
-                if !grok_paths.is_empty() {
+                if changed_roots.contains(dir) {
+                    grok::invalidate_sessions_cache();
+                } else if !grok_paths.is_empty() {
                     grok::invalidate_paths(&grok_paths);
                 }
             }
-            if let Some(dir) = omp::get_sessions_dir() {
+            if let Some(dir) = &directories[3] {
                 let omp_paths: Vec<PathBuf> = paths
                     .iter()
-                    .filter(|path| path.starts_with(&dir))
+                    .filter(|path| path.starts_with(dir))
                     .cloned()
                     .collect();
-                if !omp_paths.is_empty() {
+                if changed_roots.contains(dir) {
+                    omp::invalidate_sessions_cache();
+                } else if !omp_paths.is_empty() {
                     omp::invalidate_paths(&omp_paths);
                 }
             }
@@ -156,6 +151,38 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
                 .collect();
 
             let _ = tx_clone.send(paths);
+        }
+
+        // Missing roots and failed registrations produce no events. Retry
+        // periodically without expanding the watch to the user's home.
+        let first = match notify_rx.recv_timeout(WATCH_REFRESH_INTERVAL) {
+            Ok(event) => event,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
+        let events = collect_until_quiet(first, DEBOUNCE_DURATION, MAX_BATCH_DURATION, |timeout| {
+            notify_rx.recv_timeout(timeout)
+        });
+        for event in events {
+            match event {
+                Ok(event) => {
+                    if matches!(
+                        event.kind,
+                        EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
+                    ) {
+                        // A root can be recreated before the next poll. Its
+                        // old watch is still invalid even if the path exists.
+                        invalidated.extend(event.paths.iter().cloned());
+                    }
+                    changed.extend(
+                        event
+                            .paths
+                            .into_iter()
+                            .filter(|path| is_session_file_change(path)),
+                    );
+                }
+                Err(error) => tracing::warn!("Watch error: {error}"),
+            }
         }
     }
 }

@@ -147,7 +147,13 @@ function normalizeFilePath(value: string): string {
 function pathsIncludeFile(paths: string[] | undefined, filePath: string): boolean {
   if (paths == null) return true;
   const target = normalizeFilePath(filePath);
-  return paths.some((path) => normalizeFilePath(path) === target);
+  return paths.some((path) => {
+    const changed = normalizeFilePath(path);
+    if (!changed) return false;
+    // Recreated provider roots invalidate every session below that directory.
+    const directoryPrefix = `${changed.replace(/\/+$/, "")}/`;
+    return changed === target || target.startsWith(directoryPrefix);
+  });
 }
 
 function sameNullableStrings(left: string[] | null, right: string[] | null): boolean {

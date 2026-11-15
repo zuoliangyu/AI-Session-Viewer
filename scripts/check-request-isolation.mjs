@@ -139,6 +139,29 @@ try {
   assert.equal(state().loadedStart, 940);
   assert.equal(state().messages.length, 60);
 
+  // Root lifecycle notifications must also refresh an already open session,
+  // without matching a neighboring directory that merely shares its prefix.
+  for (const [filePath, changedPath, shouldRefresh] of [
+    ["/data/sessions/project/session.jsonl", "/data/sessions", true],
+    ["/data/sessions/project/session.jsonl", "/data/sessions/", true],
+    ["/data/sessions/project/session.jsonl", "/data/sessions/project/session.jsonl", true],
+    ["C:\\Data\\Sessions\\project\\session.jsonl", "c:/data/sessions/", true],
+    ["/data/sessions-other/session.jsonl", "/data/sessions", false],
+    ["/data/sessions/project/session.jsonl", "/data/other", false],
+    ["/data/sessions/project/session.jsonl", "", false],
+  ]) {
+    openWindow(filePath, 970, 1000);
+    const before = requests.length;
+    const refresh = state().refreshInBackground(false, false, {
+      reason: "file-watcher", changedPaths: [changedPath],
+    });
+    await settle();
+    assert.equal(requests.length, before + Number(shouldRefresh), `Watcher path ${changedPath} -> ${filePath}`);
+    if (shouldRefresh) last().resolve(tail(1001));
+    await refresh;
+    assert.equal(state().messagesTotal, shouldRefresh ? 1001 : 1000);
+  }
+
   openWindow();
   const failingOldPage = state().loadMoreMessages();
   const failingResponse = last();

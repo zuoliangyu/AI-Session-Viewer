@@ -130,4 +130,6 @@ Installed desktop packages use the in-app updater. Windows portable packages lin
 
 Desktop and web file watchers batch changed paths to refresh affected projects. Desktop also performs a periodic background refresh. Metadata, indexes, and bookmarks use atomic writes.
 
+Both modes check configured provider roots every five seconds and restore watches for directories created after startup or deleted and recreated. Restoring a watch refreshes that source and affected open sessions to include files written during the gap. Ordinary file events remain incremental; watches stay within provider roots.
+
 Bookmarks, recycle-bin manifests, and session metadata serialize read-modify-write operations and related file moves across desktop and web processes with `~/.claude-code-viewer/state-write-lock.sqlite`. A write-lock wait exceeding five seconds returns an error and can be retried; do not delete this lock file while the app is running. Saves use unique temporary files in the destination directory and atomic replacement. Only missing files count as empty data; corrupt or unreadable files block writes. The lock does not coordinate external editors or provide an automatic transaction rollback across multiple data files.
