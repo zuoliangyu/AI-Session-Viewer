@@ -1894,6 +1894,7 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
     };
     let reader = BufReader::new(file);
     let mut events: Vec<TokenEvent> = Vec::new();
+    let mut model = "unknown".to_string();
     let mut prev_input: u64 = 0;
     let mut prev_output: u64 = 0;
 
@@ -1903,7 +1904,10 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
             Err(_) => continue,
         };
         let trimmed = line.trim();
-        if trimmed.is_empty() || !trimmed.contains("\"token_count\"") {
+        if trimmed.is_empty()
+            || (!trimmed.contains("\"token_count\"")
+                && !trimmed.contains("\"turn_context\""))
+        {
             continue;
         }
 
@@ -1912,7 +1916,21 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
             Err(_) => continue,
         };
 
-        if row.get("type").and_then(|v| v.as_str()) != Some("event_msg") {
+        let row_type = row.get("type").and_then(|v| v.as_str());
+        if row_type == Some("turn_context") {
+            // Provider names (such as "openai") are not model identifiers.
+            // Capture each turn's model so /model changes split usage correctly.
+            model = row
+                .get("payload")
+                .and_then(|payload| payload.get("model"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("unknown")
+                .to_string();
+            continue;
+        }
+        if row_type != Some("event_msg") {
             continue;
         }
 
@@ -1968,6 +1986,7 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
 
         events.push(TokenEvent {
             timestamp,
+            model: model.clone(),
             input_tokens: delta_input,
             output_tokens: delta_output,
         });
@@ -1978,6 +1997,7 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
 
 struct TokenEvent {
     timestamp: String,
+    model: String,
     input_tokens: u64,
     output_tokens: u64,
 }
@@ -1999,30 +2019,27 @@ fn request_records_for_file(path: &Path) -> Vec<crate::models::stats::RequestRec
             }
         })
         .unwrap_or_default();
-    let model = meta
-        .as_ref()
-        .and_then(|m| m.model_provider.clone())
-        .unwrap_or_else(|| "unknown".to_string());
     let file_path = path.to_string_lossy().into_owned();
 
     extract_token_events(path)
         .into_iter()
         .map(|event| {
-            let cost = pricing::compute_cost(&model, event.input_tokens, 0, 0, event.output_tokens);
+            let cost = pricing::compute_cost(&event.model, event.input_tokens, 0, 0, event.output_tokens);
+            let is_priced = pricing::is_priced(&event.model);
             RequestRecord {
                 timestamp: event.timestamp,
                 source: "codex".to_string(),
                 project_id: project_id.clone(),
                 session_id: session_id.clone(),
                 file_path: file_path.clone(),
-                model: model.clone(),
+                model: event.model,
                 input_tokens: event.input_tokens,
                 output_tokens: event.output_tokens,
                 cache_read_tokens: 0,
                 cache_creation_tokens: 0,
                 total_tokens: event.input_tokens + event.output_tokens,
                 cost_usd: cost,
-                is_priced: pricing::is_priced(&model),
+                is_priced,
                 duration_ms: None,
                 message_uuid: None,
             }
@@ -2051,9 +2068,13 @@ pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, St
 // ── Stats ──
 
 pub fn get_stats(time_zone: Tz) -> Result<TokenUsageSummary, String> {
+    let files = scan_all_session_files();
+    Ok(stats_for_files(&files, time_zone))
+}
+
+fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> TokenUsageSummary {
     use crate::models::pricing;
 
-    let files = scan_all_session_files();
     let mut summary = crate::stats::empty_summary();
     let mut tokens_by_model: HashMap<String, u64> = HashMap::new();
     let mut cost_by_model: HashMap<String, f64> = HashMap::new();
@@ -2061,31 +2082,26 @@ pub fn get_stats(time_zone: Tz) -> Result<TokenUsageSummary, String> {
     let mut unpriced_models: HashSet<String> = HashSet::new();
     let mut session_count: u64 = 0;
 
-    for file_path in &files {
+    for file_path in files {
         session_count += 1;
-
-        let meta = extract_session_meta(file_path);
-        let model_provider = meta
-            .as_ref()
-            .and_then(|m| m.model_provider.clone())
-            .unwrap_or_else(|| "unknown".to_string());
 
         let session_date = extract_date_from_path(file_path);
         let events = extract_token_events(file_path);
         for ev in events {
+            let model = &ev.model;
             let cost =
-                pricing::compute_cost(&model_provider, ev.input_tokens, 0, 0, ev.output_tokens);
+                pricing::compute_cost(model, ev.input_tokens, 0, 0, ev.output_tokens);
             summary.total_input_tokens += ev.input_tokens;
             summary.total_output_tokens += ev.output_tokens;
             summary.total_tokens += ev.input_tokens + ev.output_tokens;
             summary.total_cost_usd += cost;
             summary.message_count += 1;
-            *tokens_by_model.entry(model_provider.clone()).or_insert(0) +=
+            *tokens_by_model.entry(model.clone()).or_insert(0) +=
                 ev.input_tokens + ev.output_tokens;
-            *cost_by_model.entry(model_provider.clone()).or_insert(0.0) += cost;
-            let priced = pricing::is_priced(&model_provider);
+            *cost_by_model.entry(model.clone()).or_insert(0.0) += cost;
+            let priced = pricing::is_priced(model);
             if !priced {
-                unpriced_models.insert(model_provider.clone());
+                unpriced_models.insert(model.clone());
             }
 
             let date = crate::stats::date_in_time_zone(&ev.timestamp, time_zone)
@@ -2098,14 +2114,14 @@ pub fn get_stats(time_zone: Tz) -> Result<TokenUsageSummary, String> {
                 entry.cost += cost;
                 *entry
                     .tokens_by_model
-                    .entry(model_provider.clone())
+                    .entry(model.clone())
                     .or_insert(0) += ev.input_tokens + ev.output_tokens;
                 *entry
                     .cost_by_model
-                    .entry(model_provider.clone())
+                    .entry(model.clone())
                     .or_insert(0.0) += cost;
                 if !priced {
-                    entry.unpriced_models.insert(model_provider.clone());
+                    entry.unpriced_models.insert(model.clone());
                 }
             }
         }
@@ -2140,7 +2156,7 @@ pub fn get_stats(time_zone: Tz) -> Result<TokenUsageSummary, String> {
     summary.unpriced_models.sort();
     summary.daily_tokens = daily_tokens;
     summary.session_count = session_count;
-    Ok(summary)
+    summary
 }
 
 #[derive(Default, Clone)]
@@ -2169,6 +2185,88 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Barrier;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct ModelRollout(PathBuf);
+
+    impl ModelRollout {
+        fn new(rows: &[Value]) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("asv-codex-model-{}.jsonl", uuid::Uuid::new_v4()));
+            let content = rows.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
+            fs::write(&path, content).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for ModelRollout {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    fn model_token_event() -> Value {
+        serde_json::json!({
+            "type": "event_msg",
+            "timestamp": "2026-08-26T00:00:00Z",
+            "payload": { "type": "token_count", "info": {
+                "last_token_usage": { "input_tokens": 100, "output_tokens": 20 }
+            }}
+        })
+    }
+
+    #[test]
+    fn request_and_summary_prices_follow_each_turn_model() {
+        let rollout = ModelRollout::new(&[
+            serde_json::json!({"type": "session_meta", "payload": {
+                "id": "model-switch", "cwd": "/project", "model_provider": "openai"
+            }}),
+            serde_json::json!({"type": "turn_context", "payload": {"model": "gpt-4o"}}),
+            model_token_event(),
+            serde_json::json!({"type": "turn_context", "payload": {"model": "gpt-4o-mini"}}),
+            model_token_event(),
+        ]);
+
+        let records = request_records_for_file(&rollout.0);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].model, "gpt-4o");
+        assert_eq!(records[1].model, "gpt-4o-mini");
+        assert!(records.iter().all(|record| record.is_priced && record.cost_usd > 0.0));
+        assert!(records[0].cost_usd > records[1].cost_usd);
+
+        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC);
+        assert_eq!(summary.tokens_by_model.get("gpt-4o"), Some(&120));
+        assert_eq!(summary.tokens_by_model.get("gpt-4o-mini"), Some(&120));
+        assert!(!summary.tokens_by_model.contains_key("openai"));
+        assert_eq!(summary.total_cost_usd, records.iter().map(|record| record.cost_usd).sum::<f64>());
+        assert_eq!(summary.daily_tokens.len(), 1);
+        assert_eq!(summary.daily_tokens[0].cost_by_model, summary.cost_by_model);
+    }
+
+    #[test]
+    fn missing_turn_model_stays_unpriced_instead_of_using_provider_or_previous_turn() {
+        let rollout = ModelRollout::new(&[
+            serde_json::json!({"type": "session_meta", "payload": {
+                "id": "unknown-model", "cwd": "/project", "model_provider": "gpt-4o"
+            }}),
+            model_token_event(),
+            serde_json::json!({"type": "turn_context", "payload": {"model": "gpt-4o"}}),
+            model_token_event(),
+            serde_json::json!({"type": "turn_context", "payload": {"model": " "}}),
+            model_token_event(),
+        ]);
+
+        let records = request_records_for_file(&rollout.0);
+        assert_eq!(records.len(), 3);
+        for index in [0, 2] {
+            assert_eq!(records[index].model, "unknown");
+            assert!(!records[index].is_priced);
+            assert_eq!(records[index].cost_usd, 0.0);
+        }
+        assert_eq!(records[1].model, "gpt-4o");
+        let summary = stats_for_files(std::slice::from_ref(&rollout.0), chrono_tz::UTC);
+        assert_eq!(summary.unpriced_models, vec!["unknown"]);
+        assert_eq!(summary.tokens_by_model.get("unknown"), Some(&240));
+    }
 
     #[test]
     fn concurrent_cache_misses_share_one_index_build() {

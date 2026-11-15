@@ -70,6 +70,8 @@ Token and cost statistics currently support **Claude and Codex**. They include i
 
 Per-request costs support project, model, and date filters; a row opens the corresponding message. Each page contains up to 500 records, with previous/next controls, the current range, total count, and page number. Failed page loads retain the current records and offer a retry; changing filters, source, or time zone returns to the first page. Session cost details can be copied as a Markdown table. Time-zone selection controls date boundaries. Statistics cover files present on the selected machine and source.
 
+Codex costs use each turn's `turn_context.model` and the built-in price table, including model switches within a session. Usage without a recorded model remains `unknown` / Unpriced; a Provider name is never used as a model identifier.
+
 ## In-app chat
 
 Choose **New chat**, select a working directory, and chat through the installed Claude or Codex CLI (on this machine, or on the machine running the web server). Once the first reply finishes, the conversation moves to its session page, where the composer stays docked at the bottom. Replies stream with Markdown and tool viewers for Read, Edit, Write, Bash, Grep, and Glob. Long conversations use virtual scrolling. If the CLI isn't detected, the page links straight to Settings → Chat.
