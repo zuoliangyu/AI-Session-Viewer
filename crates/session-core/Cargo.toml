@@ -18,7 +18,7 @@ tokio = { version = "1", features = ["rt", "process", "io-util", "sync", "macros
 tokio-util = { version = "0.7", features = ["io"] }
 futures-util = "0.3"
 toml = "0.8"
-toml_edit = { version = "0.23", features = ["serde"] }
+toml_edit = { version = "0.25", features = ["serde"] }
 noyalib = { version = "0.0.60", default-features = false, features = ["std", "compat-serde-yaml"] }
 zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 uuid = { version = "1", features = ["v4"] }
