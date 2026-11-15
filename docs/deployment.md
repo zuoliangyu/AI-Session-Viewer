@@ -55,6 +55,10 @@ docker compose up -d     # 后台
 ASV_TOKEN=my-secret docker compose up -d
 ```
 
+Compose 默认固定到已发布的 `3.2.0` 镜像及其 manifest digest，不会随 `latest` 自动变化；它不包含本地尚未发布的修复。升级时先核实新版本及 digest，再设置 `ASV_IMAGE=ghcr.io/zuoliangyu/ai-session-viewer-web:<版本>@sha256:<digest>`，执行 `docker compose pull` 和 `docker compose up -d`。若要部署当前源码，可先运行 `docker build -t asv-web:local .`，再运行 `ASV_IMAGE=asv-web:local ASV_TOKEN=my-secret docker compose up -d`。
+
+Dockerfile 的 Node、Rust、Alpine 基础镜像也固定版本与 digest；Dependabot 每周提出更新 PR，合并前仍需审核与验证。依赖安全检查通过普通 CI、发布前检查及每日定时任务执行，不会自动发布镜像。
+
 > ⚠️ **安全警告**
 >
 > 应用会读取服务器上的 `~/.claude/projects/`、`~/.codex/sessions/` 和 `~/.grok/sessions/`，包含**完整会话记录（可能含 API Key、代码、隐私对话）**。务必按部署场景采取措施：

@@ -11,11 +11,18 @@ permissions:
   contents: read
 
 jobs:
+  check-dependencies:
+    uses: ./.github/workflows/security.yml
+    permissions:
+      contents: read
+
   check-regressions:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           cache: 'npm'
@@ -27,7 +34,9 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install system dependencies
         run: |
@@ -35,24 +44,24 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: '. -> target'
 
       - name: Cargo check (Tauri app)
-        run: cargo check -p ai-session-viewer
+        run: cargo check --locked -p ai-session-viewer
 
       - name: Cargo clippy (Tauri app)
-        run: cargo clippy -p ai-session-viewer -- -D warnings
+        run: cargo clippy --locked -p ai-session-viewer -- -D warnings
 
       - name: Cargo test (Tauri app)
-        run: cargo test -p ai-session-viewer
+        run: cargo test --locked -p ai-session-viewer
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -73,10 +82,12 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -88,18 +99,18 @@ jobs:
         run: npm run build:web
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: '. -> target'
 
       - name: Cargo check (session-core + session-web)
-        run: cargo check -p session-core -p session-web
+        run: cargo check --locked -p session-core -p session-web
 
       - name: Cargo clippy (session-core + session-web)
-        run: cargo clippy -p session-core -p session-web -- -D warnings
+        run: cargo clippy --locked -p session-core -p session-web -- -D warnings
 
       - name: Cargo test (session-core + session-web)
-        run: cargo test -p session-core -p session-web
+        run: cargo test --locked -p session-core -p session-web

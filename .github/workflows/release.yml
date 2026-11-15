@@ -6,17 +6,32 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
+  validate-release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate release tag before building or publishing
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node .github/scripts/validate-release-tag.mjs
+
   checks:
+    needs: validate-release
     uses: ./.github/workflows/build.yml
     permissions:
       contents: read
 
   release:
     needs: checks
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -31,7 +46,9 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install dependencies (Ubuntu)
         if: matrix.platform == 'ubuntu-22.04'
@@ -40,18 +57,18 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: ${{ startsWith(matrix.platform, 'macos') && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: '. -> target'
 
@@ -62,7 +79,7 @@ jobs:
         id: changelog
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           {
             echo "body<<CHANGELOG_EOF"
             awk -v ver="$VERSION" '
@@ -74,7 +91,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -105,7 +122,7 @@ jobs:
         run: |
           $exePath = "target/release/ai-session-viewer.exe"
           if (Test-Path $exePath) {
-            $zipName = "ai-session-viewer-${{ github.ref_name }}-windows-portable.zip"
+            $zipName = "ai-session-viewer-{0}-windows-portable.zip" -f $env:RELEASE_TAG
             Compress-Archive -Path $exePath -DestinationPath $zipName
             Write-Output "PORTABLE_ZIP=$zipName" >> $env:GITHUB_OUTPUT
             Write-Output "Created portable zip: $zipName"
@@ -120,23 +137,30 @@ jobs:
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PORTABLE_ZIP: ${{ steps.portable.outputs.PORTABLE_ZIP }}
         run: |
-          gh release upload ${{ github.ref_name }} "${{ steps.portable.outputs.PORTABLE_ZIP }}" --clobber
+          gh release upload "$RELEASE_TAG" "$PORTABLE_ZIP" --clobber
 
   web-server:
     needs: release
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-unknown-linux-musl
 
@@ -144,7 +168,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - name: Rust cache
-        uses: swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: '. -> target'
 
@@ -155,28 +179,33 @@ jobs:
         run: npm run build:web
 
       - name: Build web server (static musl)
-        run: cargo build -p session-web --release --target x86_64-unknown-linux-musl
+        run: cargo build --locked -p session-web --release --target x86_64-unknown-linux-musl
 
       - name: Package web server
         run: |
-          tar -czf session-web-${{ github.ref_name }}-linux-x86_64.tar.gz \
+          tar -czf "session-web-${RELEASE_TAG}-linux-x86_64.tar.gz" \
             -C target/x86_64-unknown-linux-musl/release session-web
 
       - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ github.ref_name }} session-web-${{ github.ref_name }}-linux-x86_64.tar.gz --clobber
+          gh release upload "$RELEASE_TAG" "session-web-${RELEASE_TAG}-linux-x86_64.tar.gz" --clobber
 
 
   docker:
     runs-on: ubuntu-22.04
     needs: web-server
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -184,7 +213,7 @@ jobs:
 
       - name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: ghcr.io/${{ github.repository }}-web
           tags: |
@@ -193,7 +222,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile

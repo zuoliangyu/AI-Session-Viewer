@@ -1,6 +1,7 @@
 services:
   session-viewer:
-    image: ghcr.io/zuoliangyu/ai-session-viewer-web:latest
+    # Verified published 3.2.0 image. Override ASV_IMAGE explicitly when upgrading.
+    image: ${ASV_IMAGE:-ghcr.io/zuoliangyu/ai-session-viewer-web:3.2.0@sha256:6fa177f9a7961543b6eaf27f37de63698e85a69bb0e19fcac244ebc26ba6d5c9}
     ports:
       - "3000:3000"
     volumes:

@@ -8,3 +8,6 @@ LICENSE
 .spec-workflow/
 src-tauri/target/
 src-tauri/icons/
+# Vendored crates need their complete sources, README includes and licenses.
+!vendor/
+!vendor/**
