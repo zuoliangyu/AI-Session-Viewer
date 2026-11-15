@@ -313,7 +313,20 @@ struct ListModelsRequest {
 async fn list_models_handler(
     Json(req): Json<ListModelsRequest>,
 ) -> Result<Json<Vec<session_core::model_list::ModelInfo>>, (StatusCode, String)> {
-    session_core::model_list::list_models(&req.source, &req.api_key, &req.base_url)
+    let api_key = req.api_key.trim();
+    let base_url = req.base_url.trim();
+    // A remote caller may choose its own endpoint only with its own key.
+    // Otherwise list_models would combine that URL with a secret read from
+    // this server's CLI configuration. Local desktop calls retain their
+    // existing credential fallback behavior.
+    if !base_url.is_empty() && api_key.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "自定义模型 Base URL 必须同时提供 API Key；使用服务器配置时请将两者留空"
+                .to_string(),
+        ));
+    }
+    session_core::model_list::list_models(&req.source, api_key, base_url)
         .await
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
@@ -579,6 +592,24 @@ Set --token / ASV_TOKEN, bind to 127.0.0.1, or pass --allow-no-auth to override.
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn model_endpoint_override_requires_an_explicit_key_before_lookup() {
+        for source in ["claude", "codex"] {
+            for api_key in ["", " ", "\t\r\n"] {
+                let result = list_models_handler(Json(ListModelsRequest {
+                    source: source.to_string(),
+                    api_key: api_key.to_string(),
+                    // This must be rejected before reading credentials or
+                    // attempting a request to the caller's endpoint.
+                    base_url: "http://127.0.0.1:9".to_string(),
+                }))
+                .await;
+                let error = result.expect_err("endpoint overrides must not inherit server keys");
+                assert_eq!(error.0, StatusCode::BAD_REQUEST);
+            }
+        }
+    }
 
     fn headers(origin: Option<&str>, host: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();

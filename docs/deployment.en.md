@@ -31,6 +31,8 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 | `--allow-skip-permissions` | `ASV_ALLOW_SKIP_PERMISSIONS` | Off; let chat clients request `--dangerously-skip-permissions` |
 | `--allow-client-credentials` | `ASV_ALLOW_CLIENT_CREDENTIALS` | Off; let chat clients supply their own API key / base URL |
 
+When querying models through Web/remote nodes, a custom Base URL requires an explicit, non-empty API key. Leave both blank to use the server's CLI configuration. Server-discovered keys are never implicitly sent to a client-supplied endpoint. Local desktop mode still supports local credential discovery.
+
 ## Docker
 
 ```bash

@@ -31,6 +31,8 @@ ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
 | `--allow-skip-permissions` | `ASV_ALLOW_SKIP_PERMISSIONS` | 关闭 | 允许续聊客户端请求跳过权限（`--dangerously-skip-permissions`） |
 | `--allow-client-credentials` | `ASV_ALLOW_CLIENT_CREDENTIALS` | 关闭 | 允许续聊客户端传入自定义 API Key / Base URL |
 
+Web/远程节点查询模型列表时，自定义 Base URL 必须同时提供非空 API Key；使用服务器 CLI 配置时请将两者留空。服务器不会把本机自动发现的密钥发送到客户端指定的地址。桌面本机模式仍可自动发现本机凭据。
+
 **直接运行 vs Docker：**
 
 |  | 直接运行二进制（推荐） | Docker |
