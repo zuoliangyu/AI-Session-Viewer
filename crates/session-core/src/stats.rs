@@ -447,13 +447,14 @@ struct UsageData {
 
 // ── Per-file cache ───────────────────────────────────────────────────────────
 
-/// CACHE_VERSION 5:
+/// CACHE_VERSION 6:
+///   - File signatures include nanosecond mtime and length; v5 caches rebuild.
 ///   - `FileStat.requests` now uses `CompactRecord` with short field names
 ///     and no project/file/source redundancy (those are inferred from the
 ///     enclosing FileStat / cache key).
 ///   - Derived cost/model/day aggregates are rebuilt from requests so pricing
 ///     and the selected time zone can change without rescanning JSONL files.
-const CACHE_VERSION: u32 = 5;
+const CACHE_VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct AsvStatsCache {
@@ -465,8 +466,7 @@ struct AsvStatsCache {
 /// Stats aggregated for a single JSONL file.
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct FileStat {
-    /// File mtime (seconds since UNIX epoch) at scan time.
-    mtime: u64,
+    signature: FileSignature,
     /// Encoded project directory name (the parent dir under
     /// `~/.claude/projects/`). Used by the "项目花费排行" view to group
     /// requests without rescanning.
@@ -618,11 +618,21 @@ fn write_cache_to_disk(cache: &AsvStatsCache) {
     let _ = fs::rename(&tmp_path, &path);
 }
 
-fn file_mtime(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-        .unwrap_or(0)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+struct FileSignature {
+    modified_secs: u64,
+    modified_nanos: u32,
+    len: u64,
+}
+
+fn file_signature(path: &Path) -> Option<FileSignature> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(FileSignature {
+        modified_secs: modified.as_secs(),
+        modified_nanos: modified.subsec_nanos(),
+        len: metadata.len(),
+    })
 }
 
 // ── In-memory cache + singleflight ──────────────────────────────────────────
@@ -700,9 +710,9 @@ fn ensure_claude_cache_fresh() -> Result<(), String> {
         .iter()
         .filter(|p| {
             let key = p.to_string_lossy();
-            let mtime = file_mtime(p);
+            let signature = file_signature(p);
             match guard.cache.files.get(key.as_ref()) {
-                Some(entry) => entry.mtime != mtime,
+                Some(entry) => Some(entry.signature) != signature,
                 None => true,
             }
         })
@@ -802,9 +812,9 @@ fn collect_jsonl_paths(projects_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// Scan a single JSONL file and return its aggregated stats.
-/// Returns None only if the file cannot be opened at all.
+/// Unreadable or concurrently changing files are retried on a later refresh.
 fn scan_file(path: &Path) -> Option<FileStat> {
-    let mtime = file_mtime(path);
+    let signature = file_signature(path)?;
     let file = fs::File::open(path).ok()?;
     let reader = BufReader::with_capacity(64 * 1024, file);
 
@@ -817,7 +827,7 @@ fn scan_file(path: &Path) -> Option<FileStat> {
         .to_string();
 
     let mut stat = FileStat {
-        mtime,
+        signature,
         project_id,
         ..Default::default()
     };
@@ -829,7 +839,7 @@ fn scan_file(path: &Path) -> Option<FileStat> {
     for line in reader.lines() {
         let line = match line {
             Ok(l) => l,
-            Err(_) => break,
+            Err(_) => return None,
         };
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -903,6 +913,10 @@ fn scan_file(path: &Path) -> Option<FileStat> {
         });
     }
 
+    // Never mark an incomplete or mixed scan as current after a writer appended.
+    if file_signature(path) != Some(signature) {
+        return None;
+    }
     stat.session_ids = session_set.into_iter().collect();
     Some(stat)
 }
@@ -1066,6 +1080,76 @@ pub(crate) fn empty_summary() -> TokenUsageSummary {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct TestFile(PathBuf);
+
+    impl TestFile {
+        fn new() -> Self {
+            Self(std::env::temp_dir().join(format!("asv-stats-{}.jsonl", uuid::Uuid::new_v4())))
+        }
+    }
+
+    impl Drop for TestFile {
+        fn drop(&mut self) {
+            let _ = fs::remove_file(&self.0);
+        }
+    }
+
+    #[test]
+    fn same_timestamp_append_invalidates_stats_even_after_serializing() {
+        use std::io::Write;
+
+        let file = TestFile::new();
+        let record = r#"{"type":"assistant","sessionId":"s","message":{"role":"assistant","model":"claude-sonnet-4","usage":{"input_tokens":10,"output_tokens":2}}}"#;
+        fs::write(&file.0, format!("{record}\n")).unwrap();
+        let mtime = filetime::FileTime::from_unix_time(1_700_000_000, 100_000_000);
+        filetime::set_file_mtime(&file.0, mtime).unwrap();
+        let first = scan_file(&file.0).unwrap();
+        let saved: FileStat =
+            serde_json::from_str(&serde_json::to_string(&first).unwrap()).unwrap();
+        assert_eq!(saved.message_count, 1);
+
+        let mut writer = fs::OpenOptions::new().append(true).open(&file.0).unwrap();
+        writeln!(writer, "{record}").unwrap();
+        drop(writer);
+        filetime::set_file_mtime(&file.0, mtime).unwrap();
+        let current = file_signature(&file.0).unwrap();
+        assert_eq!(saved.signature.modified_secs, current.modified_secs);
+        assert_eq!(saved.signature.modified_nanos, current.modified_nanos);
+        assert_ne!(saved.signature, current);
+        let refreshed = scan_file(&file.0).unwrap();
+        assert_eq!(refreshed.message_count, 2);
+        assert_eq!(refreshed.input_tokens, 20);
+    }
+
+    #[test]
+    fn same_length_edit_within_one_second_invalidates_signature() {
+        let file = TestFile::new();
+        fs::write(&file.0, b"before").unwrap();
+        filetime::set_file_mtime(
+            &file.0,
+            filetime::FileTime::from_unix_time(1_700_000_000, 100_000_000),
+        )
+        .unwrap();
+        let before = file_signature(&file.0).unwrap();
+        fs::write(&file.0, b"edited").unwrap();
+        filetime::set_file_mtime(
+            &file.0,
+            filetime::FileTime::from_unix_time(1_700_000_000, 200_000_000),
+        )
+        .unwrap();
+        let after = file_signature(&file.0).unwrap();
+        assert_eq!(before.modified_secs, after.modified_secs);
+        assert_eq!(before.len, after.len);
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn unreadable_lines_do_not_become_valid_cached_statistics() {
+        let file = TestFile::new();
+        fs::write(&file.0, [0xff, b'\n']).unwrap();
+        assert!(scan_file(&file.0).is_none());
+    }
 
     #[test]
     fn groups_utc_timestamps_in_the_selected_time_zone() {

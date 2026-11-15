@@ -120,6 +120,8 @@ Web API：`POST /api/sessions/fork`，JSON 请求为 `{ source, originalFilePath
 
 ## Token 统计与花费分析
 
+Claude 增量统计按文件长度和高精度修改时间判断变化，同秒追加也会在下一次缓存刷新时重新扫描；读取过程中仍在变化的文件会留待后续刷新。升级后旧统计缓存自动重建一次，不修改原会话。
+
 > 当前仅支持 Claude 与 Codex；Grok 和 Oh My Pi 本地历史不包含统一的 Token/花费字段，因此切换到这两个来源时隐藏此入口。
 
 汇总会话总数、请求总数、未缓存 Input / Output / Cache 读写 Token 用量、**累计 USD 花费**与**缓存命中率**，提供每日（或按小时）用量柱状图、花费趋势、缓存命中率走势、项目花费排行、按模型分组消耗。
