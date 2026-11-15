@@ -2,8 +2,13 @@ name: CI
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   check-tauri:
@@ -45,6 +50,9 @@ jobs:
 
       - name: Script smoke checks
         run: npm run check:scripts
+
+      - name: Version consistency
+        run: node scripts/sync-version.mjs check
 
       - name: TypeScript check
         run: npx tsc --noEmit

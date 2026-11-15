@@ -187,6 +187,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 标签触发：`git tag v2.x.0 && git push origin v2.x.0`。GitHub Actions 会自动：
 
+发布工作流先调用同一提交中的 CI 检查，全部通过后才开始打包和发布；检查失败或取消会阻止发布。PR、`main`/`master` 分支提交及手动触发也会运行 CI，标签不会重复触发独立的 CI 工作流。
+
 1. 在 Windows、macOS（Intel + Apple Silicon）、Linux 上并行构建桌面应用
 2. 构建 Web 服务器 Linux 二进制 + Docker 镜像（推送到 GHCR）
 3. 生成各平台安装包 + `.sig` 签名文件 + `latest.json` 更新清单

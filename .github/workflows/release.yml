@@ -10,7 +10,13 @@ permissions:
   packages: write
 
 jobs:
+  checks:
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
   release:
+    needs: checks
     strategy:
       fail-fast: false
       matrix:

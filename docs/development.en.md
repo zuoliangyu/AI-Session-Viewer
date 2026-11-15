@@ -63,6 +63,8 @@ The interface remains Chinese by default. Providing an English option alone does
 
 **Translations:** edit both dictionaries in `src/i18n/locales/`. Components use `useTranslation`; utilities share the same i18next instance. Keep placeholders consistent and do not translate user content. See [src/i18n/README.md](../src/i18n/README.md).
 
+**Release checks:** tag releases call the CI workflow from the same commit and wait for all checks to pass before packaging or publishing. Failed or cancelled checks block release. CI also runs for pull requests, pushes to `main`/`master`, and manual runs; tags do not start a duplicate standalone CI run.
+
 ## Architecture
 
 | Layer | Technology |
