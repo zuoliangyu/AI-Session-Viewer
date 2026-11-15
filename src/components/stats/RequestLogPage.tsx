@@ -57,15 +57,18 @@ export function RequestLogPage() {
     requestLogTotal,
     requestLogTotalCost,
     requestLogHasUnpricedUsage,
+    requestLogPage,
+    requestLogPageSize,
+    requestLogHasMore,
     requestLogLoading,
+    requestLogError,
     requestLogFilter,
     loadRequestLog,
-    setRequestLogFilter,
     projects,
     loadProjects,
     timeZone,
   } = useAppStore(
-    useShallow((state) => ({ source: state.source, requestLog: state.requestLog, requestLogTotal: state.requestLogTotal, requestLogTotalCost: state.requestLogTotalCost, requestLogHasUnpricedUsage: state.requestLogHasUnpricedUsage, requestLogLoading: state.requestLogLoading, requestLogFilter: state.requestLogFilter, loadRequestLog: state.loadRequestLog, setRequestLogFilter: state.setRequestLogFilter, projects: state.projects, loadProjects: state.loadProjects, timeZone: state.timeZone })),
+    useShallow((state) => ({ source: state.source, requestLog: state.requestLog, requestLogTotal: state.requestLogTotal, requestLogTotalCost: state.requestLogTotalCost, requestLogHasUnpricedUsage: state.requestLogHasUnpricedUsage, requestLogPage: state.requestLogPage, requestLogPageSize: state.requestLogPageSize, requestLogHasMore: state.requestLogHasMore, requestLogLoading: state.requestLogLoading, requestLogError: state.requestLogError, requestLogFilter: state.requestLogFilter, loadRequestLog: state.loadRequestLog, projects: state.projects, loadProjects: state.loadProjects, timeZone: state.timeZone })),
   );
   const initialFilter: RequestLogFilter = useMemo(() => ({
     projectId: searchParams.get("projectId"),
@@ -83,31 +86,33 @@ export function RequestLogPage() {
   const [endDate, setEndDate] = useState(initialFilter.endDate ?? "");
 
   useEffect(() => {
-    if (projects.length === 0) loadProjects();
-    loadRequestLog(initialFilter);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source, timeZone]);
+    if (useAppStore.getState().projects.length === 0) void loadProjects();
+  }, [source, loadProjects]);
+
+  useEffect(() => {
+    setProjectId(initialFilter.projectId ?? "");
+    setModelFilter(initialFilter.model ?? "");
+    setStartDate(initialFilter.startDate ?? "");
+    setEndDate(initialFilter.endDate ?? "");
+    void loadRequestLog(initialFilter);
+  }, [source, timeZone, initialFilter, loadRequestLog]);
+
+  const applyFilterParams = (params: URLSearchParams) => {
+    if (params.toString() === searchParams.toString()) {
+      void loadRequestLog(initialFilter);
+    } else {
+      setSearchParams(params, { replace: true });
+    }
+  };
 
   const applyFilters = () => {
-    const next: RequestLogFilter = {
-      projectId: projectId || null,
-      model: modelFilter || null,
-      startDate: startDate || null,
-      endDate: endDate || null,
-      sessionId: null,
-      page: 0,
-      pageSize: 500,
-    };
-    setRequestLogFilter(next);
-    loadRequestLog(next);
-
     // Reflect filters in the URL for shareability / back-nav.
     const params = new URLSearchParams();
     if (projectId) params.set("projectId", projectId);
     if (modelFilter) params.set("model", modelFilter);
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
-    setSearchParams(params, { replace: true });
+    applyFilterParams(params);
   };
 
   const resetFilters = () => {
@@ -115,21 +120,19 @@ export function RequestLogPage() {
     setModelFilter("");
     setStartDate("");
     setEndDate("");
-    const next: RequestLogFilter = { page: 0, pageSize: 500 };
-    setRequestLogFilter(next);
-    loadRequestLog(next);
-    setSearchParams(new URLSearchParams(), { replace: true });
+    applyFilterParams(new URLSearchParams());
   };
 
   // Discover model options actually present in the log so the filter
   // dropdown only shows real values.
   const modelOptions = useMemo(() => {
     const set = new Set<string>();
+    if (modelFilter) set.add(modelFilter);
     for (const r of requestLog) set.add(r.model);
     return Array.from(set).sort();
-  }, [requestLog]);
+  }, [requestLog, modelFilter]);
 
-  // Virtual list — 100k rows still scrolls smoothly.
+  // Virtualize the current page; changing pages does not retain earlier rows.
   const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useVirtualizer({
     count: requestLog.length,
@@ -137,6 +140,12 @@ export function RequestLogPage() {
     estimateSize: () => 36,
     overscan: 12,
   });
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [requestLog]);
+
+  const rangeStart = requestLog.length ? requestLogPage * requestLogPageSize + 1 : 0;
+  const rangeEnd = requestLog.length ? rangeStart + requestLog.length - 1 : 0;
 
   const handleRowClick = (record: RequestRecord) => {
     // Deep-link to the session message view. Hash includes the message uuid
@@ -238,12 +247,14 @@ export function RequestLogPage() {
           className="px-3 py-1 rounded border border-border hover:bg-accent transition-colors flex items-center gap-1"
         >
           <X className="w-3 h-3" /> {t("重置")}</button>
-        {requestLogLoading && (
-          <span className="flex items-center gap-1 text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            {t("加载中...")}</span>
-        )}
       </div>
+
+      {requestLogError && (
+        <div role="alert" className="flex items-center gap-3 border-b border-border px-6 py-2 text-xs text-destructive">
+          <span>{t("第 {{page}} 页加载失败：{{message}}", { page: (requestLogFilter.page ?? 0) + 1, message: requestLogError })}</span>
+          <button onClick={() => void loadRequestLog()} className="shrink-0 underline">{t("重试")}</button>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-x-auto">
       <div className="flex h-full min-w-[1100px] flex-col">
@@ -263,7 +274,7 @@ export function RequestLogPage() {
 
       {/* Virtual list body */}
       <div ref={scrollRef} className="flex-1 overflow-auto bg-background">
-        {requestLog.length === 0 && !requestLogLoading ? (
+        {requestLog.length === 0 && !requestLogLoading && !requestLogError ? (
           <div className="p-8 text-center text-sm text-muted-foreground">
             {projectId || modelFilter || startDate || endDate
               ? t("当前筛选下没有匹配的请求。")
@@ -335,6 +346,30 @@ export function RequestLogPage() {
         )}
       </div>
       </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-t border-border bg-card px-6 py-3 text-xs">
+        <span className="text-muted-foreground">
+          {t("显示第 {{start}}–{{end}} 条，共 {{total}} 条", { start: rangeStart.toLocaleString(), end: rangeEnd.toLocaleString(), total: requestLogTotal.toLocaleString() })}
+        </span>
+        {requestLogLoading && (
+          <span role="status" className="flex items-center gap-1 text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t("正在加载第 {{page}} 页…", { page: (requestLogFilter.page ?? 0) + 1 })}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            disabled={requestLogLoading || requestLogPage === 0}
+            onClick={() => void loadRequestLog({ page: requestLogPage - 1 })}
+            className="rounded border border-border px-3 py-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >{t("上一页")}</button>
+          <span>{t("第 {{page}} / {{pages}} 页", { page: requestLogPage + 1, pages: Math.max(1, Math.ceil(requestLogTotal / requestLogPageSize)) })}</span>
+          <button
+            disabled={requestLogLoading || !requestLogHasMore}
+            onClick={() => void loadRequestLog({ page: requestLogPage + 1 })}
+            className="rounded border border-border px-3 py-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+          >{t("下一页")}</button>
+        </div>
       </div>
     </div>
   );

@@ -41,6 +41,8 @@
 
 异步请求隔离的定向回归：`node scripts/check-request-isolation.mjs`（Node.js 24+）。运行真实 store，覆盖搜索乱序、分页与跳转冲突、旧错误/清理回调、会话往返及加载全部取消；不编译。
 
+账单分页的定向回归：`node scripts/check-request-log-pagination.mjs`（Node.js 24+）。运行真实 store 与 1203 条内存记录，覆盖后续页访问、失败重试、筛选重置、乱序响应、来源与时区切换；不编译。
+
 ## AppImage 产物验证
 
 Tauri CLI 2.11.4 包含 [#15596](https://github.com/tauri-apps/tauri/pull/15596)，修复 `.DirIcon` 和根目录 `.desktop` 指向构建机器绝对路径的问题。`package.json` 与 `package-lock.json` 锁定该版本；升级时应保留此修复。

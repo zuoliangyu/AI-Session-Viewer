@@ -56,6 +56,33 @@ let crossProjectTagsVersion = 0;
 let crossProjectTagsInFlight: Promise<void> | null = null;
 let messagesRequestVersion = 0;
 let searchRequestVersion = 0;
+let requestLogVersion = 0;
+
+function emptyRequestLog() {
+  return {
+    requestLog: [] as RequestRecord[],
+    requestLogTotal: 0,
+    requestLogTotalCost: 0,
+    requestLogHasUnpricedUsage: false,
+    requestLogPage: 0,
+    requestLogPageSize: 500,
+    requestLogHasMore: false,
+    requestLogLoading: false,
+    requestLogError: null as string | null,
+  };
+}
+
+function requestLogQueryChanged(previous: RequestLogFilter, next: RequestLogFilter) {
+  return previous.projectId !== next.projectId || previous.sessionId !== next.sessionId ||
+    previous.startDate !== next.startDate || previous.endDate !== next.endDate ||
+    previous.model !== next.model || previous.pageSize !== next.pageSize;
+}
+
+function mergeRequestLogFilter(previous: RequestLogFilter, override: RequestLogFilter = {}) {
+  const next = { ...previous, ...override };
+  if (requestLogQueryChanged(previous, next)) next.page = 0;
+  return next;
+}
 
 function beginMessagesRequest(state: AppState) {
   return {
@@ -378,7 +405,11 @@ interface AppState {
   requestLogTotal: number;
   requestLogTotalCost: number;
   requestLogHasUnpricedUsage: boolean;
+  requestLogPage: number;
+  requestLogPageSize: number;
+  requestLogHasMore: boolean;
   requestLogLoading: boolean;
+  requestLogError: string | null;
   requestLogFilter: RequestLogFilter;
 
   // Per-project cost ranking (档位 3)
@@ -467,6 +498,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   source: readStoredSource(),
   setSource: (s) => {
     searchRequestVersion += 1;
+    requestLogVersion += 1;
     try {
       localStorage.setItem(SOURCE_STORAGE_KEY, s);
     } catch {
@@ -498,11 +530,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       tokenSummary: null,
       statsLoading: false,
       statsIsFirstBuild: null,
-      requestLog: [],
-      requestLogTotal: 0,
-      requestLogTotalCost: 0,
-      requestLogHasUnpricedUsage: false,
-      requestLogLoading: false,
+      ...emptyRequestLog(),
+      requestLogFilter: { ...get().requestLogFilter, page: 0 },
       projectCosts: [],
       projectCostsLoading: false,
       sessionCosts: {},
@@ -531,7 +560,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = normalizeTimeZone(timeZone);
     if (next) localStorage.setItem("timeZone", next);
     else localStorage.removeItem("timeZone");
-    set({ timeZone: next });
+    if (next !== get().timeZone) {
+      requestLogVersion += 1;
+      set({
+        timeZone: next,
+        ...emptyRequestLog(),
+        requestLogFilter: { ...get().requestLogFilter, page: 0 },
+      });
+    }
   },
 
   terminalShell: (localStorage.getItem("terminalShell") === "powershell" ? "powershell" : "cmd") as "cmd" | "powershell",
@@ -569,11 +605,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   statsLoading: false,
   statsIsFirstBuild: null,
 
-  requestLog: [],
-  requestLogTotal: 0,
-  requestLogTotalCost: 0,
-  requestLogHasUnpricedUsage: false,
-  requestLogLoading: false,
+  ...emptyRequestLog(),
   requestLogFilter: { page: 0, pageSize: 500 },
 
   projectCosts: [],
@@ -1135,44 +1167,52 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setRequestLogFilter: (filter: RequestLogFilter) => {
-    set((state) => ({ requestLogFilter: { ...state.requestLogFilter, ...filter } }));
+    requestLogVersion += 1;
+    const previous = get().requestLogFilter;
+    const next = mergeRequestLogFilter(previous, filter);
+    set({
+      ...(requestLogQueryChanged(previous, next) ? emptyRequestLog() : {}),
+      requestLogFilter: next,
+      requestLogLoading: false,
+      requestLogError: null,
+    });
   },
 
   loadRequestLog: async (filterOverride?: RequestLogFilter) => {
     const requestSource = get().source;
     const requestTimeZone = get().timeZone || getSystemTimeZone();
-    const filter: RequestLogFilter = {
-      ...get().requestLogFilter,
-      ...(filterOverride ?? {}),
-    };
-    if (filterOverride) {
-      set({ requestLogFilter: filter });
-    }
-    set({ requestLogLoading: true });
+    const previous = get().requestLogFilter;
+    const filter = mergeRequestLogFilter(previous, filterOverride);
+    const version = ++requestLogVersion;
+    const isCurrent = () => version === requestLogVersion &&
+      get().source === requestSource &&
+      (get().timeZone || getSystemTimeZone()) === requestTimeZone;
+    set({
+      ...(requestLogQueryChanged(previous, filter) ? emptyRequestLog() : {}),
+      requestLogFilter: filter,
+      requestLogLoading: true,
+      requestLogError: null,
+    });
     try {
       const page = await api.getRequestLog(requestSource, {
         ...filter,
         timeZone: requestTimeZone,
       });
-      if (
-        get().source !== requestSource ||
-        (get().timeZone || getSystemTimeZone()) !== requestTimeZone
-      ) return;
+      if (!isCurrent()) return;
       set({
         requestLog: page.records,
         requestLogTotal: page.total,
         requestLogTotalCost: page.totalCostUsd,
         requestLogHasUnpricedUsage: page.hasUnpricedUsage,
+        requestLogPage: page.page,
+        requestLogPageSize: page.pageSize,
+        requestLogHasMore: page.hasMore,
+        requestLogFilter: { ...filter, page: page.page, pageSize: page.pageSize },
         requestLogLoading: false,
       });
     } catch (e) {
-      console.error("Failed to load request log:", e);
-      if (
-        get().source === requestSource &&
-        (get().timeZone || getSystemTimeZone()) === requestTimeZone
-      ) {
-        set({ requestLogLoading: false });
-      }
+      if (!isCurrent()) return;
+      set({ requestLogLoading: false, requestLogError: e instanceof Error ? e.message : String(e) });
     }
   },
 

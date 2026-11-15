@@ -68,7 +68,7 @@ Search across projects by message content, session names, and tags. Switch betwe
 
 Token and cost statistics currently support **Claude and Codex**. They include input/output/cache tokens, USD costs, cache hit rates, daily/hourly trends, model usage, and the top ten projects by cost. Models without pricing are marked **Unpriced**.
 
-Per-request costs support project, model, and date filters; a row opens the corresponding message. Session cost details can be copied as a Markdown table. Time-zone selection controls date boundaries. Statistics cover files present on the selected machine and source.
+Per-request costs support project, model, and date filters; a row opens the corresponding message. Each page contains up to 500 records, with previous/next controls, the current range, total count, and page number. Failed page loads retain the current records and offer a retry; changing filters, source, or time zone returns to the first page. Session cost details can be copied as a Markdown table. Time-zone selection controls date boundaries. Statistics cover files present on the selected machine and source.
 
 ## In-app chat
 

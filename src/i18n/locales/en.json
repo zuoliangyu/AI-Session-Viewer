@@ -1054,5 +1054,11 @@
   "配置与索引文件已备份到：": "Config and index files backed up to: ",
   "项目搬家": "Move project",
   "预览影响": "Preview changes",
-  "标签加载失败：{{message}}": "Could not load tags: {{message}}"
+  "标签加载失败：{{message}}": "Could not load tags: {{message}}",
+  "上一页": "Previous",
+  "下一页": "Next",
+  "第 {{page}} / {{pages}} 页": "Page {{page}} of {{pages}}",
+  "显示第 {{start}}–{{end}} 条，共 {{total}} 条": "Showing {{start}}–{{end}} of {{total}} requests",
+  "正在加载第 {{page}} 页…": "Loading page {{page}}…",
+  "第 {{page}} 页加载失败：{{message}}": "Could not load page {{page}}: {{message}}"
 }
