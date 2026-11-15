@@ -1,5 +1,5 @@
 # Update tags and digests together; Dependabot proposes reviewed base-image updates.
-FROM node:24.22.3-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496 AS frontend
+FROM node:26.13.1-bookworm@sha256:b7087bc4d973034b30854b378ba107f9fab622b47514cb7e2592e41b8bab8d49 AS frontend
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
