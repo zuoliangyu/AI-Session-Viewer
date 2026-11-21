@@ -60,6 +60,18 @@ impl ModelPrice {
 /// still resolve. Returns `None` for unknown models — the caller decides
 /// whether to fall back to zero cost or a generic estimate.
 pub fn lookup(model: &str) -> Option<ModelPrice> {
+    if let Some(p) = llm_prices::lookup(model) {
+        if let (Some(input), Some(output)) = (p.input, p.output) {
+            if input > 0.0 {
+                return Some(ModelPrice {
+                    input_per_mtok: input,
+                    output_per_mtok: output,
+                    cache_creation_multiplier: p.cache_write("5m").map_or(1.0, |w| w / input),
+                    cache_read_multiplier: p.cache_read.map_or(1.0, |r| r / input),
+                });
+            }
+        }
+    }
     let m = model.to_ascii_lowercase();
 
     // ── Anthropic Claude 4.x family ────────────────────────────────────────
@@ -146,4 +158,24 @@ pub fn compute_cost(
 /// annotate rows with "未定价" instead of misleading $0.00.
 pub fn is_priced(model: &str) -> bool {
     lookup(model).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_models_use_their_own_list_price() {
+        let opus = lookup("claude-opus-4-7").unwrap();
+        assert_eq!((opus.input_per_mtok, opus.output_per_mtok), (5.0, 25.0));
+        let gpt = lookup("gpt-5.5").unwrap();
+        assert_eq!((gpt.input_per_mtok, gpt.output_per_mtok), (5.0, 30.0));
+        let gpt = lookup("gpt-5.4").unwrap();
+        assert_eq!((gpt.input_per_mtok, gpt.output_per_mtok), (2.5, 15.0));
+        assert!(is_priced("claude-opus-5"));
+        assert!(is_priced("claude-sonnet-5"));
+        let sonnet = lookup("claude-sonnet-4-5-20250929").unwrap();
+        assert!((sonnet.cache_creation_multiplier - 1.25).abs() < 1e-9);
+        assert!((sonnet.cache_read_multiplier - 0.10).abs() < 1e-9);
+    }
 }
