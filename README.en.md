@@ -84,7 +84,7 @@ Options, Docker, security advice, and multiple machines: [docs/deployment.en.md]
 | Organizing | Aliases, tags, bookmarks, export (JSON / Markdown / HTML), batch delete to the recycle bin |
 | Keep working | One-click terminal resume, fork from any question; in-app chat for Claude and Codex |
 | Session transfer | Export whole sources or chosen projects into one `.zip` and import it on another computer, with path mapping and skip / backup-and-overwrite on conflicts; move a project folder on this machine and its sessions follow |
-| Search and stats | Cross-project full-text search; Claude / Codex tokens, costs, and per-request bills |
+| Search and stats | Cross-project full-text search; Claude / Codex tokens, costs, and per-request bills, priced from LiteLLM's community price list (optional daily online update) |
 | Web and machines | `session-web` in the browser, multiple nodes, token and origin checks |
 | More | Skills / MCP / plugin management, Codex provider sync and old-session repair, invalid-item cleanup, Chinese/English UI, in-app updates |
 
