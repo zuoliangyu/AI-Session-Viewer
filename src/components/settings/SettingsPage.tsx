@@ -32,12 +32,13 @@ import { useShallow } from "zustand/react/shallow";
 
 import { SOURCE_OPTIONS, readHiddenSources, writeHiddenSources, HIDDEN_SOURCES_CHANGED, type SessionSource } from "../layout/sourceOptions";
 import { PageHeader } from "../common/PageHeader";
-import { BookOpen, Info, MessageSquare, RefreshCcw, SlidersHorizontal } from "lucide-react";
+import { BookOpen, CircleDollarSign, Info, MessageSquare, RefreshCcw, SlidersHorizontal } from "lucide-react";
+import { PricingSettingsTab } from "./PricingSettings";
 
 declare const __IS_TAURI__: boolean;
 declare const __APP_VERSION__: string;
 
-type SettingsSection = "general" | "chat" | "update" | "guide" | "about";
+type SettingsSection = "general" | "chat" | "pricing" | "update" | "guide" | "about";
 
 const openExternal = async (url: string) => {
   if (__IS_TAURI__) {
@@ -56,6 +57,7 @@ export function SettingsPage() {
   const sections: { id: SettingsSection; label: string; icon: typeof Info }[] = [
     { id: "general", label: t("显示设置"), icon: SlidersHorizontal },
     { id: "chat", label: t("对话设置"), icon: MessageSquare },
+    { id: "pricing", label: t("模型价格"), icon: CircleDollarSign },
     ...(__IS_TAURI__ ? [{ id: "update" as const, label: t("更新检查"), icon: RefreshCcw }] : []),
     { id: "guide", label: t("使用说明"), icon: BookOpen },
     { id: "about", label: t("关于作者"), icon: Info },
@@ -91,6 +93,8 @@ export function SettingsPage() {
         <section className="min-w-0 flex-1 rounded-lg border border-border bg-card">
           {section === "chat" ? (
             <ChatSettingsTab />
+          ) : section === "pricing" ? (
+            <PricingSettingsTab onOpenLink={(url) => void openExternal(url)} />
           ) : section === "update" && __IS_TAURI__ ? (
             <div className="p-4">
               <UpdateIndicator />

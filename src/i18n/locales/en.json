@@ -1065,5 +1065,19 @@
   "未找到目标消息，消息可能已被删除或会话已变更。": "The target message was not found. It may have been deleted or the session may have changed.",
   "消息定位失败：{{message}}": "Could not locate message: {{message}}",
   "聊天未成功完成，请重试。": "The chat did not complete successfully. Please try again.",
-  "已取消，输入和已收到的回复已保留。": "Cancelled. Your input and received replies have been kept."
+  "已取消，输入和已收到的回复已保留。": "Cancelled. Your input and received replies have been kept.",
+  "模型价格": "Model prices",
+  "未知": "unknown",
+  "统计页的费用按模型单价估算，价格来自 LiteLLM 社区维护的价格表，覆盖 Claude、GPT、Grok、Gemini、DeepSeek 等模型；表中没有的模型使用内置的官方价格。": "Costs on the statistics page are estimated from per-model prices taken from LiteLLM's community-maintained price list, which covers Claude, GPT, Grok, Gemini, DeepSeek and more. Models missing from the list use built-in official prices.",
+  "当前使用：": "In use: ",
+  "在线价格（{{count}} 个模型，更新于 {{time}}）": "online prices ({{count}} models, updated {{time}})",
+  "内置价格（{{count}} 个模型，生成于 {{time}}）": "built-in prices ({{count}} models, generated {{time}})",
+  "上次检查：{{time}}": "Last checked: {{time}}",
+  "在线更新价格": "Update prices online",
+  "开启后每天从 jsDelivr / GitHub 下载一次 LiteLLM 价格表（约 5 MB）；下载失败或数据异常时继续使用原有价格。关闭后删除已下载的数据，恢复内置价格。": "When on, the LiteLLM price list (about 5 MB) is downloaded once a day from jsDelivr / GitHub. If a download fails or looks wrong, the previous prices stay in use. Turning this off deletes the downloaded data and restores the built-in prices.",
+  "正在更新…": "Updating…",
+  "立即更新": "Update now",
+  "价格已更新，重新打开统计页后生效。": "Prices updated. Reopen the statistics page to apply them.",
+  "更新失败：{{error}}": "Update failed: {{error}}",
+  "价格数据：LiteLLM（MIT 许可）": "Price data: LiteLLM (MIT license)"
 }

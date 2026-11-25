@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- 模型价格改用 LiteLLM 社区价格表，覆盖 Claude、GPT、Grok、Gemini、DeepSeek、通义、Kimi、GLM 等模型。`npm run sync-prices` 生成随版本发布的价格快照；「设置 → 模型价格」可开启每日在线更新，失败时继续使用原有价格。
+
+### Fixed
+
+- 修复 Opus 4.5 及以后的 Opus 模型按 Opus 4 的 $15/$75 计价（实际 $5/$25）、各 gpt-5.x 型号统一按 gpt-5 计价，以及 Opus 5 / Sonnet 5 显示未定价的问题；内置价格表按官方定价重写，未知型号不再借用相近型号的价格。
+- 缓存读取价按模型区分（Opus 5.5 / Sonnet 5.5 为 0.05×，Fable 5.1 / 5.2 为 0.025×），支持 Haiku 5.5、GPT-5.4 及以后型号的长上下文阶梯价。
+- Claude 的 1 小时缓存写入按 2× 输入价计费（原按 5 分钟缓存的 1.25×）。统计缓存升级后，首次打开统计页会重新扫描一次。
+- Codex 的 `cached_input_tokens` 从输入中拆出并按缓存价计费，此前全部按原价计入，命中率高时费用明显偏高；Codex 统计现在也显示缓存读写用量和缓存命中率。
+
+### Security
+
+- 升级 `url` 至 2.5.9（RUSTSEC-2026-0592）、`cookie` 至 0.18.3（RUSTSEC-2026-0594）。
+- 移除 Dependabot 版本更新配置，依赖改为手动升级；安全问题由每日依赖审计跟踪。
+
 ---
 
 ## [3.3.0] - 2026-11-15

@@ -441,20 +441,41 @@ struct UsageData {
     output_tokens: u64,
     #[serde(default)]
     cache_read_input_tokens: u64,
+    /// All cache writes; `cache_creation` splits them by TTL.
     #[serde(default)]
     cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_creation: Option<CacheCreationBreakdown>,
+}
+
+impl UsageData {
+    /// Cache writes with the 1-hour TTL (billed at 2× input instead of the
+    /// 5-minute 1.25×). Older logs have no breakdown: all writes count as 5m.
+    fn cache_creation_1h_tokens(&self) -> u64 {
+        self.cache_creation
+            .map_or(0, |breakdown| breakdown.ephemeral_1h_input_tokens)
+            .min(self.cache_creation_input_tokens)
+    }
+}
+
+#[derive(Deserialize, Default, Clone, Copy)]
+struct CacheCreationBreakdown {
+    #[serde(default)]
+    ephemeral_1h_input_tokens: u64,
 }
 
 // ── Per-file cache ───────────────────────────────────────────────────────────
 
-/// CACHE_VERSION 6:
-///   - File signatures include nanosecond mtime and length; v5 caches rebuild.
-///   - `FileStat.requests` now uses `CompactRecord` with short field names
+/// CACHE_VERSION 7:
+///   - `CompactRecord.cw1` records the 1-hour share of cache writes so they
+///     are priced at 2× input; v6 caches lack it and rebuild once.
+///   - File signatures include nanosecond mtime and length.
+///   - `FileStat.requests` uses `CompactRecord` with short field names
 ///     and no project/file/source redundancy (those are inferred from the
 ///     enclosing FileStat / cache key).
 ///   - Derived cost/model/day aggregates are rebuilt from requests so pricing
 ///     and the selected time zone can change without rescanning JSONL files.
-const CACHE_VERSION: u32 = 6;
+const CACHE_VERSION: u32 = 7;
 
 #[derive(Serialize, Deserialize, Default, Clone)]
 struct AsvStatsCache {
@@ -502,9 +523,12 @@ struct CompactRecord {
     /// cache_read_tokens
     #[serde(default)]
     cr: u64,
-    /// cache_creation_tokens
+    /// cache_creation_tokens (all TTLs)
     #[serde(default)]
     cw: u64,
+    /// the 1-hour-TTL part of `cw`
+    #[serde(default, skip_serializing_if = "is_zero")]
+    cw1: u64,
     /// duration_ms (user→assistant turnaround)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     d: Option<u64>,
@@ -544,7 +568,21 @@ fn compact_to_record(
 }
 
 fn compact_cost(rec: &CompactRecord) -> f64 {
-    pricing::compute_cost(&rec.m, rec.i, rec.cw, rec.cr, rec.o)
+    let cache_write_1h = rec.cw1.min(rec.cw);
+    pricing::compute_cost(
+        &rec.m,
+        &pricing::TokenCounts {
+            input: rec.i,
+            cache_read: rec.cr,
+            cache_write_5m: rec.cw - cache_write_1h,
+            cache_write_1h,
+            output: rec.o,
+        },
+    )
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -907,6 +945,7 @@ fn scan_file(path: &Path) -> Option<FileStat> {
             o: usage.output_tokens,
             cr: usage.cache_read_input_tokens,
             cw: usage.cache_creation_input_tokens,
+            cw1: usage.cache_creation_1h_tokens(),
             d: duration_ms,
             s: session_id,
             u: record.uuid.clone(),
@@ -1149,6 +1188,27 @@ mod tests {
         let file = TestFile::new();
         fs::write(&file.0, [0xff, b'\n']).unwrap();
         assert!(scan_file(&file.0).is_none());
+    }
+
+    #[test]
+    fn one_hour_cache_writes_are_kept_and_priced_at_double_input() {
+        let file = TestFile::new();
+        let record = r#"{"type":"assistant","sessionId":"s","message":{"role":"assistant","model":"claude-opus-4-7","usage":{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":3000000,"cache_creation":{"ephemeral_5m_input_tokens":1000000,"ephemeral_1h_input_tokens":2000000}}}}"#;
+        let legacy = r#"{"type":"assistant","sessionId":"s","message":{"role":"assistant","model":"claude-opus-4-7","usage":{"input_tokens":0,"output_tokens":0,"cache_creation_input_tokens":1000000}}}"#;
+        fs::write(&file.0, format!("{record}\n{legacy}\n")).unwrap();
+        let stat = scan_file(&file.0).unwrap();
+        assert_eq!(stat.requests[0].cw, 3_000_000);
+        assert_eq!(stat.requests[0].cw1, 2_000_000);
+        assert_eq!(stat.requests[1].cw1, 0);
+
+        let saved: FileStat = serde_json::from_str(&serde_json::to_string(&stat).unwrap()).unwrap();
+        // 5m writes at 1.25× input and 1h writes at 2× input, whichever
+        // catalog supplies the Opus 4.7 price.
+        let price = pricing::lookup("claude-opus-4-7").unwrap();
+        let expected = price.base.cache_write_5m + 2.0 * price.base.cache_write_1h;
+        assert!((compact_cost(&saved.requests[0]) - expected).abs() < 1e-9);
+        assert!((compact_cost(&saved.requests[1]) - price.base.cache_write_5m).abs() < 1e-9);
+        assert!(price.base.cache_write_1h > price.base.cache_write_5m);
     }
 
     #[test]

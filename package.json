@@ -12,6 +12,7 @@
     "check:scripts": "node scripts/check-project.mjs",
     "check:regressions": "node scripts/check-regressions.mjs",
     "sync-version": "node scripts/sync-version.mjs",
+    "sync-prices": "node scripts/sync-prices.mjs",
     "build:web": "tsc -b && vite build",
     "dev:web": "npm run build:web && cargo run -p session-web",
     "preview": "vite preview",

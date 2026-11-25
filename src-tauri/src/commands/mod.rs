@@ -3,6 +3,7 @@ pub mod chat;
 pub mod export;
 pub mod messages;
 pub mod perf;
+pub mod pricing;
 pub mod progress;
 pub mod projects;
 pub mod provider_sync;

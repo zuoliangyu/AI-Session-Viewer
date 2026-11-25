@@ -13,6 +13,7 @@ pub mod navigation;
 pub mod parser;
 pub mod paths;
 mod persistence;
+pub mod pricing_sync;
 pub mod provider;
 pub mod provider_sync;
 pub mod recyclebin;

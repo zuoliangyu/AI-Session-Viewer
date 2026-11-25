@@ -263,6 +263,21 @@ export interface DailyTokenEntry {
   cacheHitRatioByModel: Record<string, number>;
 }
 
+/** Where model prices come from and how the optional online update is doing. */
+export interface PricingStatus {
+  autoUpdate: boolean;
+  refreshing: boolean;
+  /** "online" when downloaded prices are in use, otherwise the built-in snapshot. */
+  activeSource: "online" | "snapshot";
+  snapshotGeneratedAt: string | null;
+  snapshotModelCount: number;
+  onlineFetchedAt: string | null;
+  onlineModelCount: number | null;
+  onlineSourceUrl: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+}
+
 /** Single assistant request as recorded in a JSONL file. */
 export interface RequestRecord {
   timestamp: string;

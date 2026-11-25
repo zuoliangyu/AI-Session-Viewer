@@ -55,6 +55,9 @@ pub fn run() {
             commands::stats::get_request_log,
             commands::stats::get_project_costs,
             commands::stats::get_session_cost,
+            commands::pricing::get_pricing_status,
+            commands::pricing::set_pricing_auto_update,
+            commands::pricing::refresh_pricing,
             commands::terminal::resume_session,
             commands::terminal::fork_session,
             commands::updater::get_install_type,
@@ -89,6 +92,12 @@ pub fn run() {
             if let Err(e) = watcher::fs_watcher::start_watcher(handle) {
                 eprintln!("Warning: Failed to start file watcher: {}", e);
             }
+
+            // Online price updates are opt-in; both calls are no-ops while off.
+            tauri::async_runtime::spawn(async {
+                let _ = tauri::async_runtime::spawn_blocking(session_core::pricing_sync::init).await;
+                session_core::pricing_sync::auto_refresh_loop().await;
+            });
             Ok(())
         })
         .run(tauri::generate_context!())

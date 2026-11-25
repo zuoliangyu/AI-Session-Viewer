@@ -1,6 +1,7 @@
 pub mod bookmarks;
 pub mod export;
 pub mod messages;
+pub mod pricing;
 pub mod progress;
 pub mod projects;
 pub mod provider_sync;

@@ -13,6 +13,7 @@ import type {
   RequestLogFilter,
   ProjectCostEntry,
   SessionCostSummary,
+  PricingStatus,
   Bookmark,
   DeleteLevel,
   DeleteResult,
@@ -352,6 +353,18 @@ export async function getSessionCost(
   filePath: string,
 ): Promise<SessionCostSummary> {
   return apiFetch("/api/stats/session", { source, filePath });
+}
+
+export async function getPricingStatus(): Promise<PricingStatus> {
+  return apiFetch("/api/pricing");
+}
+
+export async function setPricingAutoUpdate(enabled: boolean): Promise<PricingStatus> {
+  return apiPut("/api/pricing/auto-update", { enabled });
+}
+
+export async function refreshPricing(): Promise<PricingStatus> {
+  return apiPost("/api/pricing/refresh", {});
 }
 
 export async function deleteSession(

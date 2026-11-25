@@ -1935,8 +1935,7 @@ fn parse_usage_file(path: &Path) -> Result<UsageFile, String> {
     let reader = BufReader::new(file);
     let mut events: Vec<TokenEvent> = Vec::new();
     let mut model = "unknown".to_string();
-    let mut prev_input: u64 = 0;
-    let mut prev_output: u64 = 0;
+    let mut previous_total = RawUsage::default();
     let mut session_meta: Option<(String, String)> = None;
 
     for (line_index, line) in reader.lines().enumerate() {
@@ -2001,42 +2000,25 @@ fn parse_usage_file(path: &Path) -> Result<UsageFile, String> {
         let last = info.and_then(|i| i.get("last_token_usage"));
         let total = info.and_then(|i| i.get("total_token_usage"));
 
-        let (delta_input, delta_output) = if let Some(last) = last {
-            (
-                last.get("input_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
-                last.get("output_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
-            )
+        let usage = if let Some(last) = last {
+            RawUsage::from_json(last)
         } else if let Some(total) = total {
-            let cur_input = total
-                .get("input_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let cur_output = total
-                .get("output_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0);
-            let di = cur_input.saturating_sub(prev_input);
-            let do_ = cur_output.saturating_sub(prev_output);
-            prev_input = cur_input;
-            prev_output = cur_output;
-            (di, do_)
+            let current = RawUsage::from_json(total);
+            let delta = current.saturating_sub(&previous_total);
+            previous_total = current;
+            delta
         } else {
             continue;
         };
 
-        if delta_input == 0 && delta_output == 0 {
+        if usage.input == 0 && usage.output == 0 {
             continue;
         }
 
         events.push(TokenEvent {
             timestamp,
             model: model.clone(),
-            input_tokens: delta_input,
-            output_tokens: delta_output,
+            usage,
         });
     }
 
@@ -2061,8 +2043,66 @@ struct UsageFile {
 struct TokenEvent {
     timestamp: String,
     model: String,
-    input_tokens: u64,
-    output_tokens: u64,
+    usage: RawUsage,
+}
+
+/// One `token_count` usage object. OpenAI counts cached and cache-written
+/// prompt tokens inside `input_tokens`; reasoning is inside `output_tokens`.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+struct RawUsage {
+    input: u64,
+    cached_input: u64,
+    cache_write_input: u64,
+    output: u64,
+}
+
+impl RawUsage {
+    fn from_json(value: &Value) -> Self {
+        let field = |name: &str| value.get(name).and_then(Value::as_u64).unwrap_or(0);
+        Self {
+            input: field("input_tokens"),
+            cached_input: field("cached_input_tokens"),
+            cache_write_input: field("cache_write_input_tokens"),
+            output: field("output_tokens"),
+        }
+    }
+
+    fn saturating_sub(&self, earlier: &Self) -> Self {
+        Self {
+            input: self.input.saturating_sub(earlier.input),
+            cached_input: self.cached_input.saturating_sub(earlier.cached_input),
+            cache_write_input: self.cache_write_input.saturating_sub(earlier.cache_write_input),
+            output: self.output.saturating_sub(earlier.output),
+        }
+    }
+
+    fn cache_read(&self) -> u64 {
+        self.cached_input.min(self.input)
+    }
+
+    fn cache_write(&self) -> u64 {
+        self.cache_write_input.min(self.input - self.cache_read())
+    }
+
+    /// Prompt tokens billed at the full input rate.
+    fn uncached_input(&self) -> u64 {
+        self.input - self.cache_read() - self.cache_write()
+    }
+
+    fn total(&self) -> u64 {
+        self.input + self.output
+    }
+
+    fn token_counts(&self) -> crate::models::pricing::TokenCounts {
+        crate::models::pricing::TokenCounts {
+            input: self.uncached_input(),
+            cache_read: self.cache_read(),
+            // Codex does not report the cache TTL; bill writes at the short-TTL rate.
+            cache_write_5m: self.cache_write(),
+            cache_write_1h: 0,
+            output: self.output,
+        }
+    }
 }
 
 fn request_records_for_file(path: &Path) -> Result<Vec<crate::models::stats::RequestRecord>, String> {
@@ -2075,8 +2115,7 @@ fn request_records_for_file(path: &Path) -> Result<Vec<crate::models::stats::Req
     Ok(usage.events
         .iter()
         .map(|event| {
-            let cost = pricing::compute_cost(&event.model, event.input_tokens, 0, 0, event.output_tokens);
-            let is_priced = pricing::is_priced(&event.model);
+            let tokens = event.usage.token_counts();
             RequestRecord {
                 timestamp: event.timestamp.clone(),
                 source: "codex".to_string(),
@@ -2084,13 +2123,13 @@ fn request_records_for_file(path: &Path) -> Result<Vec<crate::models::stats::Req
                 session_id: usage.session_id.clone(),
                 file_path: file_path.clone(),
                 model: event.model.clone(),
-                input_tokens: event.input_tokens,
-                output_tokens: event.output_tokens,
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
-                total_tokens: event.input_tokens + event.output_tokens,
-                cost_usd: cost,
-                is_priced,
+                input_tokens: tokens.input,
+                output_tokens: tokens.output,
+                cache_read_tokens: tokens.cache_read,
+                cache_creation_tokens: tokens.cache_write_5m,
+                total_tokens: event.usage.total(),
+                cost_usd: pricing::compute_cost(&event.model, &tokens),
+                is_priced: pricing::is_priced(&event.model),
                 duration_ms: None,
                 message_uuid: None,
             }
@@ -2103,10 +2142,9 @@ pub fn collect_requests_for_file(path: &Path) -> Result<Vec<crate::models::stats
     request_records_for_file(path)
 }
 
-/// Collect per-turn request records across all rollouts. Codex doesn't
-/// expose cache_read/cache_creation streams (those are baked into
-/// `input_tokens` server-side), so those fields are 0 here and the cache
-/// hit-rate chart simply has no Codex line.
+/// Collect per-turn request records across all rollouts. Codex reports
+/// cached prompt tokens inside `input_tokens`; records split them out into
+/// `cache_read_tokens` / `cache_creation_tokens` like Claude's.
 pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, String> {
     usage_cache::prune_missing();
     let mut all = Vec::new();
@@ -2142,15 +2180,17 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary
         let usage = usage_cache::get(file_path)?;
         for ev in &usage.events {
             let model = &ev.model;
-            let cost =
-                pricing::compute_cost(model, ev.input_tokens, 0, 0, ev.output_tokens);
-            summary.total_input_tokens += ev.input_tokens;
-            summary.total_output_tokens += ev.output_tokens;
-            summary.total_tokens += ev.input_tokens + ev.output_tokens;
+            let tokens = ev.usage.token_counts();
+            let total = ev.usage.total();
+            let cost = pricing::compute_cost(model, &tokens);
+            summary.total_input_tokens += tokens.input;
+            summary.total_output_tokens += tokens.output;
+            summary.total_cache_read_tokens += tokens.cache_read;
+            summary.total_cache_creation_tokens += tokens.cache_write_5m;
+            summary.total_tokens += total;
             summary.total_cost_usd += cost;
             summary.message_count += 1;
-            *tokens_by_model.entry(model.clone()).or_insert(0) +=
-                ev.input_tokens + ev.output_tokens;
+            *tokens_by_model.entry(model.clone()).or_insert(0) += total;
             *cost_by_model.entry(model.clone()).or_insert(0.0) += cost;
             let priced = pricing::is_priced(model);
             if !priced {
@@ -2162,17 +2202,22 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary
             if let Some(date) = date {
                 let entry = daily_map.entry(date).or_default();
                 entry.messages += 1;
-                entry.input += ev.input_tokens;
-                entry.output += ev.output_tokens;
+                entry.input += tokens.input;
+                entry.output += tokens.output;
+                entry.cache_read += tokens.cache_read;
+                entry.cache_creation += tokens.cache_write_5m;
                 entry.cost += cost;
                 *entry
                     .tokens_by_model
                     .entry(model.clone())
-                    .or_insert(0) += ev.input_tokens + ev.output_tokens;
+                    .or_insert(0) += total;
                 *entry
                     .cost_by_model
                     .entry(model.clone())
                     .or_insert(0.0) += cost;
+                let ratio = entry.cache_ratio_by_model.entry(model.clone()).or_default();
+                ratio.0 += tokens.cache_read;
+                ratio.1 += ev.usage.input;
                 if !priced {
                     entry.unpriced_models.insert(model.clone());
                 }
@@ -2186,9 +2231,9 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary
             date,
             input_tokens: b.input,
             output_tokens: b.output,
-            cache_read_tokens: 0,
-            cache_creation_tokens: 0,
-            total_tokens: b.input + b.output,
+            cache_read_tokens: b.cache_read,
+            cache_creation_tokens: b.cache_creation,
+            total_tokens: b.input + b.output + b.cache_read + b.cache_creation,
             cost_usd: b.cost,
             tokens_by_model: b.tokens_by_model,
             cost_by_model: b.cost_by_model,
@@ -2198,7 +2243,12 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary
                 models
             },
             message_count: b.messages,
-            cache_hit_ratio_by_model: HashMap::new(),
+            cache_hit_ratio_by_model: b
+                .cache_ratio_by_model
+                .into_iter()
+                .filter(|(_, (_, prompt))| *prompt > 0)
+                .map(|(model, (cached, prompt))| (model, cached as f64 / prompt as f64))
+                .collect(),
         })
         .collect();
     daily_tokens.sort_by(|a, b| a.date.cmp(&b.date));
@@ -2216,10 +2266,14 @@ fn stats_for_files(files: &[PathBuf], time_zone: Tz) -> Result<TokenUsageSummary
 struct DailyAccum {
     input: u64,
     output: u64,
+    cache_read: u64,
+    cache_creation: u64,
     cost: f64,
     messages: u64,
     tokens_by_model: HashMap<String, u64>,
     cost_by_model: HashMap<String, f64>,
+    /// Per model: (cached prompt tokens, all prompt tokens).
+    cache_ratio_by_model: HashMap<String, (u64, u64)>,
     unpriced_models: HashSet<String>,
 }
 
@@ -2255,6 +2309,62 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_file(&self.0);
         }
+    }
+
+    #[test]
+    fn cached_input_is_split_out_of_input_tokens() {
+        let rollout = ModelRollout::new(&[
+            serde_json::json!({ "type": "turn_context", "payload": { "model": "gpt-5.4" } }),
+            serde_json::json!({
+                "type": "event_msg",
+                "timestamp": "2026-11-25T12:24:05Z",
+                "payload": { "type": "token_count", "info": { "last_token_usage": {
+                    "input_tokens": 29139, "cached_input_tokens": 11904,
+                    "cache_write_input_tokens": 0, "output_tokens": 150, "total_tokens": 29289
+                }}}
+            }),
+        ]);
+        let usage = parse_usage_file(&rollout.0).unwrap();
+        let event = &usage.events[0];
+        let tokens = event.usage.token_counts();
+        assert_eq!(tokens.input, 29139 - 11904);
+        assert_eq!(tokens.cache_read, 11904);
+        assert_eq!(tokens.output, 150);
+        assert_eq!(event.usage.total(), 29289);
+
+        let records = request_records_for_file(&rollout.0).unwrap();
+        assert_eq!(records[0].input_tokens, 29139 - 11904);
+        assert_eq!(records[0].cache_read_tokens, 11904);
+        assert_eq!(records[0].total_tokens, 29289);
+    }
+
+    #[test]
+    fn cumulative_totals_yield_cached_deltas() {
+        let total = |input: u64, cached: u64, output: u64| {
+            serde_json::json!({
+                "type": "event_msg",
+                "payload": { "type": "token_count", "info": { "total_token_usage": {
+                    "input_tokens": input, "cached_input_tokens": cached, "output_tokens": output
+                }}}
+            })
+        };
+        let rollout = ModelRollout::new(&[total(1000, 400, 10), total(2500, 1400, 30)]);
+        let usage = parse_usage_file(&rollout.0).unwrap();
+        assert_eq!(
+            usage.events[1].usage,
+            RawUsage { input: 1500, cached_input: 1000, cache_write_input: 0, output: 20 }
+        );
+    }
+
+    #[test]
+    fn cache_writes_are_carved_out_of_input() {
+        let usage = RawUsage { input: 100, cached_input: 30, cache_write_input: 20, output: 5 };
+        let tokens = usage.token_counts();
+        assert_eq!((tokens.input, tokens.cache_read, tokens.cache_write_5m), (50, 30, 20));
+        // Malformed counts larger than the prompt never underflow.
+        let odd = RawUsage { input: 10, cached_input: 50, cache_write_input: 50, output: 0 };
+        let tokens = odd.token_counts();
+        assert_eq!((tokens.input, tokens.cache_read, tokens.cache_write_5m), (0, 10, 0));
     }
 
     fn model_token_event() -> Value {

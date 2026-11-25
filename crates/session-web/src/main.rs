@@ -369,6 +369,12 @@ Set --token / ASV_TOKEN, bind to 127.0.0.1, or pass --allow-no-auth to override.
     // Start file watcher
     let fs_tx = ws::start_file_watcher();
 
+    // Online price updates are opt-in; both calls are no-ops while off.
+    tokio::spawn(async {
+        let _ = tokio::task::spawn_blocking(session_core::pricing_sync::init).await;
+        session_core::pricing_sync::auto_refresh_loop().await;
+    });
+
     let app_token = AppToken(config.token.clone());
     let allowed_origins = AllowedOrigins(Arc::new(config.allowed_origins.clone()));
     let chat_policy = chat_ws::ChatPolicy {
@@ -449,6 +455,9 @@ Set --token / ASV_TOKEN, bind to 127.0.0.1, or pass --allow-no-auth to override.
         .route("/api/stats/requests", get(routes::stats::get_request_log))
         .route("/api/stats/projects", get(routes::stats::get_project_costs))
         .route("/api/stats/session", get(routes::stats::get_session_cost))
+        .route("/api/pricing", get(routes::pricing::get_status))
+        .route("/api/pricing/auto-update", put(routes::pricing::set_auto_update))
+        .route("/api/pricing/refresh", post(routes::pricing::refresh))
         .route("/api/bookmarks", get(routes::bookmarks::list_bookmarks))
         .route("/api/bookmarks", post(routes::bookmarks::add_bookmark))
         .route(

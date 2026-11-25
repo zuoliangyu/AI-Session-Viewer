@@ -177,6 +177,9 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/stats/requests` | `source, projectId?, sessionId?, startDate?, endDate?, model?, page?, pageSize?, timeZone?` | 按所选时区筛选逐请求账单 |
 | GET | `/api/stats/projects` | `source` | 项目花费排行（按 cost 降序） |
 | GET | `/api/stats/session` | `source, filePath` | 单会话累计账单 + 每条请求明细 |
+| GET | `/api/pricing` | - | 价格来源状态（内置快照 / 在线数据、更新时间、上次错误） |
+| PUT | `/api/pricing/auto-update` | `{ enabled }` | 开关在线更新价格；关闭时删除已下载数据 |
+| POST | `/api/pricing/refresh` | - | 立即下载 LiteLLM 价格表（需已开启在线更新） |
 | PUT | `/api/sessions/meta` | *(JSON body)* | 更新会话别名和标签 |
 | GET | `/api/tags` | `source, projectId` | 获取项目内所有标签 |
 | GET | `/api/cross-tags` | `source` | 获取跨项目全局标签 |
