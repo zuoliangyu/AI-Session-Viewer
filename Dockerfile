@@ -1,4 +1,4 @@
-# Update tags and digests together; Dependabot proposes reviewed base-image updates.
+# Update tags and digests together; base-image upgrades are made by hand and reviewed.
 FROM node:24.22.3-bookworm@sha256:9d266751ca3d7fdbe651c878ffd5ad0a42fed49a18c283509267c97f025b7496 AS frontend
 WORKDIR /app
 COPY package*.json ./

@@ -43,7 +43,7 @@ Configure mounts and ports in [docker-compose.yml](../docker-compose.yml). The c
 
 Compose pins the published `3.2.0` image and its manifest digest; it does not follow `latest` or include unpublished local fixes. To upgrade, verify the new version and digest, set `ASV_IMAGE=ghcr.io/zuoliangyu/ai-session-viewer-web:<version>@sha256:<digest>`, then run `docker compose pull` and `docker compose up -d`. To deploy the current source instead, run `docker build -t asv-web:local .`, then `ASV_IMAGE=asv-web:local ASV_TOKEN=my-secret docker compose up -d`.
 
-The Dockerfile also pins Node, Rust, and Alpine base-image versions and digests. Dependabot proposes weekly update PRs for review and validation. Dependency security checks run in regular CI, before releases, and daily; they do not publish images automatically.
+The Dockerfile also pins Node, Rust, and Alpine base-image versions and digests; maintainers upgrade them by hand and review and validate each change before merging. Dependency security checks run in regular CI, before releases, and daily; they do not publish images automatically.
 
 | | Native web executable | Docker |
 |---|---|---|

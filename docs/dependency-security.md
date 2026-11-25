@@ -34,7 +34,7 @@ node scripts/check-vendored-patches.mjs
 
 漏洞、未知依赖来源、网络/响应错误、本地补丁校验失败均使审计失败；停止维护提示保持可见。`scripts/security-exceptions.json` 初始为空；确需例外时必须同时写明精确包版本、公告、理由和到期日期，过期及已无必要的例外会使审计失败。
 
-CI 在普通检查、发布前以及每日定时运行依赖审计。Dependabot 每周提出 npm、Cargo、Actions 和 Docker 更新。审查版本兼容性及公告后合并；不要直接运行 `npm audit fix --force`。Actions 固定完整提交 SHA，Docker 基础镜像固定版本和 digest。
+CI 在普通检查、发布前以及每日定时运行依赖审计。依赖版本由维护者手动锁定和升级，不启用 Dependabot 等自动升级 PR；审计报出公告时，审查版本兼容性后手动升级。不要直接运行 `npm audit fix --force`。Actions 固定完整提交 SHA，Docker 基础镜像固定版本和 digest。Actions 固定完整提交 SHA，Docker 基础镜像固定版本和 digest。
 
 ## 验证边界
 
