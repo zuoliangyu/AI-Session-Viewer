@@ -98,7 +98,7 @@ fn claude_version(m: &str) -> Option<(&'static str, u32, u32)> {
 /// Split on id separators; each part is `Some(n)` when it is a short version
 /// number (1–2 digits) and `None` otherwise (words, `20250929`-style dates).
 fn version_parts(s: &str) -> Vec<Option<u32>> {
-    s.split(|c: char| matches!(c, '-' | '.' | '@' | '_' | ':' | '[' | ']' | ' '))
+    s.split(['-', '.', '@', '_', ':', '[', ']', ' '])
         .filter(|part| !part.is_empty())
         .map(|part| {
             let short_number = part.len() <= 2 && part.bytes().all(|b| b.is_ascii_digit());
