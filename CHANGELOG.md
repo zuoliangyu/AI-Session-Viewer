@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+---
+
+## [3.4.0] - 2026-11-25
+
 ### Added
 
 - 模型价格改用 LiteLLM 社区价格表，覆盖 Claude、GPT、Grok、Gemini、DeepSeek、通义、Kimi、GLM 等模型。`npm run sync-prices` 生成随版本发布的价格快照；「设置 → 模型价格」可开启每日在线更新，失败时继续使用原有价格。
