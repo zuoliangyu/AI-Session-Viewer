@@ -38,7 +38,9 @@ jobs:
         include:
           - platform: windows-latest
             args: ''
-          - platform: macos-14
+          # macos-14 was retired on 2026-11-02; pin an Arm64 image instead of
+          # macos-latest so the OS and Xcode do not change silently.
+          - platform: macos-15
             args: '--target universal-apple-darwin'
           - platform: ubuntu-22.04
             args: ''
